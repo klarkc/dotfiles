@@ -1,4 +1,4 @@
 *
 !.gitignore
 !.editorconfig
-Makefile
+!Makefile
