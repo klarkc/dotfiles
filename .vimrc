@@ -16,4 +16,15 @@ call plug#begin('~/.vim/plugged')
 "{{ Configuring EditorConfig
 	Plug 'editorconfig/editorconfig-vim'
 "}}
+
+"{{ Configuring CtrlP
+Plug 'ctrlpvim/ctrlp.vim'
+"}}
+
+"{{ Git Integration
+Plug 'tpope/vim-fugitive'
+Plug 'airblade/vim-gitgutter'
+Plug 'Xuyuanp/nerdtree-git-plugin'
+"}}
+
 call plug#end()
