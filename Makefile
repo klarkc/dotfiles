@@ -7,7 +7,7 @@ all: vim.PluginInstall .tmux/plugins/tpm
 .tmux/plugins/tpm:
 	git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
 
-.PHONE: vim.PluginInstall
+.PHONY: vim.PluginInstall
 vim.PluginInstall: .vim/autoload/plug.vim
 	vim +PluginInstall +qall
 
