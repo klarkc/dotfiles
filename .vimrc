@@ -2,7 +2,9 @@ syntax on
 set number
 set nocompatible
 set encoding=utf-8
+set clipboard=unnamed
 filetype plugin indent on
+
 call plug#begin('~/.vim/plugged')
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
