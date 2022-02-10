@@ -1,0 +1,19 @@
+font:
+  normal:
+    family: Hasklig
+    style: Regular
+  bold:
+    family: Hasklig
+    style: Bold
+  italic:
+    family: Hasklig
+    style: Italic
+normal:
+  black: '0x212121'
+  red: '0xa73737'
+  green: '0x4e9a06'
+  yellow: '0xc4a000'
+  blue: '0x5391e0'
+  magenta: '0x9d4eaa'
+  cyan: '0x06989a'
+  white: '0xc8c8c8'
