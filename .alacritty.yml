@@ -8,12 +8,31 @@ font:
   italic:
     family: Hasklig
     style: Italic
-normal:
-  black: '0x212121'
-  red: '0xa73737'
-  green: '0x4e9a06'
-  yellow: '0xc4a000'
-  blue: '0x5391e0'
-  magenta: '0x9d4eaa'
-  cyan: '0x06989a'
-  white: '0xc8c8c8'
+# Colors (Monokai Dark)
+colors:
+  # Default colors
+  primary:
+    background: '#212121'
+    foreground: '#F8F8F2'
+
+  # Normal colors
+  normal:
+   black:   '#272822'
+   red:     '#F92672'
+   green:   '#A6E22E'
+   yellow:  '#F4BF75'
+   blue:    '#66D9EF'
+   magenta: '#AE81FF'
+   cyan:    '#A1EFE4'
+   white:   '#F8F8F2'
+
+  # Bright colors
+  bright:
+   black:   '#75715E'
+   red:     '#F92672'
+   green:   '#A6E22E'
+   yellow:  '#F4BF75'
+   blue:    '#66D9EF'
+   magenta: '#AE81FF'
+   cyan:    '#A1EFE4'
+   white:   '#F9F8F5'
