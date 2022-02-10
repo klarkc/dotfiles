@@ -29,7 +29,7 @@ Plug 'Xuyuanp/nerdtree-git-plugin'
 
 "{{ TMux - Vim integration
 Plug 'christoomey/vim-tmux-navigator'
-""}}
+"}}
 
 "{{ More languages
 Plug 'sheerun/vim-polyglot'
