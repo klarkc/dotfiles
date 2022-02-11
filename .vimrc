@@ -18,20 +18,24 @@ call plug#begin('~/.vim/plugged')
 "}}
 
 "{{ Configuring CtrlP
-Plug 'ctrlpvim/ctrlp.vim'
+	Plug 'ctrlpvim/ctrlp.vim'
 "}}
 
 "{{ Git Integration
-Plug 'tpope/vim-fugitive'
-Plug 'airblade/vim-gitgutter'
-Plug 'Xuyuanp/nerdtree-git-plugin'
+	Plug 'tpope/vim-fugitive'
+	Plug 'Xuyuanp/nerdtree-git-plugin'
+	Plug 'mhinz/vim-signify'
+	autocmd VimEnter * highlight SignColumn ctermbg=NONE cterm=NONE guibg=NONE gui=NONE
+	autocmd VimEnter * highlight DiffAdd ctermbg=Black ctermfg=LightGreen 
+	autocmd VimEnter * highlight DiffChange ctermbg=Black ctermfg=Yellow
+	autocmd VimEnter * highlight DiffDelete ctermbg=Black ctermfg=Red
 "}}
 
 "{{ TMux - Vim integration
-Plug 'christoomey/vim-tmux-navigator'
+	Plug 'christoomey/vim-tmux-navigator'
 "}}
 
 "{{ More languages
-Plug 'sheerun/vim-polyglot'
+	Plug 'sheerun/vim-polyglot'
 "}}
 call plug#end()
