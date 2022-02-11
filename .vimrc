@@ -5,6 +5,10 @@ set encoding=utf-8
 set clipboard=unnamed
 filetype plugin indent on
 
+"{{ Fix Colors
+	autocmd VimEnter * highlight CursorColumn term=reverse ctermbg=Black 
+"}}
+
 call plug#begin('~/.vim/plugged')
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
@@ -37,5 +41,10 @@ call plug#begin('~/.vim/plugged')
 
 "{{ More languages
 	Plug 'sheerun/vim-polyglot'
+"}}
+
+"{{ LSP
+	Plug 'prabirshrestha/vim-lsp'
+	Plug 'mattn/vim-lsp-settings'
 "}}
 call plug#end()
