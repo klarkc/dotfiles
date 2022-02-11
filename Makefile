@@ -7,11 +7,8 @@ all: vim.PluginInstall tmux.TpmInstall
 .tmux/plugins/tpm: 
 	git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
 
-.tmux-powerline:
-	git clone https://github.com/erikw/tmux-powerline.git .tmux-powerline
-
 .PHONY: tmux.TpmInstall
-tmux.TpmInstall: .tmux/plugins/tpm .tmux-powerline
+tmux.TpmInstall: .tmux/plugins/tpm
 	.tmux/plugins/tpm/scripts/install_plugins.sh
 
 .PHONY: vim.PluginInstall
@@ -20,4 +17,4 @@ vim.PluginInstall: .vim/autoload/plug.vim
 
 .PHONY: clean
 clean:
-	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm .tmux-powerline
+	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm
