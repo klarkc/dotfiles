@@ -28,6 +28,6 @@ export UID_GID="$(id -u):$(id -g)"
 # Color for less and man 
 export MANPAGER='less -s -M +Gg'
 export LESS="--RAW-CONTROL-CHARS"
-lesscolors=$HOME/bin/.LESS_TERMCAP
+lesscolors=$HOME/.LESS_TERMCAP
 [[ -f $lesscolors ]] && . $lesscolors
 
