@@ -5,12 +5,11 @@ set encoding=utf-8
 set clipboard=unnamed
 filetype plugin indent on
 
-"{{ Fix Colors
-	autocmd VimEnter * highlight CursorColumn term=reverse ctermbg=Black 
-	autocmd VimEnter * highlight PMenu ctermfg=White ctermbg=Black guibg=Black
+call plug#begin('~/.vim/plugged')
+"{{ Configuring Nord
+	Plug 'arcticicestudio/nord-vim'
 "}}
 
-call plug#begin('~/.vim/plugged')
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
 	let NERDTreeIgnore = [ 'node_modules/' ]
@@ -30,10 +29,10 @@ call plug#begin('~/.vim/plugged')
 	Plug 'tpope/vim-fugitive'
 	Plug 'Xuyuanp/nerdtree-git-plugin'
 	Plug 'mhinz/vim-signify'
-	autocmd VimEnter * highlight SignColumn ctermbg=NONE cterm=NONE guibg=NONE gui=NONE
-	autocmd VimEnter * highlight DiffAdd ctermbg=Black ctermfg=LightGreen 
-	autocmd VimEnter * highlight DiffChange ctermbg=Black ctermfg=Yellow
-	autocmd VimEnter * highlight DiffDelete ctermbg=Black ctermfg=Red
+"	autocmd VimEnter * highlight SignColumn ctermbg=NONE cterm=NONE guibg=NONE gui=NONE
+"	autocmd VimEnter * highlight DiffAdd ctermbg=Black ctermfg=LightGreen 
+"	autocmd VimEnter * highlight DiffChange ctermbg=Black ctermfg=Yellow
+"	autocmd VimEnter * highlight DiffDelete ctermbg=Black ctermfg=Red
 "}}
 
 "{{ TMux - Vim integration
@@ -77,3 +76,14 @@ call plug#begin('~/.vim/plugged')
 	augroup END
 "}}
 call plug#end()
+
+"{{ Colors
+	"	autocmd VimEnter * highlight CursorColumn term=reverse ctermbg=Black 
+	"	autocmd VimEnter * highlight PMenu ctermfg=White ctermbg=Black guibg=Black
+	if !has('gui_running') && &term =~ '^\%(screen\|tmux\)'
+		let &t_8f = "\<Esc>[38;2;%lu;%lu;%lum"
+		let &t_8b = "\<Esc>[48;2;%lu;%lu;%lum"
+	endif
+	set termguicolors
+	colorscheme nord
+"}}
