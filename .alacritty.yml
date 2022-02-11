@@ -11,7 +11,6 @@ colors:
   primary:
     background: '0x212121'
     foreground: '0xbbc2cf'
-
   # Normal colors
   normal:
     black:   '0x282c34'
@@ -22,3 +21,5 @@ colors:
     magenta: '0xc678dd'
     cyan:    '0x46d9ff'
     white:   '0xbbc2cf'
+env:
+  TERM: xterm-256color
