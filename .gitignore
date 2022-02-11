@@ -4,3 +4,4 @@
 !Makefile
 !.alacritty.yml
 !.bashrc
+!.LESS_TERMCAP
