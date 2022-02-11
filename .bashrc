@@ -7,6 +7,7 @@
 
 alias ls='ls --color=auto'
 PS1='[\u@\h \W]\$ '
+EDITOR=vim
 
 # JavaScript
 NPM_PACKAGES="${HOME}/.npm-packages"
@@ -30,4 +31,7 @@ export MANPAGER='less -s -M +Gg'
 export LESS="--RAW-CONTROL-CHARS"
 lesscolors=$HOME/.LESS_TERMCAP
 [[ -f $lesscolors ]] && . $lesscolors
+
+# Tmux
+export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
 

@@ -5,3 +5,4 @@
 !.alacritty.yml
 !.bashrc
 !.LESS_TERMCAP
+!.tmux.conf
