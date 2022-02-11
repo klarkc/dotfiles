@@ -1,13 +1,10 @@
 font:
   normal:
-    family: Hasklig
-    style: Regular
+    family: Fira Code
   bold:
-    family: Hasklig
-    style: Bold
+    family: Fira Code
   italic:
-    family: Hasklig
-    style: Italic
+    family: Fira Code
 # Colors (Doom One)
 colors:
   # Default colors
