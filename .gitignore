@@ -12,3 +12,5 @@
 !/.config
 /.config/*
 !/.config/systemd
+# environment.d
+!/.config/environment.d
