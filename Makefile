@@ -1,5 +1,17 @@
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall
+all: vim.PluginInstall tmux.TpmInstall .themes/Nordic
+
+.themes/Nordic:
+	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
+	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
+	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
+	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic"
+.PHONY: .themes/Nordic/clean
+.themes/Nordic/clean:
+	gsettings set org.gnome.desktop.interface gtk-theme "Adwaita"
+	gsettings set org.gnome.desktop.wm.preferences theme "Adwaita"
+	xfconf-query -c xsettings -p /Net/ThemeName -s "Default"
+	rm -Rf .themes/Nordic
 
 .vim/autoload/plug.vim:
 	curl -fLo .vim/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
@@ -16,5 +28,5 @@ vim.PluginInstall: .vim/autoload/plug.vim
 	vim +PluginInstall +qall
 
 .PHONY: clean
-clean:
-	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm
+clean: .themes/Nordic/clean
+	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm 
