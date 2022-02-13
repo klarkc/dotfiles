@@ -1,0 +1,8 @@
+[Unit]
+Description=Cleanup Docker 
+
+[Service]
+ExecStart=/usr/bin/docker system prune --force --all --volumes
+
+[Install]
+WantedBy=default.target
