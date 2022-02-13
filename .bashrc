@@ -35,3 +35,5 @@ lesscolors=$HOME/.LESS_TERMCAP
 # Tmux
 export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
 
+# QT
+export QT_QPA_PLATFORMTHEME=gtk2
