@@ -1,9 +1,14 @@
-*
-!README.md
-!.gitignore
-!.editorconfig
-!Makefile
-!.alacritty.yml
-!.bashrc
-!.LESS_TERMCAP
-!.tmux.conf
+/*
+!/README.md
+!/.gitignore
+!/.editorconfig
+!/Makefile
+!/.alacritty.yml
+!/.bashrc
+!/.LESS_TERMCAP
+!/.tmux.conf
+
+# systemd
+!/.config
+/.config/*
+!/.config/systemd
