@@ -1,0 +1,8 @@
+[Unit]
+Description=Cleanup Home 
+
+[Service]
+ExecStart=/bin/bash -c "find ~/{.cache,Downloads} -type f -atime +30 -delete"
+
+[Install]
+WantedBy=default.target
