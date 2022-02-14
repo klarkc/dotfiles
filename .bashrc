@@ -32,8 +32,12 @@ export LESS="--RAW-CONTROL-CHARS"
 lesscolors=$HOME/.LESS_TERMCAP
 [[ -f $lesscolors ]] && . $lesscolors
 
-# Tmux
-export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
-
 # QT
 export QT_QPA_PLATFORMTHEME=gtk2
+
+# Tmux
+export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
+if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
+  exec tmux
+fi
+
