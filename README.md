@@ -27,7 +27,7 @@ Features:
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code
 sudo chmod +s /usr/bin/pacreport
 sudo chmod +s /usr/bin/paccache
 sudo chmod +s .local/bin/pacman-clean
