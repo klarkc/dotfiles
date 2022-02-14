@@ -14,9 +14,6 @@ NPM_PACKAGES="${HOME}/.npm-packages"
 YARN_HOME="${HOME}/.yarn"
 export PATH="$PATH:$YARN_HOME/bin:$NPM_PACKAGES/bin:${HOME}/.local/bin"
 
-# Docker
-export UID_GID="$(id -u):$(id -g)"
-
 # Color for less and man 
 export MANPAGER='less -s -M +Gg'
 export LESS="--RAW-CONTROL-CHARS"
