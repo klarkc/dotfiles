@@ -14,15 +14,6 @@ NPM_PACKAGES="${HOME}/.npm-packages"
 YARN_HOME="${HOME}/.yarn"
 export PATH="$PATH:$YARN_HOME/bin:$NPM_PACKAGES/bin:${HOME}/.local/bin"
 
-# Android shit
-export PATH="$PATH:/opt/android-sdk/tools/bin"
-export ANDROID_SDK_ROOT=$HOME/Sources/Android
-export ANDROID_HOME=$ANDROID_SDK_ROOT
-export JAVA_HOME=/usr/lib/jvm/java-16-openjdk
-alias sdkmanager="JAVA_HOME=/opt/android-studio/jre/ sdkmanager --sdk_root=$ANDROID_SDK_ROOT"
-alias avdmanager="JAVA_HOME=/opt/android-studio/jre/ avdmanager"
-export CAPACITOR_ANDROID_STUDIO_PATH=/opt/android-studio/bin/studio.sh
-
 # Docker
 export UID_GID="$(id -u):$(id -g)"
 
