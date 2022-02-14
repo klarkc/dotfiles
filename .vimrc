@@ -18,6 +18,13 @@ call plug#begin('~/.vim/plugged')
 	map <C-n> :NERDTreeToggle<CR>
 "}}
 
+"{{ Configuring Airline
+	Plug 'vim-airline/vim-airline'
+	let g:airline#extensions#tabline#enabled = 1
+	let g:airline#extensions#tabline#left_sep = ' '
+	let g:airline#extensions#tabline#left_alt_sep = ' '
+"}}
+
 "{{ Configuring EditorConfig
 	Plug 'editorconfig/editorconfig-vim'
 "}}
@@ -82,3 +89,4 @@ call plug#end()
 	set termguicolors
 	colorscheme nord
 "}}
+
