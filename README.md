@@ -2,7 +2,7 @@
 
 Install system wide requeriments and then build
 
-## Arch
+## Arch Linux
 
 ```bash
 pacman -Syu yay
@@ -13,7 +13,7 @@ systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
 ```
 
-# Build
+### Build and install
 
 ```bash
 make
