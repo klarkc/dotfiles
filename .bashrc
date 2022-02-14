@@ -1,4 +1,3 @@
-#
 # ~/.bashrc
 #
 
@@ -22,6 +21,9 @@ lesscolors=$HOME/.LESS_TERMCAP
 
 # QT
 export QT_QPA_PLATFORMTHEME=gtk2
+
+# Direnv hook
+eval "$(direnv hook bash)"
 
 # Tmux
 export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm

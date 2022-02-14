@@ -1,5 +1,5 @@
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall .themes/Nordic
+all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -26,6 +26,17 @@ tmux.TpmInstall: .tmux/plugins/tpm
 .PHONY: vim.PluginInstall
 vim.PluginInstall: .vim/autoload/plug.vim
 	vim +PluginInstall +qall
+
+.PHONY: nix.Install
+nix.Install: nix.LorriInstall nix.DirenvInstall
+
+.PHONY: nix.LorriInstall
+nix.LorriInstall:
+	nix-env -i lorri 
+
+.PHONY: nix.DirenvInstall
+nix.DirenvInstall:
+	nix-env -i direnv
 
 .PHONY: clean
 clean: .themes/Nordic/clean

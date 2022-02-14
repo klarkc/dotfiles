@@ -44,9 +44,11 @@ make
 ### Installation
 
 ```bash
+systemctl --user daemon-reload
 systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable paccache.timer
 systemctl --user enable pacreport.timer
+systemctl --user enable lorri.socket
 ```
