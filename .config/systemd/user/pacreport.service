@@ -1,0 +1,8 @@
+[Unit]
+Description=Pacreport
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/pacreport-notify
+Nice=19
+

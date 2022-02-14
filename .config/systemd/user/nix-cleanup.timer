@@ -1,5 +1,5 @@
 [Unit]
-Description=Run home-cleanup
+Description=Nix cleanup timer
 
 [Timer]
 Persistent=true

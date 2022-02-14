@@ -1,9 +1,9 @@
 [Unit]
-Description=Run home-cleanup
+Description=Clean-up old pacman pkg
 
 [Timer]
-Persistent=true
 OnCalendar=monthly
+Persistent=true
 
 [Install]
 WantedBy=timers.target
