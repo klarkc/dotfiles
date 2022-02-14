@@ -3,10 +3,11 @@
 Personal home settings and boilerplate
 
 ```bash
-git clone https://github.com/klarkc/dotfiles 
+git clone --no-checkout https://github.com/klarkc/dotfiles 
 mv dotfiles/.git ~
+rm -r dotfiles
 ```
-⚠ Next command will replace current home files (backup them first!)
+⚠ Next command will replace current home files with repo files (backup first!)
 
 ```bash
 git checkout main
