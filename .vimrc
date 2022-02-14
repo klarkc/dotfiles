@@ -90,3 +90,8 @@ call plug#end()
 	colorscheme nord
 "}}
 
+
+"{{ Buffers
+	map g] :bn<cr>
+	map g[ :bp<cr>
+"}}
