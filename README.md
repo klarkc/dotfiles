@@ -1,6 +1,6 @@
 # Dotfiles
 
-Personal home settings and boilerplate
+Optioned user settings for a dev environment
 
 ```bash
 git clone --no-checkout https://github.com/klarkc/dotfiles 
