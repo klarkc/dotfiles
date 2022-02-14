@@ -18,6 +18,7 @@ Features:
 - [Alacritty](https://github.com/alacritty/alacritty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
 - [Nord Theme](https://www.nordtheme.com/)
+- [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
 ## Arch Linux
