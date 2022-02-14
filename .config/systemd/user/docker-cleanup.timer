@@ -1,9 +1,9 @@
 [Unit]
-Description=Run docker-cleanup weekly
+Description=Run docker-cleanup
 
 [Timer]
-OnCalendar=monthly
 Persistent=true
+OnCalendar=monthly
 
 [Install]
 WantedBy=timers.target

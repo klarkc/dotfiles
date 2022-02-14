@@ -1,0 +1,9 @@
+[Unit]
+Description=Nix cleanup
+After=nix-daemon.socket
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nix-collect-garbage
+Nice=19
+

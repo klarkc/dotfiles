@@ -1,0 +1,9 @@
+[Unit]
+Description=Nix cleanup timer
+
+[Timer]
+Persistent=true
+OnCalendar=monthly
+
+[Install]
+WantedBy=timers.target

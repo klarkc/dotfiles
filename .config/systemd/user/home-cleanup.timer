@@ -1,9 +1,9 @@
 [Unit]
-Description=Run home-cleanup weekly
+Description=Run home-cleanup
 
 [Timer]
-OnCalendar=monthly
 Persistent=true
+OnCalendar=monthly
 
 [Install]
 WantedBy=timers.target
