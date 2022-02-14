@@ -7,6 +7,8 @@
 !/.bashrc
 !/.LESS_TERMCAP
 !/.tmux.conf
+!/.vim-cheatsheet.png
+!/.conky.conf
 
 # systemd
 !/.config
