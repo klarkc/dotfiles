@@ -9,6 +9,7 @@ pacman -Syu yay
 yay -Syu git vim alacritty-ligature-git qt5-styleplugins pacreport
 sudo chmod +s /usr/bin/pacreport
 sudo chmod +s /usr/bin/paccache
+sudo chmod +s .local/bin/pacman-clean
 systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
 ```
