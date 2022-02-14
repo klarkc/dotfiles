@@ -1,0 +1,8 @@
+[Unit]
+Description=Pacman cache cleanup
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/pacman-clean
+Nice=19
+

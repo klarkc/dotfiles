@@ -14,3 +14,11 @@
 !/.config/systemd
 # environment.d
 !/.config/environment.d
+
+# bin
+!/.local
+/.local/*
+!/.local/bin
+/.local/bin/*
+!/.local/bin/pacreport-notify
+!/.local/bin/pacman-clean

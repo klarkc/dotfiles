@@ -1,8 +1,9 @@
 [Unit]
 Description=Cleanup Docker 
+After=docker.socket
 
 [Service]
+Type=oneshot
 ExecStart=/usr/bin/docker system prune --force --all --volumes
+Nice=19
 
-[Install]
-WantedBy=default.target

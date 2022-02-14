@@ -1,0 +1,9 @@
+[Unit]
+Description=Clean-up old pacman pkg
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
