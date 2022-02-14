@@ -6,6 +6,11 @@ Personal home settings and boilerplate
 git clone https://github.com/klarkc/dotfiles 
 mv dotfiles/.git ~
 ```
+⚠ Next command will replace current home files (backup them first!)
+
+```bash
+git checkout main
+```
 
 Features:
 
