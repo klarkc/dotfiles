@@ -9,3 +9,4 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 Restart=on-failure
+Nice=19
