@@ -68,6 +68,7 @@ call plug#begin('~/.vim/plugged')
     nnoremap <buffer> <expr><c-d> lsp#scroll(-4)
 
     let g:lsp_format_sync_timeout = 1000
+		let g:lsp_document_highlight_enabled = 1
     autocmd! BufWritePre *.rs,*.go call execute('LspDocumentFormatSync')
 
     " refer to doc to add more commands
