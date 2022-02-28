@@ -64,11 +64,11 @@ call plug#begin('~/.vim/plugged')
     nmap <buffer> [g <plug>(lsp-previous-diagnostic)
     nmap <buffer> ]g <plug>(lsp-next-diagnostic)
     nmap <buffer> K <plug>(lsp-hover)
+    nmap <buffer> W <plug>(lsp-document-diagnostics)
     nnoremap <buffer> <expr><c-f> lsp#scroll(+4)
     nnoremap <buffer> <expr><c-d> lsp#scroll(-4)
 
     let g:lsp_format_sync_timeout = 1000
-		let g:lsp_document_highlight_enabled = 1
     autocmd! BufWritePre *.rs,*.go call execute('LspDocumentFormatSync')
 
     " refer to doc to add more commands
@@ -79,6 +79,8 @@ call plug#begin('~/.vim/plugged')
 			" call s:on_lsp_buffer_enabled only for languages that has the server registered.
 			autocmd User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
 	augroup END
+	let g:lsp_diagnostics_echo_cursor = 1
+	let g:lsp_document_highlight_enabled = 1
 "}}
 call plug#end()
 
