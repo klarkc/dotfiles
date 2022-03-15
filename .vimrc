@@ -81,6 +81,17 @@ call plug#begin('~/.vim/plugged')
 	augroup END
 	let g:lsp_diagnostics_echo_cursor = 1
 	let g:lsp_document_highlight_enabled = 1
+
+	if executable('purs')
+		au User lsp_setup call lsp#register_server({
+        \   'name': 'purs',
+        \   'cmd': {server_info->[
+        \     'purescript-language-server',
+        \     '--stdio',
+        \   ]},
+        \   'allowlist': ['purescript'],
+        \ })
+	endif
 "}}
 call plug#end()
 
