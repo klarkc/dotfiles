@@ -33,7 +33,6 @@ Below are the supported distro setups
 ```bash
 pacman -Syu yay
 yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code
-sudo chown root .local/bin/pacman-*
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
