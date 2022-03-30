@@ -22,27 +22,30 @@ Features:
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
-## Arch Linux
+### Supported setups
 
-### Dependencies
+Below are the supported distro setups
+
+#### Arch Linux with XFCE
+
+##### Dependencies
 
 ```bash
 pacman -Syu yay
 yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code
-sudo chmod +s /usr/bin/pacreport
-sudo chmod +s /usr/bin/paccache
-sudo chmod +s .local/bin/pacman-clean
+sudo chown root .local/bin/pacman-*
+sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
 ```
 
-### Build
+##### Build
 
 ```bash
 make
 ```
 
-### Installation
+##### Installation
 
 ```bash
 systemctl --user daemon-reload

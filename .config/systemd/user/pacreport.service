@@ -3,6 +3,6 @@ Description=Pacreport
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/pacreport-notify
+ExecStart=%h/.local/bin/pacman-report
 Nice=19
 
