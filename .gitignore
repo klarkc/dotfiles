@@ -22,5 +22,5 @@
 /.local/*
 !/.local/bin
 /.local/bin/*
-!/.local/bin/pacreport-notify
 !/.local/bin/pacman-clean
+!/.local/bin/pacman-report
