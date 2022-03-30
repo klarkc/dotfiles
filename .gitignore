@@ -25,3 +25,4 @@
 !/.local/bin/pacman-clean
 !/.local/bin/pacman-report
 !/.local/bin/pacman-pacreport
+!/.local/bin/pacman-paccache
