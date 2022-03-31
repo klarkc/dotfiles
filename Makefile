@@ -1,5 +1,5 @@
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic
+all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic git.Config
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -37,6 +37,11 @@ nix.LorriInstall:
 .PHONY: nix.DirenvInstall
 nix.DirenvInstall:
 	nix-env -i direnv
+
+.PHONY: git.Config
+git.Config:
+	git config --global mergetool.fugitive.cmd 'vim -f -c "Gdiffsplit!" "$$$\MERGED"'
+	git config --global merge.tool fugitive
 
 .PHONY: clean
 clean: .themes/Nordic/clean
