@@ -17,6 +17,7 @@ IOSchedulingClass=idle
 IOSchedulingPriority=7
 IOWeight=10
 MemoryAccounting=true
+MemoryHigh=4G
 Nice=19
 StartupCPUWeight=25
 StartupIOWeight=25
