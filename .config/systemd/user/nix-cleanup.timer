@@ -3,7 +3,8 @@ Description=Nix cleanup timer
 
 [Timer]
 Persistent=true
-OnCalendar=monthly
+OnCalendar=weekly
+RandomizedDelaySec=3day
 
 [Install]
 WantedBy=timers.target
