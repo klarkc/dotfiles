@@ -20,4 +20,3 @@ MemoryAccounting=true
 Nice=19
 StartupCPUWeight=25
 StartupIOWeight=25
-StartupCPUQuota=100%
