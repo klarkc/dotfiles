@@ -2,8 +2,9 @@
 Description=Clean-up old pacman pkg
 
 [Timer]
-OnCalendar=monthly
+OnCalendar=weekly
 Persistent=true
+RandomizedDelaySec=3day
 
 [Install]
 WantedBy=timers.target

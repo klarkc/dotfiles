@@ -2,8 +2,9 @@
 Description=Pacreport timer
 
 [Timer]
-OnCalendar=monthly
+OnCalendar=weekly
 Persistent=true
+RandomizedDelaySec=3day
 
 [Install]
 WantedBy=timers.target
