@@ -9,7 +9,7 @@ set -o vi
 
 alias ls='ls --color=auto'
 PS1='[\u@\h \W]\$ '
-EDITOR=vim
+export EDITOR=vim
 
 # JavaScript
 NPM_PACKAGES="${HOME}/.npm-packages"
