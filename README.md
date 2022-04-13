@@ -22,19 +22,19 @@ Features:
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
-Default aliases:
+## Aliases
 
 - `l`: `ls -l`
 - `ll`: `ls -la`
 - `lt`: `ls -lt`
 
-### Supported setups
+## Supported setups
 
 Below are the supported distro setups
 
-#### Arch Linux with XFCE
+### Arch Linux with XFCE
 
-##### Dependencies
+#### Dependencies
 
 ```bash
 pacman -Syu yay
@@ -44,13 +44,13 @@ systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
 ```
 
-##### Build
+#### Build
 
 ```bash
 make
 ```
 
-##### Installation
+#### Installation
 
 ```bash
 systemctl --user daemon-reload
@@ -62,3 +62,6 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable paccache.timer
 systemctl --user enable pacreport.timer
 ```
+## Customization
+
+To customize `.bashrc` you can use `.bashrc_override` file
