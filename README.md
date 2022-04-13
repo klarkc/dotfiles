@@ -20,6 +20,7 @@ Features:
 - [Lorri](https://github.com/nix-community/lorri/) for faster nix-shell environment
 - [Nord Theme](https://www.nordtheme.com/)
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
+- [LSD](https://github.com/Peltoche/lsd) replaces `ls`with a modern `ls` alternative
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
 ## Aliases
