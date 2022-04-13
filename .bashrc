@@ -7,7 +7,11 @@
 # Vi like shortcuts
 set -o vi
 
-alias ls='ls --color=auto'
+alias lsd="lsd --config-file ~/.lsd.yml"
+alias ls='lsd'
+alias l='ls -l'
+alias ll='ls -la'
+alias lt='ls --tree'
 PS1='[\u@\h \W]\$ '
 export EDITOR=vim
 
