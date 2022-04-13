@@ -13,6 +13,10 @@ all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic git.Config
 	xfconf-query -c xsettings -p /Net/ThemeName -s "Default"
 	rm -Rf .themes/Nordic
 
+.local/bin/dir_colors:
+	curl -L -s https://github.com/arcticicestudio/nord-dircolors/releases/latest/download/dir_colors --output $@
+	chmod +x $@
+
 .vim/autoload/plug.vim:
 	curl -fLo .vim/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
 
@@ -46,4 +50,5 @@ git.Config:
 
 .PHONY: clean
 clean: .themes/Nordic/clean
+	rm .local/bin/dir_colors
 	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm 

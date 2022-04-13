@@ -32,6 +32,10 @@ alias l='ls -l'
 alias ll='ls -la'
 alias lt='ls --tree'
 
+# Dircolors
+dir_colors="${HOME}/.local/bin/dir_colors"
+test -r $dir_colors && eval $(dircolors $dir_colors)
+
 # JavaScript
 NPM_PACKAGES="${HOME}/.npm-packages"
 YARN_HOME="${HOME}/.yarn"
