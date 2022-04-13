@@ -22,6 +22,12 @@ Features:
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
+Default aliases:
+
+- `l`: `ls -l`
+- `ll`: `ls -la`
+- `lt`: `ls -lt`
+
 ### Supported setups
 
 Below are the supported distro setups
@@ -32,7 +38,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code lsd
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now docker.socket
