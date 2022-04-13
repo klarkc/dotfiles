@@ -38,3 +38,6 @@ if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] &&
   exec tmux
 fi
 
+# Override bashrc
+override="${HOME}/.bashrc_override" 
+[[ -f $override ]] && . $override 
