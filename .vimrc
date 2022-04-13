@@ -7,10 +7,6 @@ set cursorline
 filetype plugin indent on
 
 call plug#begin('~/.vim/plugged')
-"{{ Configuring Nord
-	Plug 'arcticicestudio/nord-vim'
-"}}
-
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
 	let NERDTreeIgnore = [ 'node_modules/' ]
@@ -23,6 +19,10 @@ call plug#begin('~/.vim/plugged')
 	let g:airline#extensions#tabline#enabled = 1
 	let g:airline#extensions#tabline#left_sep = ' '
 	let g:airline#extensions#tabline#left_alt_sep = ' '
+"}}
+
+"{{ Configuring Nord
+	Plug 'arcticicestudio/nord-vim'
 "}}
 
 "{{ Configuring EditorConfig
