@@ -7,7 +7,7 @@
 # Vi like shortcuts
 set -o vi
 
-alias lsd="lsd --config-file ~/.lsd.yml"
+alias lsd="lsd --config-file ${HOME}/.lsd.yml"
 alias ls='lsd'
 alias l='ls -l'
 alias ll='ls -la'
