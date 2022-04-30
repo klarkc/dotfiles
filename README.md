@@ -65,4 +65,4 @@ systemctl --user enable pacreport.timer
 ```
 ## Customization
 
-To customize `.bashrc` you can use `.bashrc_override` file
+To customize a `.dotfile` you can write a corresponding `.dotfile_override`.
