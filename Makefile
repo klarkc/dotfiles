@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic git.Config
+all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic $(ICONS)/Papirus git.Config 
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -67,6 +67,6 @@ git.Config:
 	git config --global mergetool.keepBackup false
 
 .PHONY: clean
-clean: .themes/Nordic/clean
+clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
 	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm 
