@@ -1,3 +1,5 @@
+ICONS=.icons
+
 .PHONY: all
 all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic git.Config
 
@@ -6,12 +8,28 @@ all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic git.Config
 	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
 	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
 	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic"
+
 .PHONY: .themes/Nordic/clean
 .themes/Nordic/clean:
 	gsettings set org.gnome.desktop.interface gtk-theme "Adwaita"
 	gsettings set org.gnome.desktop.wm.preferences theme "Adwaita"
 	xfconf-query -c xsettings -p /Net/ThemeName -s "Default"
 	rm -Rf .themes/Nordic
+
+$(ICONS)/Papirus:
+	curl -L -s https://git.io/papirus-icon-theme-install | DESTDIR=$(ICONS) sh
+	-mkdir .papirus-nord
+	curl -L -s https://github.com/Adapta-Projects/Papirus-Nord/releases/latest/download/Papirus-Nord.tar.xz | tar -xJC .papirus-nord
+	cd .papirus-nord && (yes "N" | ./install) && (./papirus-folders -C polarnight1 --theme Papirus-Dark)
+	-rm -r .papirus-nord
+	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark
+
+.PHONY: $(ICONS)/Papirus/clean
+$(ICONS)/Papirus/clean:
+	curl -L -s https://git.io/papirus-icon-theme-install | DESTDIR=$(ICONS) uninstall=true sh
+	xfconf-query -c xsettings -p /Net/IconThemeName -s Adwaita
+
+# 	gtk-update-icon-cache
 
 .local/bin/dir_colors:
 	curl -L -s https://github.com/arcticicestudio/nord-dircolors/releases/latest/download/dir_colors --output $@
