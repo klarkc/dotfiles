@@ -2,7 +2,7 @@ syntax on
 set number
 set nocompatible
 set encoding=utf-8
-set clipboard=unnamed
+set clipboard=unnamedplus
 set cursorline
 filetype plugin indent on
 
