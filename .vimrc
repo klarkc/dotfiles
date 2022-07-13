@@ -50,7 +50,8 @@ call plug#begin('~/.vim/plugged')
 
 "{{ LSP
 	Plug 'prabirshrestha/vim-lsp'
-	Plug 'mattn/vim-lsp-settings'
+	"Plug 'mattn/vim-lsp-settings'
+	Plug 'klarkc/vim-lsp-settings'
 	function! s:on_lsp_buffer_enabled() abort
     setlocal omnifunc=lsp#complete
     setlocal signcolumn=yes
