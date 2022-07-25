@@ -65,6 +65,7 @@ git.Config:
 	git config --global mergetool.fugitive.cmd 'vim -f -c "Gdiffsplit!" "$$$\MERGED"'
 	git config --global merge.tool fugitive
 	git config --global mergetool.keepBackup false
+	git config --global init.defaultBranch main
 
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
