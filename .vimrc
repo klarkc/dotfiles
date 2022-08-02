@@ -67,6 +67,8 @@ call plug#begin('~/.vim/plugged')
     nmap <buffer> ]g <plug>(lsp-next-diagnostic)
     nmap <buffer> K <plug>(lsp-hover)
     nmap <buffer> W <plug>(lsp-document-diagnostics)
+    xmap <buffer> = <plug>(lsp-document-range-format)
+    nmap <buffer> = <plug>(lsp-document-format)
     nnoremap <buffer> <expr><c-f> lsp#scroll(+4)
     nnoremap <buffer> <expr><c-d> lsp#scroll(-4)
 	endfunction
