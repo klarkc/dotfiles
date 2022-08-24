@@ -77,8 +77,8 @@ call plug#begin('~/.vim/plugged')
     map <buffer> f <plug>(lsp-document-range-format)
     nmap <buffer> f <plug>(lsp-document-range-format)
 		nmap <S-f> <plug>(lsp-document-format)
-    nnoremap <buffer> <expr><c-f> lsp#scroll(+4)
-    nnoremap <buffer> <expr><c-d> lsp#scroll(-4)
+    nnoremap <buffer> <expr><M-u> lsp#scroll(+4)
+    nnoremap <buffer> <expr><M-d> lsp#scroll(-4)
 	endfunction
 
 	augroup lsp_install
