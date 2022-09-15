@@ -9,15 +9,19 @@ source /usr/share/git/completion/git-prompt.sh
 export GIT_PS1_SHOWDIRTYSTATE=true
 export GIT_PS1_SHOWUNTRACKEDFILES=true
 export GIT_PS1_SHOWUPSTREAM="auto"
+if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+  UHOST="\u@\h"
+fi
 case "$TERM" in
   xterm-color|xterm|xterm-256color|tmux-256color)
-    export PROMPT_COMMAND='__git_ps1 "\u@\h \w" \\n"> "'
+    export PROMPT_COMMAND="__git_ps1 \"${UHOST} \w\" \"$ \""
     export GIT_PS1_SHOWCOLORHINTS=true
     ;;
   *)
-    export PS1='[\u@\h \W$(__git_ps1 " (%s)")]\$ '
+    export PS1="[${UHOST} \W\$(__git_ps1 \" (%s)\")]\$ "
     ;;
 esac
+unset UHOST
 
 # Vi like shortcuts
 set -o vi
