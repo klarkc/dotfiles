@@ -11,7 +11,7 @@ export GIT_PS1_SHOWUNTRACKEDFILES=true
 export GIT_PS1_SHOWUPSTREAM="auto"
 case "$TERM" in
   xterm-color|xterm|xterm-256color|tmux-256color)
-    export PROMPT_COMMAND='__git_ps1 "\u@\h \w" "\\\$ "'
+    export PROMPT_COMMAND='__git_ps1 "\u@\h \w" \\n"> "'
     export GIT_PS1_SHOWCOLORHINTS=true
     ;;
   *)
