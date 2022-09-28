@@ -40,6 +40,13 @@ alias lt='ls --tree'
 dir_colors="${HOME}/.local/bin/dir_colors"
 test -r $dir_colors && eval $(dircolors $dir_colors)
 
+# Grep
+case "$TERM" in
+  xterm-color|xterm|xterm-256color|tmux-256color)
+    alias grep="grep --color"
+    ;;
+esac
+
 # JavaScript
 NPM_PACKAGES="${HOME}/.npm-packages"
 YARN_HOME="${HOME}/.yarn"
