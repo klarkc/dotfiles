@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic $(ICONS)/Papirus git.Config 
+all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -66,6 +66,11 @@ git.Config:
 	git config --global merge.tool fugitive
 	git config --global mergetool.keepBackup false
 	git config --global init.defaultBranch main
+
+
+.PHONY: npm.Config
+npm.Config:
+	npm config set prefix "${HOME}/.npm-packages"
 
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
