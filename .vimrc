@@ -37,10 +37,6 @@ call plug#begin('~/.vim/plugged')
 	Plug 'arcticicestudio/nord-vim'
 "}}
 
-"{{ Configuring EditorConfig
-	Plug 'editorconfig/editorconfig-vim'
-"}}
-
 "{{ Configuring CtrlP
 	Plug 'ctrlpvim/ctrlp.vim'
 "}}
