@@ -16,6 +16,7 @@
 /.config/*
 !/.config/systemd
 /.config/systemd/user/*.target.wants
+/.config/systemd/user/*.target.d
 # environment.d
 !/.config/environment.d
 
