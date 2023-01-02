@@ -1,0 +1,10 @@
+[Unit]
+Description=Sunshine Gamestream Server for Moonlight
+
+[Service]
+ExecStart=/usr/bin/sunshine
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=graphical-session.target

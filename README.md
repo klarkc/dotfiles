@@ -13,7 +13,7 @@ rm -r dotfiles
 git checkout main
 ```
 
-Features:
+## Features
 
 - [Alacritty](https://github.com/alacritty/alacritty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
@@ -21,13 +21,17 @@ Features:
 - [Nord Theme](https://www.nordtheme.com/)
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
-- Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 
-## Aliases
+### Aliases
 
 - `l`: `ls -l`
 - `ll`: `ls -la`
 - `lt`: `ls -lt`
+
+## Optional Features
+
+- Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
+- [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 
 ## Supported setups
 
@@ -39,9 +43,15 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins pacreport docker nix ttf-fira-code lsd yay-cache-cleanup-hook
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd 
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
+```
+
+> Below dependencies are not mandatory (see [Optional Features](#optional-features))
+
+```bash
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine
 systemctl enable --now docker.socket
 ```
 
@@ -56,12 +66,17 @@ make
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable lorri.socket
-# Timers below are optional
+```
+
+> Below steps are not mandatory (see [Optional Features](#optional-features))
+
+```bash
 systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable paccache.timer
 systemctl --user enable pacreport.timer
+systemctl --user enable sunshine.service
 ```
 ## Customization
 
