@@ -1,5 +1,4 @@
 # ~/.bashrc
-#
 
 # If not running interactively, don't do anything
 [[ $- != *i* ]] && return
@@ -22,6 +21,10 @@ case "$TERM" in
     ;;
 esac
 unset UHOST
+
+
+# store current history when opening a shell to avoid losses
+PROMPT_COMMAND="${PROMPT_COMMAND} && history -a"
 
 # Vi like shortcuts
 set -o vi
