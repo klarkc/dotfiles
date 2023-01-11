@@ -105,6 +105,10 @@ call plug#begin('~/.vim/plugged')
 		nmap <S-f> <plug>(lsp-document-format)
     nnoremap <buffer> <expr><M-u> lsp#scroll(+4)
     nnoremap <buffer> <expr><M-d> lsp#scroll(-4)
+		set foldmethod=expr
+		  \ foldexpr=lsp#ui#vim#folding#foldexpr()
+		  \ foldtext=lsp#ui#vim#folding#foldtext()
+		set nofoldenable
 	endfunction
 
 	augroup lsp_install
