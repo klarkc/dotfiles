@@ -28,6 +28,16 @@ endfunction
 au BufRead,BufNewFile *.purs call PurescriptIndent()
 "}}
 
+"{{ Open GitHub links with <Leader>o
+function! OpenGithubIssue()
+    let l = getline('.')
+		let match = matchlist(l, '\v(\S+)/(\S+)#(\d+)')
+		let url = 'https://github.com/'.match[1].'/'.match[2].'/issues/'.match[3]
+    silent exec '!xdg-open '.url ' > /dev/null 2>&1 &'
+    execute 'redraw!'
+endfunction
+nmap <leader>o :call OpenGithubIssue()<CR>
+
 call plug#begin('~/.vim/plugged')
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
