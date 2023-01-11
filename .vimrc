@@ -17,6 +17,17 @@ endw
 set timeout ttimeoutlen=50
 "}}
 
+"{{ Use spaces instead of tabs on PureScript
+" see purescript-contrib/purescript-vim#76
+function! PurescriptIndent()
+  setlocal expandtab
+  setlocal shiftwidth=2
+  setlocal tabstop=2
+endfunction
+
+au BufRead,BufNewFile *.purs call PurescriptIndent()
+"}}
+
 call plug#begin('~/.vim/plugged')
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
