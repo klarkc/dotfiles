@@ -74,7 +74,6 @@ systemctl --user enable lorri.socket
 systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
-systemctl --user enable paccache.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable sunshine.service
 ```
