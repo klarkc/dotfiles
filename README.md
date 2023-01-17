@@ -30,6 +30,7 @@ git checkout main
 
 ## Optional Features
 
+- [pacman-mirrorup](https://github.com/bpetlert/pacman-mirrorup) optimized mirrorlist
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 
@@ -51,7 +52,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup
 systemctl enable --now docker.socket
 ```
 
@@ -71,6 +72,7 @@ systemctl --user enable lorri.socket
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
+systemctl enable --now pacman-mirrorup.timer
 systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
