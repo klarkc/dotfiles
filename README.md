@@ -21,6 +21,7 @@ git checkout main
 - [Nord Theme](https://www.nordtheme.com/)
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
+- CapsLock as Escape
 
 ### Aliases
 
