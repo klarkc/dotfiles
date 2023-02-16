@@ -25,6 +25,26 @@ function! PurescriptIndent()
   setlocal tabstop=2
 endfunction
 
+"{{ LSP Folding
+function! SetLspFolding()
+  let allowed_servers = lsp#get_allowed_servers()
+  let folding_supported = 0
+  for server_name in allowed_servers
+    if lsp#capabilities#has_folding_range_provider(server_name)
+      let folding_supported = 1
+    endif
+  endfor
+
+  if folding_supported
+    set foldmethod=expr
+    set foldexpr=lsp#ui#vim#folding#foldexpr()
+    set foldtext=lsp#ui#vim#folding#foldtext()
+  else
+    set nofoldenable
+  endif
+endfunction
+"}}
+
 au BufRead,BufNewFile *.purs call PurescriptIndent()
 "}}
 
@@ -105,10 +125,7 @@ call plug#begin('~/.vim/plugged')
 		nmap <S-f> <plug>(lsp-document-format)
     nnoremap <buffer> <expr><M-u> lsp#scroll(+4)
     nnoremap <buffer> <expr><M-d> lsp#scroll(-4)
-		set foldmethod=expr
-		  \ foldexpr=lsp#ui#vim#folding#foldexpr()
-		  \ foldtext=lsp#ui#vim#folding#foldtext()
-		set nofoldenable
+		call SetLspFolding()
 	endfunction
 
 	augroup lsp_install
