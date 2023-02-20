@@ -55,6 +55,7 @@ systemctl enable --now nix-daemon.socket
 ```bash
 yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup
 systemctl enable --now docker.socket
+nix-env -i lorri direnv
 ```
 
 #### Build
