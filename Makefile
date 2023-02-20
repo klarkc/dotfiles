@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall nix.Install .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -48,17 +48,6 @@ tmux.TpmInstall: .tmux/plugins/tpm
 .PHONY: vim.PluginInstall
 vim.PluginInstall: .vim/autoload/plug.vim
 	vim +PluginInstall +qall
-
-.PHONY: nix.Install
-nix.Install: nix.LorriInstall nix.DirenvInstall
-
-.PHONY: nix.LorriInstall
-nix.LorriInstall:
-	nix-env -i lorri 
-
-.PHONY: nix.DirenvInstall
-nix.DirenvInstall:
-	nix-env -i direnv
 
 .PHONY: git.Config
 git.Config:
