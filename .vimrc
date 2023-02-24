@@ -137,6 +137,10 @@ call plug#begin('~/.vim/plugged')
 		autocmd User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
 	augroup END
 "}}
+
+"{{ Confortable Motion
+Plug 'yuttie/comfortable-motion.vim'
+"}}
 call plug#end()
 
 "{{ Colors
