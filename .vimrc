@@ -7,6 +7,19 @@ set cursorline
 set noshowmode
 filetype plugin indent on
 
+"{{ Set Fold
+function! s:SetFoldmethod()
+  setlocal foldmethod=indent
+  for item in synstack(line('.'), col('.'))
+    if item =~# 'fold'
+      setlocal foldmethod=syntax
+      break
+    endif
+  endfor
+endfunction
+autocmd FileType * call s:SetFoldmethod()
+"}}
+
 "{{ Alt key fix
 let c='a'
 while c <= 'z'
@@ -30,6 +43,11 @@ function! SetLspFolding()
   let allowed_servers = lsp#get_allowed_servers()
   let folding_supported = 0
   for server_name in allowed_servers
+    " FIXME PureScript LSP folding broken
+    if server_name ==# 'purescript-language-server'
+      continue
+    endif
+
     if lsp#capabilities#has_folding_range_provider(server_name)
       let folding_supported = 1
     endif
@@ -39,8 +57,6 @@ function! SetLspFolding()
     set foldmethod=expr
     set foldexpr=lsp#ui#vim#folding#foldexpr()
     set foldtext=lsp#ui#vim#folding#foldtext()
-  else
-    set nofoldenable
   endif
 endfunction
 "}}
@@ -125,7 +141,7 @@ call plug#begin('~/.vim/plugged')
 		nmap <S-f> <plug>(lsp-document-format)
     nnoremap <buffer> <expr><M-u> lsp#scroll(+4)
     nnoremap <buffer> <expr><M-d> lsp#scroll(-4)
-		call SetLspFolding()
+    call SetLspFolding()
 	endfunction
 
 	augroup lsp_install
@@ -134,6 +150,7 @@ call plug#begin('~/.vim/plugged')
 		let g:lsp_diagnostics_echo_cursor = 1
 		let g:lsp_highlight_references_enabled = 1
 		let g:lsp_document_highlight_enabled = 1
+    "let g:polyglot_disabled = ['folds']
 		autocmd User lsp_buffer_enabled call s:on_lsp_buffer_enabled()
 	augroup END
 "}}
