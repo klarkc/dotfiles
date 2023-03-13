@@ -102,6 +102,14 @@ call plug#begin('~/.vim/plugged')
 	Plug 'tpope/vim-fugitive'
 	Plug 'Xuyuanp/nerdtree-git-plugin'
 	Plug 'mhinz/vim-signify'
+  function! s:on_signify_enabled() abort
+    nmap <silent> <S-i> :SignifyHunkDiff<CR>
+  endfunction
+
+  augroup signify_setup
+    autocmd!
+    autocmd User SignifySetup call s:on_signify_enabled()
+  augroup END
 "}}
 
 "{{ TMux - Vim integration
