@@ -4,7 +4,13 @@
 
   outputs = { self, utils, ... }@inputs:
   utils.apply-systems
-  { inherit inputs; }
+  {
+    inherit inputs;
+    make-pkgs = system: import inputs.nixpkgs {
+      inherit system;
+      config.contentAddresedByDefault = true;
+    };
+  }
   ({ pkgs, ... }: {
       packages.default = pkgs.buildEnv {
         name = "klarkc-dotfiles_profile";
@@ -13,6 +19,7 @@
           lorri
           direnv
           cachix
+          nix-output-monitor
         ];
       };
   });
