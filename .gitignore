@@ -11,6 +11,8 @@
 !/.conky.conf
 !/.lsd.yml
 !/.Xmodmap
+!/flake.nix
+!/flake.lock
 
 # systemd
 !/.config
