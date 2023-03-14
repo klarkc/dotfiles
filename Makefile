@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config nix.Profile
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -60,6 +60,10 @@ git.Config:
 .PHONY: npm.Config
 npm.Config:
 	npm config set prefix "${HOME}/.npm-packages"
+
+.PHONY: nix.Profile
+nix.Profile:
+	nix profile install .
 
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
