@@ -20,6 +20,7 @@
           direnv
           cachix
           nix-output-monitor
+          nix-tree
         ];
       };
   });
