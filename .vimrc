@@ -99,8 +99,9 @@ call plug#begin('~/.vim/plugged')
 	Plug 'arcticicestudio/nord-vim'
 "}}
 
-"{{ Configuring CtrlP
-	Plug 'ctrlpvim/ctrlp.vim'
+"{{ Configuring fzf
+  Plug 'junegunn/fzf'
+	map <C-p> :FZF<CR>
 "}}
 
 "{{ Git Integration
