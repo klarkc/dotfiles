@@ -7,6 +7,10 @@ set cursorline
 set noshowmode
 filetype plugin indent on
 
+"{{ Leader key
+let mapleader = ","
+"}}
+
 "{{ Set Fold
 function! s:SetFoldmethod()
   setlocal foldmethod=indent
@@ -144,8 +148,8 @@ call plug#begin('~/.vim/plugged')
     nmap <buffer> gr <plug>(lsp-references)
     nmap <buffer> gi <plug>(lsp-implementation)
     nmap <buffer> gt <plug>(lsp-type-definition)
-		nmap <buffer> <F2> <plug>(lsp-rename)
-    nmap <buffer> <leader>rn <plug>(lsp-rename)
+    nmap <buffer> <leader>vr <plug>(lsp-rename)
+		nmap <buffer> <leader>vca <plug>(lsp-code-action)
     nmap <buffer> [g <plug>(lsp-previous-diagnostic)
     nmap <buffer> ]g <plug>(lsp-next-diagnostic)
     nmap <buffer> K <plug>(lsp-hover)
