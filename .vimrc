@@ -30,6 +30,11 @@ endw
 set timeout ttimeoutlen=50
 "}}
 
+"{{ diffget shortcuts
+nmap <buffer> fu :diffget //2<CR>
+nmap <buffer> fh :diffget //3<CR>
+"}}
+
 "{{ Use spaces instead of tabs on PureScript
 " see purescript-contrib/purescript-vim#76
 function! PurescriptIndent()
