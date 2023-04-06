@@ -176,6 +176,11 @@ call plug#begin('~/.vim/plugged')
 "{{ Confortable Motion
 Plug 'yuttie/comfortable-motion.vim'
 "}}
+"
+"{{ Undotree
+Plug 'mbbill/undotree'
+nnoremap <Leader>u :UndotreeToggle<CR>
+"}}
 call plug#end()
 
 "{{ Colors
