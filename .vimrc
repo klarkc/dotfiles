@@ -57,6 +57,11 @@ function! SetLspFolding()
       continue
     endif
 
+    " FIXME Haskell LSP folding broken
+    if server_name ==# 'haskell-language-server'
+      continue
+    endif
+
     if lsp#capabilities#has_folding_range_provider(server_name)
       let folding_supported = 1
     endif
