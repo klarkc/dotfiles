@@ -101,6 +101,7 @@ call plug#begin('~/.vim/plugged')
 	let g:airline#extensions#tabline#enabled = 1
 	let g:airline#extensions#tabline#left_sep = ' '
 	let g:airline#extensions#tabline#left_alt_sep = ' '
+  let g:airline#extensions#zoomwintab#enabled = 1
 	let g:airline_powerline_fonts = 1
 "}}
 
@@ -187,6 +188,10 @@ Plug 'yuttie/comfortable-motion.vim'
 "{{ Undotree
 Plug 'mbbill/undotree'
 nnoremap <Leader>u :UndotreeToggle<CR>
+"}}
+
+"{{ Zoom
+Plug 'troydm/zoomwintab.vim'
 "}}
 call plug#end()
 
