@@ -116,7 +116,7 @@ call plug#begin('~/.vim/plugged')
 
 "{{ Git Integration
 	Plug 'tpope/vim-fugitive'
-	Plug 'rbong/vim-flog'
+	Plug 'junegunn/gv.vim'
 	Plug 'Xuyuanp/nerdtree-git-plugin'
 	Plug 'mhinz/vim-signify'
   function! s:on_signify_enabled() abort
@@ -127,7 +127,8 @@ call plug#begin('~/.vim/plugged')
     autocmd!
     autocmd User SignifySetup call s:on_signify_enabled()
   augroup END
-  nmap <Leader>l :Flog<CR>
+  nmap <Leader>l :GV<CR>
+  nmap <Leader>k :GV!<CR>
 "}}
 
 "{{ TMux - Vim integration
