@@ -146,7 +146,7 @@ call plug#begin('~/.vim/plugged')
 	inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<S-Tab>"
 	inoremap <expr> <cr>    pumvisible() ? asyncomplete#close_popup() : "\<cr>"
 	Plug 'prabirshrestha/asyncomplete-lsp.vim'
-  Plug 'klarkc/vim-lsp-settings', { 'branch': 'add-nixd' }
+	Plug 'mattn/vim-lsp-settings'
 	function! s:on_lsp_buffer_enabled() abort
     setlocal omnifunc=lsp#complete
     setlocal signcolumn=yes
