@@ -15,8 +15,7 @@
       packages.default = pkgs.buildEnv {
         name = "klarkc-dotfiles_profile";
         paths = with pkgs; [
-          #rnix-lsp
-          nixd
+          rnix-lsp
           lorri
           direnv
           cachix
