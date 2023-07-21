@@ -111,7 +111,8 @@ call plug#begin('~/.vim/plugged')
 
 "{{ Configuring fzf
   Plug 'junegunn/fzf'
-	map <C-p> :FZF<CR>
+	map <C-p> :call fzf#run(fzf#wrap({'source': 'git ls-files', 'sink': 'e'}))<CR>
+	map <C-m> :FZF<CR>
 "}}
 
 "{{ Git Integration
