@@ -5,10 +5,11 @@ set encoding=utf-8
 set clipboard=unnamedplus
 set cursorline
 set noshowmode
+set timeoutlen=500
 filetype plugin indent on
 
 "{{ Leader key
-let mapleader = ","
+let g:mapleader = "m"
 "}}
 
 "{{ Set Fold
@@ -89,11 +90,22 @@ endfunction
 nmap <leader>o :call OpenGithubIssue()<CR>
 
 call plug#begin('~/.vim/plugged')
+"{{ Which Key
+Plug 'liuchengxu/vim-which-key'
+nnoremap <silent> <leader> :<c-u>WhichKey '<Leader>'<CR>
+let g:which_key_map = {
+      \ 's': { 'name': "+At cursor" },
+      \ }
+augroup WhickKeyMappings
+    autocmd!
+    autocmd VimEnter * call which_key#register('m', "g:which_key_map")
+augroup END
+"}}
+
 "{{ Configuring NerdTree
 	Plug 'scrooloose/nerdtree'
 	let NERDTreeIgnore = [ 'node_modules/' ]
 	let NERDTreeShowHidden=1
-	map <C-n> :NERDTreeToggle<CR>
 "}}
 
 "{{ Configuring Airline
@@ -111,8 +123,11 @@ call plug#begin('~/.vim/plugged')
 
 "{{ Configuring fzf
   Plug 'junegunn/fzf'
-	map <C-p> :call fzf#run(fzf#wrap({'source': 'git ls-files', 'sink': 'e'}))<CR>
-	map <C-m> :FZF<CR>
+  let g:which_key_map.k = { 'name': '+FZF' }
+	map <leader>kk :call fzf#run(fzf#wrap({'source': 'git ls-files', 'sink': 'e'}))<CR>
+  let g:which_key_map.k.k = 'git files'
+	map <leader>km :FZF<CR>
+  let g:which_key_map.k.m = 'all files'
 "}}
 
 "{{ Git Integration
@@ -120,16 +135,17 @@ call plug#begin('~/.vim/plugged')
 	Plug 'junegunn/gv.vim'
 	Plug 'Xuyuanp/nerdtree-git-plugin'
 	Plug 'mhinz/vim-signify'
-  function! s:on_signify_enabled() abort
-    nmap <silent> <S-i> :SignifyHunkDiff<CR>
-  endfunction
 
-  augroup signify_setup
-    autocmd!
-    autocmd User SignifySetup call s:on_signify_enabled()
-  augroup END
-  nmap <Leader>l :GV<CR>
-  nmap <Leader>k :GV!<CR>
+  nmap <leader>ss :SignifyHunkDiff<CR>
+  let g:which_key_map.s.s = 'diff'
+  nmap <leader>sd :SignifyHunkUndo<CR>
+  let g:which_key_map.s.d = 'diff undo'
+
+  let g:which_key_map.l = { 'name': '+Git history' }
+  nmap <leader>ll :GV!<CR>
+  let g:which_key_map.l.l = 'from branch'
+  nmap <leader>lm :GV<CR>
+  let g:which_key_map.l.m = 'since begin'
 "}}
 
 "{{ TMux - Vim integration
@@ -200,7 +216,6 @@ call plug#end()
 "{{ Colors
 	colorscheme nord
 "}}
-
 
 "{{ Buffers
 	map g] :bn<cr>
