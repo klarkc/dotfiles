@@ -106,6 +106,8 @@ augroup END
 	Plug 'scrooloose/nerdtree'
 	let NERDTreeIgnore = [ 'node_modules/' ]
 	let NERDTreeShowHidden=1
+	map <Leader>n :NERDTreeToggle<CR>
+  let g:which_key_map.n = 'NERDTree'
 "}}
 
 "{{ Configuring Airline
