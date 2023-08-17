@@ -35,3 +35,7 @@
 
 # xmonad
 !/.config/xmonad
+!/.xmobarrc
+
+# vimb
+!/.config/vimb
