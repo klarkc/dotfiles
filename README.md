@@ -39,13 +39,13 @@ git checkout main
 
 Below are the supported distro setups
 
-### Arch Linux with XFCE
+### Arch Linux with XFCE and XMonad
 
 #### Dependencies
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd 
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
@@ -53,7 +53,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup xmonad xmonad-contrib xmobar feh
 systemctl enable --now docker.socket
 nix-env -i lorri direnv
 ```
