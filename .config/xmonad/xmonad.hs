@@ -1,16 +1,19 @@
 import Graphics.X11.ExtraTypes (xF86XK_PowerDown)
 import XMonad
-  ( Full (Full),
+  ( Default (def),
+    Full (Full),
     Mirror (Mirror),
     Tall (Tall),
     XConfig (keys, terminal),
     handleEventHook,
     layoutHook,
     spawn,
+    startupHook,
     xmonad,
-    (|||), Default (def),
+    (|||),
   )
-import XMonad.Actions.ShowText (handleTimerEvent, flashText)
+import XMonad.Actions.CycleWS (nextWS)
+import XMonad.Actions.ShowText (flashText, handleTimerEvent)
 import XMonad.Config.Desktop (desktopConfig)
 import XMonad.Hooks.DynamicLog (xmobarProp)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
@@ -20,7 +23,6 @@ import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
 import XMonad.Util.Ungrab (unGrab)
-import XMonad.Actions.CycleWS (nextWS)
 
 main :: IO ()
 main = xmonad . ewmhFullscreen . ewmh . xmobarProp $ myConfig
@@ -29,7 +31,8 @@ myConfig =
   desktopConfig
     { terminal = "alacritty",
       layoutHook = myLayout,
-      handleEventHook = handleTimerEvent
+      startupHook = do
+        spawn "feh --bg-fill --randomize ~/Wallpapers/*"
     }
     `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "vimb"),
