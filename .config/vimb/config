@@ -1,0 +1,14 @@
+set input-autohide=true
+set strict-ssl=false
+
+set html5-database=true
+set html5-local-storage=true
+
+shortcut-default du
+shortcut-add gi=https://github.com/search?q=$0
+shortcut-add go=https://encrypted.google.com/search?q=$0
+shortcut-add wi=http://en.wikipedia.org/w/index.php?title=Special:Search&search=$0
+shortcut-add yo=http://www.youtube.com/results?search_query=$0
+shortcut-add tw=https://twitter.com/search?q=$0
+
+set home-page=google.com
