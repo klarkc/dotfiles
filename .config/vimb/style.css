@@ -1,10 +1,10 @@
 *,div,pre,textarea,body,input,td,tr,p {
-    background-color: #303030 !important;
+    background-color: #2e3440 !important;
     background-image: none !important;
-    color: #bbbbbb !important;
+    color: #d8dee9 !important;
 }
 h1,h2,h3,h4 {
-    background-color: #303030 !important;
+    background-color: #2e3440 !important;
     color: #b8ddea !important;
 }
 a {

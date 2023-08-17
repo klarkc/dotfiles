@@ -35,5 +35,5 @@ myLayout = tiled ||| Mirror tiled ||| Full ||| threeCol
     threeCol = magnifiercz' 1.3 $ ThreeColMid nmaster delta ratio
     tiled = Tall nmaster delta ratio
     nmaster = 1
-    ratio = 1 / 2
+    ratio = 2 / 3
     delta = 3 / 100
