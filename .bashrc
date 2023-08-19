@@ -69,9 +69,10 @@ eval "$(direnv hook bash)"
 
 # Tmux
 export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
-if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
-  exec tmux
-fi
+# Uncomment to auto start tmux
+#if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
+#  exec tmux
+#fi
 
 # Override bashrc
 override="${HOME}/.bashrc_override" 
