@@ -21,8 +21,10 @@ import XMonad.Hooks.StatusBar ()
 import XMonad.Hooks.StatusBar.PP ()
 import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
+import XMonad.Layout.Tabbed (tabbedLeft, simpleTabbed, shrinkText, tabbed, tabbedRight)
 import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
 import XMonad.Util.Ungrab (unGrab)
+import XMonad.Util.Themes (darkTheme, theme)
 
 main :: IO ()
 main = xmonad . ewmhFullscreen . ewmh . xmobarProp $ myConfig
@@ -44,7 +46,7 @@ myConfig =
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-")
                       ]
 
-myLayout = tiled ||| Mirror tiled ||| Full ||| threeCol
+myLayout =  tiled |||  Full ||| Mirror tiled ||| tabbedRight shrinkText (theme darkTheme) ||| threeCol 
   where
     threeCol = magnifiercz' 1.3 $ ThreeColMid nmaster delta ratio
     tiled = Tall nmaster delta ratio
