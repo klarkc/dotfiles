@@ -38,6 +38,7 @@ myConfig =
     }
     `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "vimb"),
+                        ("M-s", spawn "steam"),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
                         ("<XF86AudioRaiseVolume>", spawn "pamixer sset Master 10%+"),
                         ("<XF86AudioLowerVolume>", spawn "pamixer sset Master 10%-"),
