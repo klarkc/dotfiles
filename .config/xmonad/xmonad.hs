@@ -39,7 +39,7 @@ myConfig =
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
     }
     `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
-                        ("M-f", spawn "vimb"),
+                        ("M-f", spawn "brave"),
                         ("M-s", spawn "steam"),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
                         ("<XF86AudioRaiseVolume>", spawn "pamixer sset Master 10%+"),
