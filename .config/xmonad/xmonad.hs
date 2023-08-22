@@ -36,7 +36,13 @@ myConfig =
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#4C566A",
       startupHook = do
+        spawn "gnome-keyring-daemon --start --components=pkcs11"
+        spawn "gnome-keyring-daemon --start --components=ssh"
+        spawn "gnome-keyring-daemon --start --components=secrets"
+        spawn "xfsettingsd"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
+        spawn "/opt/discord/Discord --start-minimized"
+        spawn "/opt/enpass/Enpass -minimize"
     }
     `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "brave"),
