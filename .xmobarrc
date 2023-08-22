@@ -3,7 +3,7 @@ Config { overrideRedirect = False
        , bgColor  = "#2e3440"
        , fgColor  = "#d8dee9"
        , commands = [ Run Weather "EGPF"
-                        [ "--template", "<weather> <tempC>°C"
+                        [ "--template", "<weather> <tempC>C"
                         , "-L", "0"
                         , "-H", "25"
                         , "--low"   , "lightblue"
