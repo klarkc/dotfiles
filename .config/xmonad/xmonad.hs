@@ -10,7 +10,7 @@ import XMonad
     spawn,
     startupHook,
     xmonad,
-    (|||),
+    (|||), normalBorderColor, focusedBorderColor,
   )
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
@@ -33,6 +33,8 @@ myConfig =
   desktopConfig
     { terminal = "alacritty",
       layoutHook = myLayout,
+      normalBorderColor = "#3B4252",
+      focusedBorderColor = "#4C566A",
       startupHook = do
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
     }
