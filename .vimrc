@@ -227,6 +227,7 @@ let g:which_key_map.b.m = 'paste verse'
 
 "{{ VimWiki
 Plug 'vimwiki/vimwiki'
+Plug 'michal-h21/vimwiki-sync'
 let g:which_key_map.w = { 'name': '+VimWiki' }
 let g:which_key_map.w.i = 'diary index'
 let g:which_key_map.w.w = 'open'
