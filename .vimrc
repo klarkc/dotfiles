@@ -226,7 +226,7 @@ let g:which_key_map.b.m = 'find in bible (vertically)'
 "{{ VimWiki
 Plug 'vimwiki/vimwiki'
 let g:which_key_map.w = { 'name': '+VimWiki' }
-let g:which_key_map.w.i = 'index'
+let g:which_key_map.w.i = 'diary index'
 let g:which_key_map.w.w = 'open'
 let g:which_key_map.w.t = 'split open'
 let g:which_key_map.w.s = 'select and open'
