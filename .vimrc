@@ -222,6 +222,19 @@ let g:which_key_map.b.b = 'find in bible'
 map <leader>bm :call VFindInBible()<CR>
 let g:which_key_map.b.m = 'find in bible (vertically)'
 "}}
+
+"{{ VimWiki
+Plug 'vimwiki/vimwiki'
+let g:which_key_map.w = { 'name': '+VimWiki' }
+let g:which_key_map.w.i = 'index'
+let g:which_key_map.w.w = 'open'
+let g:which_key_map.w.t = 'split open'
+let g:which_key_map.w.s = 'select and open'
+let g:which_key_map.w.d = 'delete cur wiki file'
+let g:which_key_map.w.r = 'rename cur wiki file'
+map <leader>wq :help vimwiki <CR>
+let g:which_key_map.w.q = 'help'
+"}}
 call plug#end()
 
 "{{ Colors
