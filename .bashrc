@@ -73,6 +73,16 @@ if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] &&
   exec tmux
 fi
 
+# Load nix profile.d
+if [ -d "${HOME}/.nix-profile/etc/profile.d" ]; then
+  for i in "${HOME}/.nix-profile/etc/profile.d/"*.sh; do
+    if [ -r "$i" ]; then
+      . "$i"
+    fi
+  done
+fi
+
 # Override bashrc
 override="${HOME}/.bashrc_override" 
 [[ -f $override ]] && . $override 
+
