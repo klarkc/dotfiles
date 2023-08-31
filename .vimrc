@@ -221,6 +221,8 @@ map <leader>bb :call FindInBible()<CR>
 let g:which_key_map.b.b = 'find in bible'
 map <leader>bm :call VFindInBible()<CR>
 let g:which_key_map.b.m = 'find in bible (vertically)'
+map <leader>bp :call PasteVerse()<CR>
+let g:which_key_map.b.m = 'paste verse'
 "}}
 
 "{{ VimWiki
