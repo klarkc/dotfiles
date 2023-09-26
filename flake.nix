@@ -31,7 +31,7 @@
               cachix
               nix-output-monitor
               nix-tree
-              nixos-container
+              nixos-install-tools
             ];
           };
         });
