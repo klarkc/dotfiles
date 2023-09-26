@@ -31,7 +31,7 @@
               cachix
               nix-output-monitor
               nix-tree
-              nixos-install-tools
+              nixos-rebuild
             ];
           };
         });
