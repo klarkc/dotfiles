@@ -35,11 +35,6 @@ endw
 set timeout ttimeoutlen=50
 "}}
 
-"{{ diffget shortcuts
-nmap <buffer> fu :diffget //2<CR>
-nmap <buffer> fh :diffget //3<CR>
-"}}
-
 "{{ Use spaces instead of tabs on PureScript
 " see purescript-contrib/purescript-vim#76
 function! PurescriptIndent()
@@ -142,6 +137,11 @@ augroup END
   let g:which_key_map.s.s = 'diff'
   nmap <leader>sd :SignifyHunkUndo<CR>
   let g:which_key_map.s.d = 'diff undo'
+  nmap <buffer> fu :diffget //2<CR>
+  let g:which_key_map.s.a = 'diffget left'
+  nmap <buffer> fh :diffget //3<CR>
+  let g:which_key_map.s.d = 'diffget right'
+"}}
 
   let g:which_key_map.l = { 'name': '+Git history' }
   nmap <leader>ll :GV!<CR>
