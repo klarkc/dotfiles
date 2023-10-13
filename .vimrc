@@ -135,11 +135,11 @@ augroup END
 
   nmap <leader>ss :SignifyHunkDiff<CR>
   let g:which_key_map.s.s = 'diff'
-  nmap <leader>sd :SignifyHunkUndo<CR>
-  let g:which_key_map.s.d = 'diff undo'
-  nmap <buffer> fu :diffget //2<CR>
+  nmap <leader>sm :SignifyHunkUndo<CR>
+  let g:which_key_map.s.m = 'diff undo'
+  nmap <leader>sa :diffget //2<CR>
   let g:which_key_map.s.a = 'diffget left'
-  nmap <buffer> fh :diffget //3<CR>
+  nmap <leader>sd :diffget //3<CR>
   let g:which_key_map.s.d = 'diffget right'
 "}}
 
