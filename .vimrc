@@ -215,7 +215,7 @@ Plug 'troydm/zoomwintab.vim'
 "}}
 
 "{{ Vimsence
-Plug 'vimsence/vimsence'
+Plug 'anurag3301/vimsence'
 "}}
 
 "{{ Bible
