@@ -214,6 +214,10 @@ nnoremap <Leader>u :UndotreeToggle<CR>
 Plug 'troydm/zoomwintab.vim'
 "}}
 
+"{{ Vimsence
+Plug 'vimsence/vimsence'
+"}}
+
 "{{ Bible
 Plug 'sirjofri/vim-biblereader'
 let g:which_key_map.b = { 'name': '+Bible' }
