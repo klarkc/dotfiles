@@ -159,7 +159,7 @@ augroup END
 "}}
 
 "{{ LSP
-	Plug 'prabirshrestha/vim-lsp'
+	Plug 'klarkc/vim-lsp'
 	Plug 'prabirshrestha/asyncomplete.vim'
 	inoremap <expr> <Tab>   pumvisible() ? "\<C-n>" : "\<Tab>"
 	inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<S-Tab>"
