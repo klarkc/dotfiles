@@ -1,6 +1,10 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-  inputs.utils.url = "github:ursi/flake-utils";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    utils.url = "github:ursi/flake-utils";
+    attic.url = "github:zhaofengli/attic";
+    attic.inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs = { self, utils, ... }@inputs:
     utils.apply-systems
@@ -11,7 +15,7 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, ... }:
+      ({ pkgs, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -32,6 +36,7 @@
               nix-output-monitor
               nix-tree
               nixos-rebuild
+              ctx.attic
             ];
           };
         });
