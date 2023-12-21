@@ -1,6 +1,11 @@
-# Scripts
-systemctl --user start home-cleanup
-systemctl --user start docker-cleanup
-systemctl --user start nix-cleanup
-systemctl --user start pacreport
+#!/bin/bash
+echo "upgrading system"
 yay
+echo "running home-cleanup"
+systemctl --user start --wait home-cleanup
+echo "running docker-cleanup"
+systemctl --user start --wait docker-cleanup
+echo "running nix-cleanup"
+systemctl --user start --wait nix-cleanup
+echo "running pacreport"
+systemctl --user start --wait pacreport
