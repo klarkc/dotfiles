@@ -36,7 +36,6 @@
               nix-output-monitor
               nix-tree
               nixos-rebuild
-              ctx.attic
             ];
           };
         });
