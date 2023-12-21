@@ -3,7 +3,7 @@ Description=Nix cleanup
 After=nix-daemon.socket
 
 [Service]
-ExecStart=/usr/bin/nix-collect-garbage
+ExecStart=/usr/bin/nix-collect-garbage -d
 CPUAccounting=true
 CPUSchedulingPolicy=batch
 CPUWeight=12

@@ -1,0 +1,6 @@
+# Scripts
+systemctl --user start home-cleanup
+systemctl --user start docker-cleanup
+systemctl --user start nix-cleanup
+systemctl --user start pacreport
+yay
