@@ -3,7 +3,7 @@ Description=Cleanup Home
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c "find ~/{.cache,Downloads} -type f -atime +30 -not -path '*/yay/*'" -delete"
+ExecStart=%h/.local/bin/home-cleanup
 CPUAccounting=true
 CPUSchedulingPolicy=batch
 CPUWeight=12
