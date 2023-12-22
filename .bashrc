@@ -22,6 +22,9 @@ case "$TERM" in
 esac
 unset UHOST
 
+# increase history size
+export HISTSIZE=10000
+export HISTFILESIZE=10000
 
 # store current history when opening a shell to avoid losses
 PROMPT_COMMAND="${PROMPT_COMMAND} && history -a"
