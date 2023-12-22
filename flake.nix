@@ -4,6 +4,7 @@
     utils.url = "github:ursi/flake-utils";
     attic.url = "github:zhaofengli/attic";
     attic.inputs.nixpkgs.follows = "nixpkgs";
+    haskell-nix.url = "github:input-output-hk/haskell.nix";
   };
 
   outputs = { self, utils, ... }@inputs:
@@ -15,7 +16,7 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, ... }@ctx:
+      ({ pkgs, haskell-nix, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -32,10 +33,10 @@
               rnix-lsp
               lorri
               direnv
-              cachix
               nix-output-monitor
               nix-tree
               nixos-rebuild
+              haskell-nix.hix
             ];
           };
         });
