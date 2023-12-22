@@ -30,7 +30,6 @@ import XMonad
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
 import XMonad.Config.Desktop (desktopConfig)
-import XMonad.Hooks.DynamicLog (xmobarProp)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
 import XMonad.Hooks.StatusBar ()
@@ -51,7 +50,7 @@ import XMonad.Util.Themes (darkTheme, theme)
 import XMonad.Util.Ungrab (unGrab)
 
 main :: IO ()
-main = xmonad . ewmhFullscreen . ewmh . xmobarProp $ myConfig
+main = xmonad . ewmhFullscreen . ewmh $ myConfig
 
 myConfig =
   desktopConfig
