@@ -1,4 +1,8 @@
 import Graphics.X11.ExtraTypes (xF86XK_PowerDown)
+import System.Taffybar (dyreTaffybar)
+import System.Taffybar.Context (defaultTaffybarConfig)
+import System.Taffybar.SimpleConfig (defaultSimpleTaffyConfig, toTaffyConfig)
+import System.Taffybar.Support.PagerHints (pagerHints)
 import XMonad
   ( Default (def),
     Full (Full),
@@ -14,6 +18,7 @@ import XMonad
     focusedBorderColor,
     gets,
     handleEventHook,
+    io,
     layoutHook,
     liftX,
     manageHook,
@@ -29,8 +34,10 @@ import XMonad
   )
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
+import XMonad.Config (defaultConfig)
 import XMonad.Config.Desktop (desktopConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
+import XMonad.Hooks.ManageDocks (docks, avoidStruts)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
 import XMonad.Hooks.StatusBar ()
 import XMonad.Hooks.StatusBar.PP ()
@@ -50,7 +57,7 @@ import XMonad.Util.Themes (darkTheme, theme)
 import XMonad.Util.Ungrab (unGrab)
 
 main :: IO ()
-main = xmonad . ewmhFullscreen . ewmh $ myConfig
+main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 
 myConfig =
   desktopConfig
@@ -59,6 +66,7 @@ myConfig =
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#4C566A",
       startupHook = do
+        spawn "taffybar"
         spawn "gnome-keyring-daemon --start --components=pkcs11"
         spawn "gnome-keyring-daemon --start --components=ssh"
         spawn "gnome-keyring-daemon --start --components=secrets"
@@ -78,13 +86,12 @@ myConfig =
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-")
                       ]
 
-myLayout =
-  tiled
-    ||| Full
-    ||| Mirror tiled
-    ||| Grid
+myLayout = tiled ||| full ||| mirror ||| grid
   where
-    tiled = Tall nmaster delta ratio
+    tiled = avoidStruts $ Tall nmaster delta ratio
+    full = avoidStruts Full
+    mirror = avoidStruts $ Mirror tiled
+    grid = avoidStruts Grid
     nmaster = 1
     ratio = 2 / 3
     delta = 3 / 100

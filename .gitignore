@@ -37,7 +37,7 @@
 
 # xmonad
 !/.config/xmonad
-!/.xmobarrc
+!/.config/taffybar
 
 # vimb
 !/.config/vimb
