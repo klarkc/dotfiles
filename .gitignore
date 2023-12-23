@@ -38,6 +38,7 @@
 # xmonad
 !/.config/xmonad
 !/.config/taffybar
+!/.config/compfy.conf
 
 # vimb
 !/.config/vimb
