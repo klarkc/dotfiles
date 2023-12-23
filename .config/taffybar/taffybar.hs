@@ -115,16 +115,12 @@ myTaffybarConfig =
               map
                 (>>= buildContentsBox)
                 [ batteryIconNew,
-                  --weather,
                   clock,
                   tray,
-                  --cpu,
                   mem,
-                  --net,
                   disk,
                   mpris2New
                 ],
-            -- <> cryptos,
             barPosition = Top,
             barPadding = 10,
             barHeight = ExactSize 50,
