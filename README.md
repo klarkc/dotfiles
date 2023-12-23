@@ -39,13 +39,13 @@ git checkout main
 
 Below are the supported distro setups
 
-### Arch Linux with XFCE and XMonad
+### Arch Linux with XMonad
 
 #### Dependencies
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd gsettings xconf
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
