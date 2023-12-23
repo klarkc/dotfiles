@@ -20,6 +20,7 @@ import System.Taffybar.SimpleConfig
       ( barHeight,
         barPadding,
         barPosition,
+        cssPaths,
         endWidgets,
         startWidgets,
         startupHook,
@@ -59,17 +60,9 @@ import System.Taffybar.Widget.WttrIn (textWttrNew)
 main = dyreTaffybarMain myTaffybarConfig
 
 transparent,
-  yellow1,
-  yellow2,
-  green1,
-  green2,
   taffyBlue ::
     (Double, Double, Double, Double)
-transparent = (0.0, 0.0, 0.0, 0.0)
-yellow1 = (0.9296875, 0.384375, 0.128125, 1.0)
-yellow2 = (0.9765625, 0.5375, 0.1921875, 1.0)
-green1 = (0.196078431, 0.392156863, 0.196078431, 1.0)
-green2 = (1.0, 0.0, 1.0, 0.5)
+transparent = (0.0, 0.0, 0.0, 0.6)
 taffyBlue = (0.070588235, 0.345098039, 0.592156863, 1.0)
 
 myGraphConfig, memCfg :: GraphConfig
@@ -83,7 +76,7 @@ myGraphConfig =
 memCfg =
   myGraphConfig
     { graphDataColors = [taffyBlue],
-      graphLabel = Just "mem"
+      graphLabel = Nothing
     }
 
 memCallback :: IO [Double]
