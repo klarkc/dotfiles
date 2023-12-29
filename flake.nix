@@ -37,6 +37,8 @@
               nix-tree
               nixos-rebuild
               haskell-nix.hix
+              haskellPackages.cabal-install
+              haskellPackages.haskell-language-server
             ];
           };
         });
