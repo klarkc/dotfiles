@@ -67,6 +67,7 @@ myConfig =
       focusedBorderColor = "#4C566A",
       startupHook = do
         spawn "compfy"
+        spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
         spawn "gnome-keyring-daemon --start --components=pkcs11"
         spawn "gnome-keyring-daemon --start --components=ssh"
