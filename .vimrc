@@ -119,11 +119,18 @@ augroup END
 "}}
 
 "{{ Configuring fzf
-  Plug 'junegunn/fzf'
+  Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
+  Plug 'junegunn/fzf.vim'
   let g:which_key_map.k = { 'name': '+FZF' }
-	map <leader>kk :call fzf#run(fzf#wrap({'source': 'git ls-files', 'sink': 'e'}))<CR>
+	map <leader>kk :GFiles<CR>
   let g:which_key_map.k.k = 'git files'
-	map <leader>km :FZF<CR>
+	map <leader>ks :GFiles?<CR>
+  let g:which_key_map.k.s = 'git status'
+	map <leader>ko :Buffers<CR>
+  let g:which_key_map.k.o = 'buffers'
+	map <leader>kg :RG<CR>
+  let g:which_key_map.k.g = 'ripgrep'
+	map <leader>km :Files<CR>
   let g:which_key_map.k.m = 'all files'
 "}}
 
