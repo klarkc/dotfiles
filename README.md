@@ -53,7 +53,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup xmonad xmonad-contrib xorg-xsetroot feh
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup xmonad xmonad-contrib xorg-xsetroot feh bat git-delta ripgrep
 systemctl enable --now docker.socket
 ```
 
