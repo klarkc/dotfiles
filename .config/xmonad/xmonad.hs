@@ -99,5 +99,5 @@ myLayout = tiled ||| full ||| mirror ||| grid
     delta = 3 / 100
 
 runSteam = do
-  spawn "steam -windowed"
+  spawn "steam"
   sendMessage $ JumpToLayout "Full"
