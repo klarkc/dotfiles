@@ -34,10 +34,11 @@ import XMonad
   )
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
+import XMonad.Actions.WindowGo (raise)
 import XMonad.Config (defaultConfig)
 import XMonad.Config.Desktop (desktopConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
-import XMonad.Hooks.ManageDocks (docks, avoidStruts)
+import XMonad.Hooks.ManageDocks (avoidStruts, docks)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
 import XMonad.Hooks.StatusBar ()
 import XMonad.Hooks.StatusBar.PP ()
@@ -99,5 +100,8 @@ myLayout = tiled ||| full ||| mirror ||| grid
     delta = 3 / 100
 
 runSteam = do
+  spawn "xrandr --output HDMI-1 --mode 1920x1080 --right-of eDP-1"
+  spawn "xrandr --output eDP-1 --off"
   spawn "steam"
+  raise $ className =? "steam"
   sendMessage $ JumpToLayout "Full"
