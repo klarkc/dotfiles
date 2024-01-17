@@ -45,7 +45,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code lsd gsettings xconf compfy
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf compfy
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
