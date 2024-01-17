@@ -102,6 +102,6 @@ myLayout = tiled ||| full ||| mirror ||| grid
 runSteam = do
   spawn "xrandr --output HDMI-1 --mode 1920x1080 --primary --left-of eDP-1"
   --spawn "xrandr --output eDP-1 --off"
-  spawn "steam"
+  spawn "steam -windowed"
   raise $ className =? "steam"
   sendMessage $ JumpToLayout "Full"
