@@ -77,6 +77,7 @@ myConfig =
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
+        spawn "blueman-applet"
     }
     `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "brave"),
