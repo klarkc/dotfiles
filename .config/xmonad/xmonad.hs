@@ -36,7 +36,7 @@ import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
 import XMonad.Actions.WindowGo (raise)
 import XMonad.Config (defaultConfig)
-import XMonad.Config.Desktop (desktopConfig)
+import XMonad.Config.Gnome (gnomeConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
@@ -61,25 +61,22 @@ main :: IO ()
 main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 
 myConfig =
-  desktopConfig
+  gnomeConfig
     { terminal = "alacritty",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#4C566A",
       startupHook = do
-        spawn "compfy"
-        spawn "xsetroot -cursor_name left_ptr"
+        -- TODO move process to systemd
+        --spawn "compfy"
         spawn "taffybar"
-        spawn "gnome-keyring-daemon --start --components=pkcs11"
-        spawn "gnome-keyring-daemon --start --components=ssh"
-        spawn "gnome-keyring-daemon --start --components=secrets"
-        spawn "xfsettingsd"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
-        spawn "/opt/discord/Discord --start-minimized"
-        spawn "/opt/enpass/Enpass -minimize"
-        spawn "blueman-applet"
+        --spawn "/opt/discord/Discord --start-minimized"
+        --spawn "/opt/enpass/Enpass -minimize"
+        --spawn "blueman-applet"
     }
-    `additionalKeysP` [ ("M-C-s", unGrab *> spawn "scrot -s"),
+    `additionalKeysP` [ ("M-q", spawn "gnome-session-quit"),
+                        ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "brave"),
                         ("M-s", runSteam),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
