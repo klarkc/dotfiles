@@ -45,7 +45,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf compfy
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf compfy xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
@@ -53,7 +53,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup xmonad xmonad-contrib xorg-xsetroot feh bat git-delta ripgrep
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep
 systemctl enable --now docker.socket
 ```
 
@@ -81,6 +81,15 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable sunshine.service
 ```
+
+Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
+
+```
+[Desktop Entry]
+Name=GNOME Xmonad
+Exec=gnome-session --session=gnome-xmonad
+```
+
 ## Customization
 
 To customize a `.dotfile` you can write a corresponding `.dotfile_override`.

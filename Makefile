@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config nix.Profile
+all: xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config nix.Profile
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -61,6 +61,12 @@ git.Config:
 npm.Config:
 	npm config set prefix "${HOME}/.npm-packages"
 
+.local/share/applications/xmonad.desktop:
+	ln -s /usr/share/xsessions/xmonad.desktop $@
+
+.PHONY: xmonad.Config
+xmonad.Config: .local/share/applications/xmonad.desktop
+
 .PHONY: nix.Profile
 nix.Profile:
 	nix profile install .
@@ -69,3 +75,4 @@ nix.Profile:
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
 	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm 
+	rm .local/share/applications/xmonad.desktop
