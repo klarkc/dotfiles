@@ -68,14 +68,12 @@ myConfig =
       focusedBorderColor = "#4C566A",
       startupHook = do
         -- TODO move process to systemd
-        --spawn "compfy"
         spawn "taffybar"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         --spawn "/opt/discord/Discord --start-minimized"
         --spawn "/opt/enpass/Enpass -minimize"
-        --spawn "blueman-applet"
     }
-    `additionalKeysP` [ ("M-q", spawn "gnome-session-quit"),
+    `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s"),
                         ("M-f", spawn "brave"),
                         ("M-s", runSteam),
