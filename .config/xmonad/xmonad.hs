@@ -68,6 +68,7 @@ myConfig =
       focusedBorderColor = "#4C566A",
       startupHook = do
         -- TODO move process to systemd
+        spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         --spawn "/opt/discord/Discord --start-minimized"
