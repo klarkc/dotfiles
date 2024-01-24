@@ -87,7 +87,14 @@ Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
 ```
 [Desktop Entry]
 Name=GNOME Xmonad
-Exec=gnome-session --session=gnome-xmonad
+Exec=gnome-session --systemd --session=gnome-xmonad
+```
+
+Add in `/etc/gdm/custom.conf`:
+
+```ini
+[security]
+AllowCustomSessions=true
 ```
 
 ## Customization
