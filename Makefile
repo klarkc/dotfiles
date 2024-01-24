@@ -22,6 +22,7 @@ $(ICONS)/Papirus:
 	curl -L -s https://github.com/Adapta-Projects/Papirus-Nord/releases/latest/download/Papirus-Nord.tar.xz | tar -xJC .papirus-nord
 	cd .papirus-nord && (yes "N" | ./install) && (./papirus-folders -C polarnight1 --theme Papirus-Dark)
 	-rm -r .papirus-nord
+	gsettings set org.gnome.desktop.interface icon-theme "Papirus-Dark"
 	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark
 
 .PHONY: $(ICONS)/Papirus/clean
