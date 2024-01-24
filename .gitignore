@@ -35,6 +35,12 @@
 !/.local/bin/pacman-paccache
 !/.local/bin/cleanup
 
+# gtk
+!/.config/gtk-*
+/.config/gtk-*/*
+!/.config/gtk-2.0/gtkrc
+!/.config/gtk-3.0/settings.ini
+
 # xmonad
 !/.config/xmonad
 !/.config/taffybar
