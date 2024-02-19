@@ -36,6 +36,7 @@ import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
 import XMonad.Actions.WindowGo (raise)
 import XMonad.Config (defaultConfig)
+import XMonad.Config.Desktop (desktopConfig)
 import XMonad.Config.Gnome (gnomeConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks)
@@ -52,19 +53,17 @@ import XMonad.Layout.MultiToggle.Instances (StdTransformers (FULL))
 import XMonad.Layout.Tabbed (shrinkText, simpleTabbed, tabbed, tabbedLeft, tabbedRight)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.ToggleLayouts (ToggleLayout (ToggleLayout))
+import XMonad.Operations (unGrab)
 import XMonad.StackSet (hidden, tag)
 import XMonad.Util.EZConfig (additionalKeys, additionalKeysP)
 import XMonad.Util.Themes (darkTheme, theme)
-import XMonad.Util.Ungrab (unGrab)
-import XMonad.Config.Desktop (desktopConfig)
 
 main :: IO ()
 main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 
 myConfig =
   gnomeConfig
-    { 
-      -- undo gnomeConfig changes
+    { -- undo gnomeConfig changes
       keys = keys desktopConfig,
       terminal = "alacritty",
       layoutHook = myLayout,
