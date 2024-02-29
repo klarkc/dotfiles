@@ -8,7 +8,9 @@ echo "running home-cleanup"
 systemctl --user start --wait home-cleanup
 echo "running docker-cleanup"
 systemctl --user start --wait docker-cleanup
-echo "running nix-cleanup"
-systemctl --user start --wait nix-cleanup
+echo "running aggresive nix-cleanup"
+sudo rm /nix/var/nix/gcroots/auto/*
+nix-collect-garbage -d
+rm -Rf ~/.cache/nix
 echo "running pacreport"
 systemctl --user start --wait pacreport
