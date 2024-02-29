@@ -1,8 +1,9 @@
 #!/bin/bash
 echo "upgrading system"
 yay
-echo "running yay -Yc"
-yay -Yc
+echo "running yay cleanup"
+yay -Ycc
+yay -Scc
 echo "running home-cleanup"
 systemctl --user start --wait home-cleanup
 echo "running docker-cleanup"
