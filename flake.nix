@@ -31,6 +31,7 @@
                 cp ${nixProfile} $out/etc/profile.d/nix.sh 
               '')
               rnix-lsp
+              marksman
               lorri
               direnv
               nix-output-monitor
