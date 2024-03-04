@@ -244,10 +244,21 @@ let g:which_key_map.w.i = 'diary index'
 let g:which_key_map.w.w = 'open'
 let g:which_key_map.w.t = 'split open'
 let g:which_key_map.w.s = 'select and open'
+let g:which_key_map.w.b = 'select and open BibleWiki'
+map <leader>wb :VimwikiIndex 2<CR>
 let g:which_key_map.w.d = 'delete cur wiki file'
 let g:which_key_map.w.r = 'rename cur wiki file'
 map <leader>wq :help vimwiki <CR>
 let g:which_key_map.w.q = 'help'
+
+let personal_wiki = {}
+let bible_wiki = {}
+let bible_wiki.path = '~/Sources/BibleWiki'
+let bible_wiki.ext = '.md'
+let bible_wiki.index = 'README'
+let bible_wiki.syntax = 'markdown'
+
+let g:vimwiki_list = [personal_wiki , bible_wiki]
 "}}
 call plug#end()
 
