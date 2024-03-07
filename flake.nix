@@ -34,6 +34,7 @@
               marksman
               lorri
               direnv
+              node2nix
               nix-output-monitor
               nix-tree
               nixos-rebuild
