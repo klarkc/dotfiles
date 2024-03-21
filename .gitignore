@@ -44,7 +44,6 @@
 # xmonad
 !/.config/xmonad
 !/.config/taffybar
-!/.config/compfy.conf
 !/.config/gnome-session
 /.config/gnome-session/*
 !/.config/gnome-session/sessions
