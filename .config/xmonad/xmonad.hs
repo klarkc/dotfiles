@@ -78,7 +78,8 @@ myConfig =
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s"),
-                        ("M-f", spawn "nyxt"), ("M-s", runSteam),
+                        ("M-f", spawn "vimb"),
+                        ("M-s", runSteam),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
                         ("<XF86AudioRaiseVolume>", spawn "pamixer sset Master 10%+"),
                         ("<XF86AudioLowerVolume>", spawn "pamixer sset Master 10%-"),
