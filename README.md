@@ -35,6 +35,7 @@ git checkout main
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Nyxt](https://github.com/atlas-engineer/nyxt) web browser.
+- [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 
 ## Supported setups
 
@@ -54,7 +55,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr
 systemctl enable --now docker.socket
 ```
 
