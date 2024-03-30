@@ -51,5 +51,7 @@
 !/.config/gnome-session/sessions/gnome-xmonad.session
 !/.dmrc
 
-# vimb
-!/.config/vimb
+# nyxt
+!/.config/nyxt
+/.config/nyxt/*
+!/.config/nyxt/config.lisp

@@ -34,6 +34,7 @@ git checkout main
 - [pacman-mirrorup](https://github.com/bpetlert/pacman-mirrorup) optimized mirrorlist
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
+- [Nyxt](https://github.com/atlas-engineer/nyxt) web browser.
 
 ## Supported setups
 
@@ -53,7 +54,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt
 systemctl enable --now docker.socket
 ```
 
