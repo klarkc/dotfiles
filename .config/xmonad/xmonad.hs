@@ -68,7 +68,7 @@ myConfig =
       terminal = "alacritty",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
-      focusedBorderColor = "#4C566A",
+      focusedBorderColor = "#5E81AC",
       startupHook = do
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
