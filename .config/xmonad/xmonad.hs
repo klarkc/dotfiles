@@ -72,6 +72,7 @@ myConfig =
       startupHook = do
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
+        spawn "picom"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
