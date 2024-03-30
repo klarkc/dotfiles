@@ -50,7 +50,7 @@ import XMonad.Layout.IfMax (IfMax (IfMax))
 import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.MultiToggle (single)
 import XMonad.Layout.MultiToggle.Instances (StdTransformers (FULL))
-import XMonad.Layout.Tabbed (shrinkText, simpleTabbed, tabbed, tabbedLeft, tabbedRight)
+import XMonad.Layout.Tabbed (TabbedDecoration (Tabbed), shrinkText, simpleTabbed, tabbed, tabbedLeft, tabbedRight, simpleTabbedLeft)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.ToggleLayouts (ToggleLayout (ToggleLayout))
 import XMonad.Operations (unGrab)
@@ -88,19 +88,19 @@ myConfig =
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-")
                       ]
 
-myLayout = tiled ||| full ||| mirror ||| grid
+myLayout = tiled ||| full ||| mirror ||| tabbed
   where
     tiled = avoidStruts $ Tall nmaster delta ratio
     full = avoidStruts Full
     mirror = avoidStruts $ Mirror tiled
-    grid = avoidStruts Grid
+    tabbed = avoidStruts simpleTabbedLeft
     nmaster = 1
     ratio = 2 / 3
     delta = 3 / 100
 
 runSteam = do
   spawn "xrandr --output HDMI-1 --mode 1920x1080 --primary --left-of eDP-1"
-  --spawn "xrandr --output eDP-1 --off"
+  -- spawn "xrandr --output eDP-1 --off"
   spawn "steam -windowed"
   raise $ className =? "steam"
   sendMessage $ JumpToLayout "Full"
