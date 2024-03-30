@@ -34,7 +34,7 @@ git checkout main
 - [pacman-mirrorup](https://github.com/bpetlert/pacman-mirrorup) optimized mirrorlist
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
-- [Nyxt](https://github.com/atlas-engineer/nyxt) web browser.
+- [vimb](https://fanglingsu.github.io/vimb) web browser.
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 
 ## Supported setups
