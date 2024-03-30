@@ -35,6 +35,9 @@
 !/.local/bin/pacman-paccache
 !/.local/bin/cleanup
 
+# xdg
+!/.config/mimeapps.list
+
 # gtk
 !/.config/gtk-*
 /.config/gtk-*/*
