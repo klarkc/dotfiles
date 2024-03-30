@@ -1,0 +1,33 @@
+[Added Associations]
+application/json=gvim.desktop;
+application/octet-stream=gvim.desktop;
+application/pdf=brave-browser.desktop;gimp.desktop;
+application/vnd.ms-excel=chrome-apdfllckaahabafndbhieahigkjlhalf-Default.desktop;
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet=chrome-apdfllckaahabafndbhieahigkjlhalf-Default.desktop;
+application/x-extension-html=brave-browser.desktop;
+application/x-subrip=vlc.desktop;
+application/x-theme=gvim.desktop;
+image/jpeg=gimp.desktop;brave-browser.desktop;
+image/png=gimp.desktop;brave-browser.desktop;
+image/svg+xml=org.inkscape.Inkscape.desktop;gimp.desktop;
+image/webp=gimp.desktop;
+text/html=brave-browser.desktop;
+video/mp4=org.avidemux.Avidemux.desktop;vlc.desktop;
+video/mpeg=vlc.desktop;
+video/quicktime=vlc.desktop;
+video/webm=vlc.desktop;
+video/x-flv=vlc.desktop;
+video/x-matroska=gvim.desktop;org.avidemux.Avidemux.desktop;vlc.desktop;
+x-scheme-handler/tg=userapp-Telegram Desktop-LPW1H1.desktop;
+
+[Default Applications]
+application/octet-stream=gvim.desktop;
+application/x-extension-html=vimb.desktop;
+text/html=vimb.desktop;
+video/mp4=vlc.desktop;
+video/mpeg=vlc.desktop;
+video/webm=vlc.desktop;
+video/x-matroska=vlc.desktop;
+x-scheme-handler/mailto=nyxt.desktop;
+x-scheme-handler/tg=userapp-Telegram Desktop-LPW1H1.desktop;
+x-scheme-handler/web+cardano=brave-browser.desktop;
