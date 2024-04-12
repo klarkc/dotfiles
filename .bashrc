@@ -92,3 +92,5 @@ fi
 override="${HOME}/.bashrc_override" 
 [[ -f $override ]] && . $override 
 
+
+export GPG_TTY=$(tty)
