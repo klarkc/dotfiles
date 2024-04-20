@@ -56,3 +56,6 @@
 
 # vimb
 !/.config/vimb
+
+# spotifyd
+!/.config/spotifyd
