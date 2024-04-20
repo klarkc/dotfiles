@@ -36,6 +36,7 @@ git checkout main
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [vimb](https://fanglingsu.github.io/vimb) web browser.
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
+- [spotifyd](https://github.com/Spotifyd/spotifyd) Spotify Connect service
 
 ## Supported setups
 
@@ -55,7 +56,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd
 systemctl enable --now docker.socket
 ```
 
@@ -81,7 +82,8 @@ systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
-systemctl --user enable sunshine.service
+systemctl --user enable --now sunshine.service
+systemctl --user enable --now spotifyd.service
 ```
 
 Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
