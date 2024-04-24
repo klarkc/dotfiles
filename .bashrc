@@ -38,7 +38,7 @@ export EDITOR=vim
 # Lsd
 alias lsd="lsd --config-file ${HOME}/.lsd.yml"
 alias ls='lsd'
-alias l='ls -l'
+alias l='ls'
 alias ll='ls -la'
 alias lt='ls --tree'
 
