@@ -260,6 +260,10 @@ let bible_wiki.syntax = 'markdown'
 
 let g:vimwiki_list = [personal_wiki , bible_wiki]
 "}}
+
+"{{ vim-unicoder
+Plug 'arthurxavierx/vim-unicoder'
+"}}
 call plug#end()
 
 "{{ Colors
