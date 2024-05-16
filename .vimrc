@@ -264,6 +264,63 @@ let g:vimwiki_list = [personal_wiki , bible_wiki]
 "{{ vim-unicoder
 Plug 'arthurxavierx/vim-unicoder'
 "}}
+
+"{{ vim-chatgpt
+Plug 'CoderCookE/vim-chatgpt'
+let g:chat_gpt_max_tokens=200
+let g:chat_gpt_model='gpt-4'
+let g:chat_gpt_session_mode=0
+let g:chat_gpt_temperature = 0.7
+let g:chat_gpt_lang = 'English'
+let g:chat_gpt_split_direction = 'vertical'
+let g:split_ratio=4
+nmap <leader>sg :Ask<CR>
+let g:which_key_map.s.g = 'gpt complete'
+"}}
+
+"{{ vim-llama
+Plug 'skywind3000/asyncrun.vim'
+Plug 'Dr4x14913/vim-llama'
+let g:light_models = {
+      \ 'p': 'phi3:latest',
+      \ 'd': 'deepseek-coder:latest',
+      \ 'c': 'codegemma:code',
+      \ 'o': 'orca-mini:latest', 
+      \ }
+let g:heavy_models = {
+      \ 'l': 'llama3:latest',
+      \ 'c': 'codellama:latest',
+      \ 'm': 'mixtral:latest',
+      \ }
+let g:vim_llama_model = light_models.p
+function! SetLlamaModel(model)
+  let g:vim_llama_model = a:model
+  echo "Selected to model: " . g:vim_llama_model
+endfunction
+function! SetModels(prop, models)
+  let prop = a:prop
+  let models = a:models
+  for key in keys(models)
+    let model = models[key]
+    let g:which_key_map.a[prop][key] = model
+    execute 'map <leader>a' . prop . key . ' :call SetLlamaModel("' . model . '")<CR>'
+  endfor
+endfunction
+
+vmap <S-j> :VLMAStart What is ,?<CR>
+let g:which_key_map.a = { 'name': '+Llama' }
+let g:which_key_map.a.a = 'start'
+map <leader>aa :VLMAStart<CR>
+let g:which_key_map.a.s = 'stop'
+map <leader>as :VLMAStop<CR>
+let g:which_key_map.a.p = 'prompt'
+map <leader>ap :VLMAPrompt<CR>
+let g:which_key_map.a.l = { 'name': '+select light model' }
+call SetModels('l', light_models)
+let g:which_key_map.a.h = { 'name': '+select heavy model' }
+call SetModels('h', light_models)
+"}}
+
 call plug#end()
 
 "{{ Colors

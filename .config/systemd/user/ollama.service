@@ -1,0 +1,10 @@
+[Unit]
+Description=Ollama Docker Container
+After=docker.socket
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/docker run --rm --gpus=all -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+
+[Install]
+WantedBy=default.target
