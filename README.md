@@ -37,6 +37,8 @@ git checkout main
 - [vimb](https://fanglingsu.github.io/vimb) web browser.
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - [spotifyd](https://github.com/Spotifyd/spotifyd) Spotify Connect service
+- GPT with [CoderCookE/vim-chatgpt](https://github.com/CoderCookE/vim-chatgpt)
+- Llama with [vim-llama](https://github.com/Dr4x14913/vim-llama)
 
 ## Supported setups
 
@@ -56,7 +58,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai
 systemctl enable --now docker.socket
 ```
 
@@ -84,6 +86,7 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
 systemctl --user enable --now spotifyd.service
+systemctl --user enable --now ollama.service
 ```
 
 Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
@@ -99,6 +102,19 @@ Add in `/etc/gdm/custom.conf`:
 ```ini
 [security]
 AllowCustomSessions=true
+```
+
+Add in `.bashrc_override` (replace `hackme` with your [api key](https://platform.openai.com/account/api-keys)):
+
+```bash
+export OPENAI_API_KEY="hackme"
+```
+
+Download the llama models in vim:
+
+```vimscript
+:VLMAPull codellama
+:VLMAPull llama3
 ```
 
 ## Customization
