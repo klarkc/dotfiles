@@ -306,7 +306,7 @@ function! SetModels(prop, models)
     execute 'map <leader>a' . prop . key . ' :call SetLlamaModel("' . model . '")<CR>'
   endfor
 endfunction
-function! SetBuffer(buffer_name, command, close_command, ...) range
+function! SetBuffer(buffer_name, command, close_command, start = 'What is', end = '?') range
   let [start_line, start_col] = getpos("'<")[1:2]
   let [end_line, end_col] = getpos("'>")[1:2]
   let current_line = getline('.')
@@ -328,11 +328,11 @@ function! SetBuffer(buffer_name, command, close_command, ...) range
  
   execute 'autocmd BufUnload <buffer> execute ":' . a:close_command . '"'
   execute '%delete _'
-  call append(0, selected_text)
-  execute ':' . a:command . ' ' . join(a:000, ' ')
+  put =a:start . ' ' .  selected_text .  ' ' . a:end
+  execute ':' . a:command . ' '
 endfunction
 
-vmap <S-j> :call SetBuffer('Llama output', 'VLMAStart', 'VLMAStop', 'What is', ',?')<CR>
+vmap <S-j> :call SetBuffer('Llama output', 'VLMAStart', 'VLMAStop')<CR>
 let g:which_key_map.a = { 'name': '+Llama' }
 let g:which_key_map.a.a = 'start'
 map <leader>aa :VLMAStart<CR>
