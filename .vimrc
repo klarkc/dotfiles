@@ -307,7 +307,10 @@ function! SetModels(prop, models)
   endfor
 endfunction
 function! SetBuffer(buffer_name, command, close_command, ...) range
-  let current_content = getline(a:firstline, a:lastline)
+  let [start_line, start_col] = getpos("'<")[1:2]
+  let [end_line, end_col] = getpos("'>")[1:2]
+  let current_line = getline('.')
+  let selected_text = current_line[start_col-1:end_col-1]
   let buffer_found = 0
   for buf in getbufinfo()
     if buf.name =~ a:buffer_name
@@ -325,7 +328,7 @@ function! SetBuffer(buffer_name, command, close_command, ...) range
  
   execute 'autocmd BufUnload <buffer> execute ":' . a:close_command . '"'
   execute '%delete _'
-  call append(0, current_content)
+  call append(0, selected_text)
   execute ':' . a:command . ' ' . join(a:000, ' ')
 endfunction
 
