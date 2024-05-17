@@ -343,7 +343,7 @@ map <leader>ap :VLMAPrompt<CR>
 let g:which_key_map.a.l = { 'name': '+select light model' }
 call SetModels('l', light_models)
 let g:which_key_map.a.h = { 'name': '+select heavy model' }
-call SetModels('h', light_models)
+call SetModels('h', heavy_models)
 "}}
 
 call plug#end()
