@@ -78,6 +78,7 @@ myConfig =
         spawn "/opt/enpass/Enpass -minimize"
         spawn "blueman-applet"
         spawn "solaar -w hidden"
+        spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s"),
@@ -104,6 +105,6 @@ myLayout = tiled ||| full ||| mirror ||| tabbed
 runSteam = do
   spawn "xrandr --output HDMI-1 --mode 1920x1080 --primary --left-of eDP-1"
   -- spawn "xrandr --output eDP-1 --off"
-  spawn "steam -windowed"
+  spawn "steam steam://open/bigpicture"
   raise $ className =? "steam"
   sendMessage $ JumpToLayout "Full"
