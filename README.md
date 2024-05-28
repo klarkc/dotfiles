@@ -39,6 +39,7 @@ git checkout main
 - [spotifyd](https://github.com/Spotifyd/spotifyd) Spotify Connect service
 - GPT with [CoderCookE/vim-chatgpt](https://github.com/CoderCookE/vim-chatgpt)
 - Llama with [vim-llama](https://github.com/Dr4x14913/vim-llama)
+- [Oterm](https://github.com/ggozad/oterm) with [ollama](https://ollama.com)
 
 ## Supported setups
 
@@ -58,7 +59,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai oterm ollama
 systemctl enable --now docker.socket
 ```
 
