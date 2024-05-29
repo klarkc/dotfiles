@@ -239,26 +239,131 @@ let g:which_key_map.b.m = 'paste verse'
 "{{ VimWiki
 Plug 'vimwiki/vimwiki'
 Plug 'michal-h21/vimwiki-sync'
+Plug 'michal-h21/vim-zettel'
+
+" Global variable to store the last "front_matter" value
+let g:last_front_matter = []
+
+function! ParseFM()
+  let l:fm_value = []
+  " Check if the current buffer has front matter
+  let l:lines = getline(1, 10)
+  if l:lines[0] != '---'
+    return l:fm_value
+  endif
+
+  " Find the front matter section
+  let l:front_matter_end = -1
+  for l:i in range(1, len(l:lines))
+    if l:lines[l:i] == '---'
+      let l:front_matter_end = l:i
+      break
+    endif
+  endfor
+
+  if l:front_matter_end == -1
+    return l:fm_value
+  endif
+
+  " Parse the front matter
+  echom "parsing"
+  for l:i in range(1, l:front_matter_end)
+    let l:line = l:lines[l:i]
+    "echom "checking " . l:line
+    " Check if the line is a valid key-value pair
+    if l:line =~ '^\s*\S\+:\s*\S\+'
+      " Extract the key and value
+      let l:key = matchstr(l:line, '^\(.\{-}\):\@<=')[:-2]
+      "echom "key " . l:key
+      let l:value = matchstr(l:line, ':\(.*\)')[1:]
+      "echom "value " . l:value
+      " Remove leading and trailing whitespace
+      let l:key = substitute(l:key, '\s\+$', '', '')
+      "echom "key' " . l:key
+      let l:value = substitute(l:value, '^\s*', '', '')
+      "echom "value' " . l:value
+      " Append the key-value pair to fm_value
+      call add(l:fm_value, [l:key, l:value])
+    endif
+  endfor
+
+  return l:fm_value
+endfunction
+
+function! StoreFM()
+  let g:last_front_matter = ParseFM()
+  call zettel#vimwiki#zettel_new_selected()
+endfunction
+xnoremap <silent> StoreFM :call StoreFM()<CR>
+
+function! s:insert_last_fm(field, default)
+  echom "insert_last_fm called for field " . a:field
+  let front_matter = zettel#vimwiki#get_option("front_matter")
+  if g:last_front_matter != []
+    echom "reusing last_front_matter"
+    let front_matter = g:last_front_matter
+  endif
+  for item in front_matter
+    echom "checking " . item[0] . " against " . a:field
+    if item[0] == a:field 
+      if type(item[1]) == type(function("s:insert_last_fm", [a:field, a:default]))
+        echom "it's a function, returning default"
+        return a:default
+      else
+        echom "returning field value"
+        return item[1]
+      endif
+    endif
+  endfor
+endfunction
+
+augroup CustomVimWikiMappings
+  autocmd!
+  autocmd FileType vimwiki nnoremap z viw:call StoreFM()<CR>
+  autocmd FileType vimwiki xmap <buffer> z StoreFM()<CR>
+augroup END
+
 let g:which_key_map.w = { 'name': '+VimWiki' }
-let g:which_key_map.w.i = 'diary index'
 let g:which_key_map.w.w = 'open'
 let g:which_key_map.w.t = 'split open'
 let g:which_key_map.w.s = 'select and open'
-let g:which_key_map.w.b = 'select and open BibleWiki'
-map <leader>wb :VimwikiIndex 2<CR>
 let g:which_key_map.w.d = 'delete cur wiki file'
 let g:which_key_map.w.r = 'rename cur wiki file'
+let g:which_key_map.w.x = 'capture'
+map <leader>wx :ZettelCapture<CR>
+let g:which_key_map.w.g = { 'name': '+generate' }
+let g:which_key_map.w.g.i = 'inbox'
+map <leader>wgi :ZettelInbox<CR>
+let g:which_key_map.w.g.l = 'links'
+map <leader>wgl :ZettelGenerateLinks<CR>
+let g:which_key_map.w.g.b = 'backlinks'
+map <leader>wgb :ZettelBacklinks<CR>
+let g:which_key_map.w.g.t = 'tags'
+map <leader>wgt :ZettelGenerateTags<CR>
+let g:which_key_map.w.k = { 'name': '+fzf' }
+let g:which_key_map.w.k.w = 'open note'
+map <leader>wkw :ZettelOpen<CR>
+let g:which_key_map.w.k.i = 'insert note'
+map <leader>wki :ZettelInsertNote<CR>
 map <leader>wq :help vimwiki <CR>
 let g:which_key_map.w.q = 'help'
 
-let personal_wiki = {}
 let bible_wiki = {}
 let bible_wiki.path = '~/Sources/BibleWiki'
 let bible_wiki.ext = '.md'
 let bible_wiki.index = 'README'
 let bible_wiki.syntax = 'markdown'
+let bible_wiki.links_space_char = '-'
+let bible_zettel = {}
+let bible_zettel.rel_path = ''
+let bible_zettel.template = 'note.tpl'
+let bible_zettel.front_matter = [['bible', function("s:insert_last_fm", ['bible', ''])]]
 
-let g:vimwiki_list = [personal_wiki , bible_wiki]
+let g:vimwiki_markdown_link_ext = 1
+let g:vimwiki_list = [bible_wiki]
+let g:zettel_options = [bible_zettel]
+let g:zettel_format = '%title--%file_no'
+
 "}}
 
 "{{ vim-unicoder
