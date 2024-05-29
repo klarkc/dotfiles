@@ -331,6 +331,8 @@ let g:which_key_map.w.d = 'delete cur wiki file'
 let g:which_key_map.w.r = 'rename cur wiki file'
 let g:which_key_map.w.x = 'capture'
 map <leader>wx :ZettelCapture<CR>
+let g:which_key_map.w.s = 'check sanity'
+map <leader>ws :VimwikiCheckLinks<CR>
 let g:which_key_map.w.g = { 'name': '+generate' }
 let g:which_key_map.w.g.i = 'inbox'
 map <leader>wgi :ZettelInbox<CR>
