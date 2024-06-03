@@ -39,6 +39,7 @@
               nix-tree
               nixos-rebuild
               haskell-nix.hix
+              ctx.attic
             ];
           };
         });
