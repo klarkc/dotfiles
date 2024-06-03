@@ -166,13 +166,13 @@ augroup END
 "}}
 
 "{{ LSP
-	Plug 'klarkc/vim-lsp'
+	Plug 'prabirshrestha/vim-lsp'
 	Plug 'prabirshrestha/asyncomplete.vim'
 	inoremap <expr> <Tab>   pumvisible() ? "\<C-n>" : "\<Tab>"
 	inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<S-Tab>"
 	inoremap <expr> <cr>    pumvisible() ? asyncomplete#close_popup() : "\<cr>"
 	Plug 'prabirshrestha/asyncomplete-lsp.vim'
-	Plug 'mattn/vim-lsp-settings'
+	Plug 'klarkc/vim-lsp-settings', { 'branch': 'add-nil' }
 	function! s:on_lsp_buffer_enabled() abort
     setlocal omnifunc=lsp#complete
     setlocal signcolumn=yes
