@@ -27,6 +27,7 @@
                 mkdir -p $out/etc/profile.d
                 cp ${nixProfile} $out/etc/profile.d/nix.sh 
               '')
+              nil
               marksman
               lorri
               direnv
@@ -35,7 +36,6 @@
               nix-tree
               nixos-rebuild
               attic-client #attic
-              attic-server #atticd, atticadm
             ];
           };
         });
