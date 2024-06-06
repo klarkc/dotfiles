@@ -319,8 +319,8 @@ endfunction
 
 augroup CustomVimWikiMappings
   autocmd!
-  autocmd FileType vimwiki nnoremap z viw:call StoreFM()<CR>
-  autocmd FileType vimwiki xmap <buffer> z StoreFM()<CR>
+  autocmd FileType vimwiki nnoremap <C-w> viw:call StoreFM()<CR>
+  autocmd FileType vimwiki xmap <buffer> <C-w> StoreFM()<CR>
 augroup END
 
 let g:which_key_map.w = { 'name': '+VimWiki' }
