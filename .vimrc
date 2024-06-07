@@ -453,6 +453,9 @@ let g:which_key_map.a.h = { 'name': '+select heavy model' }
 call SetModels('h', heavy_models)
 "}}
 
+"{{ vim-highlighter
+Plug 'azabiong/vim-highlighter'
+"}}
 call plug#end()
 
 "{{ Colors
