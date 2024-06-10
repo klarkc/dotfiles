@@ -455,6 +455,11 @@ call SetModels('h', heavy_models)
 
 "{{ vim-highlighter
 Plug 'azabiong/vim-highlighter'
+let g:which_key_map.h = { 'name': '+Highlighter' }
+let g:which_key_map.h.s = 'save'
+map <leader>hs :Hi save<CR>
+let g:which_key_map.h.l = 'load'
+map <leader>hl :Hi load<CR>
 "}}
 call plug#end()
 
