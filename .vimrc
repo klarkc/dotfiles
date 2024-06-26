@@ -462,6 +462,14 @@ function! SaveHi()
   let l:file = expand('%')
   execute ':Hi save ' . file
 endfunction
+function! RunIfExistsHi(func)
+  let l:hl_file = expand('%') . '.hl'
+  if filereadable(l:hl_file)
+    execute 'silent! call ' . a:func . '()'
+  endif
+endfunction
+autocmd BufWritePost * call RunIfExistsHi('SaveHi')
+autocmd BufReadPost * call RunIfExistsHi('LoadHi')
 Plug 'azabiong/vim-highlighter'
 let g:which_key_map.h = { 'name': '+Highlighter' }
 let g:which_key_map.h.s = 'save'
