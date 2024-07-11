@@ -165,6 +165,9 @@ augroup END
 	Plug 'sheerun/vim-polyglot'
 "}}
 
+"{{ More mappings
+  Plug 'tpope/vim-unimpaired'
+
 "{{ LSP
 	Plug 'prabirshrestha/vim-lsp'
 	Plug 'prabirshrestha/asyncomplete.vim'
