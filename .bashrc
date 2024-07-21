@@ -69,6 +69,7 @@ lesscolors=$HOME/.LESS_TERMCAP
 
 # QT
 export QT_QPA_PLATFORMTHEME=gtk2
+export QT_STYLE_OVERRIDE=gtk2
 
 # Direnv hook
 eval "$(direnv hook bash)"
