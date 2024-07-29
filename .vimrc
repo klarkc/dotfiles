@@ -474,24 +474,24 @@ endfunction
 function! LoadHi()
   let l:file = expand('%')
   let l:hash = GetFilePath(GetFileHash(l:file))
-  echom "loading hl file " . l:hash
+  "echom "loading hl file " . l:hash
   execute ':Hi load ' . l:hash
 endfunction
 
 function! SaveHi()
   let l:file = expand('%')
   let l:hash = GetFilePath(GetFileHash(l:file))
-  echom "saving hl file " . l:hash
+  "echom "saving hl file " . l:hash
   execute ':!mkdir -p $(dirname ' . l:hash . ')'
   execute ':Hi save ' . l:hash
 endfunction
 
 function! RunIfFileIsMd(func)
   if expand('%:e') == 'md'
-    echom "current file is markdown, executing function " . a:func
+    "echom "current file is markdown, executing function " . a:func
     execute ":call " . a:func . "()"
   else
-    echom "current file is not markdown, skipping function " . a:func
+    "echom "current file is not markdown, skipping function " . a:func
   endif
 endfunction
 
