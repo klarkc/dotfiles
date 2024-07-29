@@ -457,22 +457,56 @@ call SetModels('h', heavy_models)
 "}}
 
 "{{ vim-highlighter
+function! GetFilePath(file)
+  let l:keywords = ".keywords"
+  return "./" . l:keywords . "/" . a:file 
+endfunction
+
+function! GetFileHash(file)
+  " Generate a hash of the file name using md5sum and cut
+  let l:command = 'echo -n ' . shellescape(a:file) . ' | md5sum | cut -d" " -f1'
+  let l:hash = system(l:command)
+  " Remove any trailing newline
+  let l:hash = substitute(l:hash, '\n$', '', '')
+  return l:hash
+endfunction
+
 function! LoadHi()
   let l:file = expand('%')
-  execute ':Hi load ' . file
+  let l:hash = GetFilePath(GetFileHash(l:file))
+  echom "loading hl file " . l:hash
+  execute ':Hi load ' . l:hash
 endfunction
+
 function! SaveHi()
   let l:file = expand('%')
-  execute ':Hi save ' . file
+  let l:hash = GetFilePath(GetFileHash(l:file))
+  echom "saving hl file " . l:hash
+  execute ':!mkdir -p $(dirname ' . l:hash . ')'
+  execute ':Hi save ' . l:hash
 endfunction
-function! RunIfExistsHi(func)
-  let l:hl_file = expand('%') . '.hl'
-  if filereadable(l:hl_file)
-    execute 'silent! call ' . a:func . '()'
+
+function! RunIfFileIsMd(func)
+  if expand('%:e') == 'md'
+    echom "current file is markdown, executing function " . a:func
+    execute ":call " . a:func . "()"
+  else
+    echom "current file is not markdown, skipping function " . a:func
   endif
 endfunction
-autocmd BufWritePost * call RunIfExistsHi('SaveHi')
-autocmd BufReadPost * call RunIfExistsHi('LoadHi')
+
+" Wrapper function to handle BufWritePost
+function! HandleBufWritePost()
+  call RunIfFileIsMd('SaveHi')
+endfunction
+
+" Wrapper function to handle BufReadPost
+function! HandleBufReadPost()
+  call RunIfFileIsMd('LoadHi')
+endfunction
+
+autocmd BufWritePost * call HandleBufWritePost()
+autocmd BufReadPost * call HandleBufReadPost()
 Plug 'azabiong/vim-highlighter'
 let g:which_key_map.h = { 'name': '+Highlighter' }
 let g:which_key_map.h.s = 'save'
