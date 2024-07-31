@@ -393,11 +393,17 @@ Plug 'skywind3000/asyncrun.vim'
 Plug 'Dr4x14913/vim-llama'
 let g:light_models = {
       \ 'c': 'codegemma:code',
-      \ 'o': 'orca-mini:latest', 
-      \ 'd': 'deepseek-coder:latest',
+      \ 'o': 'orca-mini:3b', 
+      \ 'd': 'deepseek-coder:1.3b',
       \ 'q': 'qwen2:0.5b',
       \ 'z': 'qwen2:1.5b',
-      \ 'p': 'phi3:latest',
+      \ 'p': 'phi3:3.8b',
+      \ 'g': 'dolphin-phi:3b',
+      \ 'j': 'llava-phi3:3.8b',
+      \ 'm': 'moondream:1.8b',
+      \ 's': 'starcoder:3b',
+      \ 'x': 'starcoder:1b',
+      \ 't': 'tinydolphin:1b',
       \ }
 let g:heavy_models = {
       \ 't': 'tinyllama:latest',
