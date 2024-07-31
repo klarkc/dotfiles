@@ -392,13 +392,18 @@ let g:which_key_map.s.g = 'gpt complete'
 Plug 'skywind3000/asyncrun.vim'
 Plug 'Dr4x14913/vim-llama'
 let g:light_models = {
-      \ 'p': 'phi3:latest',
-      \ 'd': 'deepseek-coder:latest',
       \ 'c': 'codegemma:code',
       \ 'o': 'orca-mini:latest', 
+      \ 'd': 'deepseek-coder:latest',
+      \ 'q': 'qwen2:0.5b',
+      \ 'z': 'qwen2:1.5b',
+      \ 'p': 'phi3:latest',
       \ }
 let g:heavy_models = {
+      \ 't': 'tinyllama:latest',
       \ 'l': 'llama3:latest',
+      \ 'd': 'deepseek-coder-v2:latest',
+      \ 'k': 'llama3.1:latest',
       \ 'c': 'codellama:latest',
       \ 'm': 'mixtral:latest',
       \ }
