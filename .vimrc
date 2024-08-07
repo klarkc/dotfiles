@@ -398,7 +398,6 @@ let g:light_models = {
       \ 'q': 'qwen2:0.5b',
       \ 'z': 'qwen2:1.5b',
       \ 'p': 'phi3:3.8b',
-      \ 'g': 'gemma2:3b',
       \ 'j': 'llava-phi3:3.8b',
       \ 'm': 'moondream:1.8b',
       \ 's': 'starcoder:3b',
