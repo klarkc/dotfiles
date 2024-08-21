@@ -497,23 +497,25 @@ function! SaveHi()
   execute ':Hi save ' . l:hash
 endfunction
 
-function! RunIfFileIsMd(func)
-  if expand('%:e') == 'md'
-    "echom "current file is markdown, executing function " . a:func
-    execute ":call " . a:func . "()"
-  else
-    "echom "current file is not markdown, skipping function " . a:func
-  endif
+function! RunIfFileIsVimWiki(func)
+  for wiki in g:vimwiki_list
+    if fnamemodify(wiki.path, ':p') ==# fnamemodify(expand('%:p:h'), ':p')
+      "echom "current file is from vimwiki, executing function ". a:func
+      execute ":call ". a:func. "()"
+      return
+    endif
+  endfor
+  "echom "current file is not from vimwiki, skipping function ". a:func
 endfunction
 
 " Wrapper function to handle BufWritePost
 function! HandleBufWritePost()
-  call RunIfFileIsMd('SaveHi')
+  call RunIfFileIsVimWiki('SaveHi')
 endfunction
 
 " Wrapper function to handle BufReadPost
 function! HandleBufReadPost()
-  call RunIfFileIsMd('LoadHi')
+  call RunIfFileIsVimWiki('LoadHi')
 endfunction
 
 autocmd BufWritePost * call HandleBufWritePost()
