@@ -392,7 +392,8 @@ let g:which_key_map.s.g = 'gpt complete'
 Plug 'skywind3000/asyncrun.vim'
 Plug 'Dr4x14913/vim-llama'
 let g:light_models = {
-      \ 'c': 'codegemma:code',
+      \ 'c': 'codegemma:2b',
+      \ 'g': 'gemma2:2b',
       \ 'o': 'orca-mini:3b', 
       \ 'd': 'deepseek-coder:1.3b',
       \ 'q': 'qwen2:0.5b',
@@ -400,9 +401,8 @@ let g:light_models = {
       \ 'p': 'phi3:3.8b',
       \ 'j': 'llava-phi3:3.8b',
       \ 'm': 'moondream:1.8b',
-      \ 's': 'starcoder:3b',
-      \ 'x': 'starcoder:1b',
       \ 't': 'tinydolphin:1b',
+      \ 's': 'smollm:1.7b',
       \ }
 let g:heavy_models = {
       \ 't': 'tinyllama:latest',
@@ -413,7 +413,7 @@ let g:heavy_models = {
       \ 'c': 'codellama:latest',
       \ 'm': 'mixtral:latest',
       \ }
-let g:vim_llama_model = light_models.p
+let g:vim_llama_model = light_models.s
 function! SetLlamaModel(model)
   let g:vim_llama_model = a:model
   echo "Selected to model: " . g:vim_llama_model

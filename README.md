@@ -40,6 +40,7 @@ git checkout main
 - GPT with [CoderCookE/vim-chatgpt](https://github.com/CoderCookE/vim-chatgpt)
 - Llama with [vim-llama](https://github.com/Dr4x14913/vim-llama)
 - [Oterm](https://github.com/ggozad/oterm) with [ollama](https://ollama.com)
+- [ShellGPT](https://github.com/TheR1D/shell_gpt) with ollama
 
 ## Supported setups
 
@@ -59,7 +60,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai oterm ollama-cuda
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai oterm ollama-cuda shell-gpt
 systemctl enable --now docker.socket
 ```
 
