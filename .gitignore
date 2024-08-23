@@ -59,3 +59,8 @@
 
 # spotifyd
 !/.config/spotifyd
+
+# sgpt
+!/.config/shell_gpt
+/.config/shell_gpt/*
+!/.config/shell_gpt/.sgptrc
