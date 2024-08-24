@@ -398,7 +398,7 @@ let g:light_models = {
       \ 'd': 'deepseek-coder:1.3b',
       \ 'q': 'qwen2:0.5b',
       \ 'z': 'qwen2:1.5b',
-      \ 'p': 'phi3:3.8b',
+      \ 'p': 'phi3.5:3.8b',
       \ 'j': 'llava-phi3:3.8b',
       \ 'm': 'moondream:1.8b',
       \ 't': 'tinydolphin:1b',
@@ -413,7 +413,7 @@ let g:heavy_models = {
       \ 'c': 'codellama:latest',
       \ 'm': 'mixtral:latest',
       \ }
-let g:vim_llama_model = light_models.s
+let g:vim_llama_model = light_models.p
 function! SetLlamaModel(model)
   let g:vim_llama_model = a:model
   echo "Selected to model: " . g:vim_llama_model
