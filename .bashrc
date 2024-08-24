@@ -95,3 +95,18 @@ override="${HOME}/.bashrc_override"
 
 
 export GPG_TTY=$(tty)
+
+# Shell-GPT integration BASH v0.2
+_sgpt_bash() {
+if [[ -n "$READLINE_LINE" ]]; then
+    READLINE_LINE=$(sgpt --shell --role "phi3-shell" <<< "$READLINE_LINE" --no-interaction)
+    READLINE_POINT=${#READLINE_LINE}
+fi
+}
+bind -x '"\C-e": _sgpt_bash'
+_sgpt_bash_repl() {
+    true || rm /tmp/chat_cache/shell
+    sgpt --repl shell --shell
+}
+bind -x '"\C-o": _sgpt_bash_repl'
+# Shell-GPT integration BASH v0.2
