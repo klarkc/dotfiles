@@ -326,8 +326,15 @@ augroup CustomVimWikiMappings
   autocmd FileType vimwiki xmap <buffer> <C-w> StoreFM()<CR>
 augroup END
 
+function! VimwikiOpen()
+  let wiki = g:bible_wiki
+  call chdir(wiki.path)
+  execute ":VimwikiIndex"
+endfunction
+
 let g:which_key_map.w = { 'name': '+VimWiki' }
 let g:which_key_map.w.w = 'open'
+map <leader>ww :call VimwikiOpen()<CR>
 let g:which_key_map.w.t = 'split open'
 let g:which_key_map.w.s = 'select and open'
 let g:which_key_map.w.d = 'delete cur wiki file'
