@@ -2,7 +2,7 @@ import Graphics.X11.ExtraTypes (xF86XK_PowerDown)
 import System.Taffybar (dyreTaffybar)
 import System.Taffybar.Context (defaultTaffybarConfig)
 import System.Taffybar.SimpleConfig (defaultSimpleTaffyConfig, toTaffyConfig)
-import System.Taffybar.Support.PagerHints (pagerHints)
+import XMonad.Hooks.TaffybarPagerHints (pagerHints)
 import XMonad
   ( Default (def),
     Full (Full),
