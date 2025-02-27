@@ -515,6 +515,11 @@ function! RunIfFileIsVimWiki(func)
   "echom "current file is not from vimwiki, skipping function ". a:func
 endfunction
 
+" Wrapper function to handle BufUnload
+function! HandleBufUnload()
+  call RunIfFileIsVimWiki('SaveHi')
+endfunction
+
 " Wrapper function to handle BufWritePost
 function! HandleBufWritePost()
   call RunIfFileIsVimWiki('SaveHi')
@@ -525,7 +530,8 @@ function! HandleBufReadPost()
   call RunIfFileIsVimWiki('LoadHi')
 endfunction
 
-autocmd BufWritePost * call HandleBufWritePost()
+autocmd BufUnload	* call HandleBufUnload()
+autocmd BufWritePost	* call HandleBufWritePost()
 autocmd BufReadPost * call HandleBufReadPost()
 Plug 'azabiong/vim-highlighter'
 let g:which_key_map.h = { 'name': '+Highlighter' }
