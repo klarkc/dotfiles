@@ -22,6 +22,7 @@ git checkout main
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
+- Using [satty](https://github.com/gabm/Satty) with [maim](https://github.com/naelstrof/maim) for annotated screenshots
 
 ### Aliases
 
@@ -52,7 +53,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty maim
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
