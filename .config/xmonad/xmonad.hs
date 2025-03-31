@@ -81,7 +81,7 @@ myConfig =
         --spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
-                        ("M-C-s", unGrab *> spawn "maim -s | satty --filename - --fullscreen --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
+                        ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
                         ("M-s", runSteam),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
