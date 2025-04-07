@@ -5,7 +5,7 @@ echo "running yay cleanup"
 yay -Ycc
 yay -Scc
 echo "running home-cleanup"
-snapper -c home create -d "home-cleanup" -c "number" --command "systemctl --user start --wait home-cleanup"
+systemctl --user start --wait home-cleanup
 echo "running docker-cleanup"
 systemctl --user start --wait docker-cleanup
 echo "running aggresive nix-cleanup"

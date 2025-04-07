@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Git: Find all .git directories and process them
+find ~/Sources -name '.git' -type d -print | while read git_dir; do
+  parent_dir=$(dirname "$git_dir")
+  echo "Processing git directory: $parent_dir"
+  cd "$parent_dir" || continue
+  git add --all
+  git stash
+  git clean -fdx
+done
+
+# Clean old files in cache
+find ~/.cache -type f -atime +30 -not -path '*/yay/*' -delete

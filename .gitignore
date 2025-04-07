@@ -29,6 +29,7 @@
 !/.local/bin
 /.local/bin/*
 !/.local/bin/home-cleanup
+!/.local/bin/home-cleanup-post
 !/.local/bin/pacman-clean
 !/.local/bin/pacman-report
 !/.local/bin/pacman-pacreport
