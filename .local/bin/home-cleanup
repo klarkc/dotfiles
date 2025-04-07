@@ -1,10 +1,25 @@
 #!/bin/bash
 
 (
-  cd ~/Sources
+  cd ~/Sources || exit
   
-  # Git
-  find . -name '.git' -type d -print -exec bash -c "cd {}; cd ..; git add --all;  git stash;  git clean -fdx" \;
+  # Git: Find all .git directories and process them
+  find . -name '.git' -type d -print | while read git_dir; do
+    # Move to the directory containing the .git folder
+    parent_dir=$(dirname "$git_dir")
+    
+    # Check if the directory is under ~/Sources
+    if [[ "$parent_dir" =~ ^$HOME/Sources/ ]]; then
+      echo "Processing git directory: $parent_dir"
+      cd "$parent_dir" || continue
+      git add --all
+      git stash
+      git clean -fdx
+    else
+      echo "Skipping outside source directory: $parent_dir"
+    fi
+  done
 )
 
+# Clean old files in cache
 find ~/.cache -type f -atime +30 -not -path '*/yay/*' -delete
