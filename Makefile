@@ -70,7 +70,7 @@ xmonad.Config: .local/share/applications/xmonad.desktop
 
 .PHONY: nix.Profile
 nix.Profile:
-	nix profile install .
+	nix --extra-experimental-features "nix-command flakes" profile install .
 
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
