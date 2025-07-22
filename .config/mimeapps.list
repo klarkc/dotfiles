@@ -23,7 +23,7 @@ x-scheme-handler/tg=userapp-Telegram Desktop-LPW1H1.desktop;
 [Default Applications]
 application/octet-stream=gvim.desktop;
 application/x-extension-html=vimb.desktop;
-text/html=vimb.desktop;
+text/html=brave-browser.desktop
 video/mp4=vlc.desktop;
 video/mpeg=vlc.desktop;
 video/webm=vlc.desktop;
