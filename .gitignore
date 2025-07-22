@@ -63,3 +63,8 @@
 
 # sgpt
 !/.config/shell_gpt
+
+# yay
+!/.config/yay
+/.config/yay/*
+!/.config/yay/config.json

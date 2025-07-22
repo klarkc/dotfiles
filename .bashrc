@@ -42,6 +42,9 @@ alias l='ls'
 alias ll='ls -la'
 alias lt='ls --tree'
 
+# yay
+alias yay="yay --noconfirm"
+
 # Dircolors
 dir_colors="${HOME}/.local/bin/dir_colors"
 test -r $dir_colors && eval $(dircolors $dir_colors)
