@@ -49,6 +49,9 @@ alias yay="yay --noconfirm"
 dir_colors="${HOME}/.local/bin/dir_colors"
 test -r $dir_colors && eval $(dircolors $dir_colors)
 
+# Opencode
+export LOCAL_ENDPOINT="http://localhost:11434/v1"
+
 # Grep
 case "$TERM" in
   xterm-color|xterm|xterm-256color|tmux-256color)
