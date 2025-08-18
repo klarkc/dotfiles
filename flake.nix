@@ -27,15 +27,9 @@
                 mkdir -p $out/etc/profile.d
                 cp ${nixProfile} $out/etc/profile.d/nix.sh 
               '')
-              nil
-              marksman
-              lorri
+              devenv
               direnv
-              node2nix
-              nix-output-monitor
-              nix-tree
               nixos-rebuild
-              attic-client #attic
             ];
           };
         });
