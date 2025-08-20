@@ -5,6 +5,7 @@
 !/Makefile
 !/.alacritty.yml
 !/.bashrc
+!/.bash_profile
 !/.LESS_TERMCAP
 !/.tmux.conf
 !/.vim-cheatsheet.png
