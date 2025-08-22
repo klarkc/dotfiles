@@ -74,8 +74,8 @@ myConfig =
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
-        spawn "blueman-applet"
-        spawn "solaar -w hidden"
+        --spawn "blueman-applet"
+        --spawn "solaar -w hidden"
         --spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
