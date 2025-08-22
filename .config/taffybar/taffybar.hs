@@ -99,7 +99,7 @@ myTaffybarConfig =
           }
       workspaces = workspacesNew myWorkspacesConfig
       mem = pollingGraphNew memCfg 1 memCallback
-      disk = liftIO $ fsMonitorNew 500 ["/", "/mnt/ext", "/tmp"]
+      disk = liftIO $ fsMonitorNew 500 ["/", "/tmp"]
       clock = textClockNewWith def
       layout = layoutNew def
       windowsW = windowsNew def

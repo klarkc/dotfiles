@@ -75,9 +75,9 @@ myConfig =
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
-        spawn "blueman-applet"
-        spawn "solaar -w hide -b regular"
-        -- spawn "steam-runtime -silent"
+        --spawn "blueman-applet"
+        --spawn "solaar -w hidden -b regular"
+        --spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
