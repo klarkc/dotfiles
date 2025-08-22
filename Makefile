@@ -23,7 +23,7 @@ $(ICONS)/Papirus:
 	cd .papirus-nord && (yes "N" | ./install) && (./papirus-folders -C polarnight1 --theme Papirus-Dark)
 	-rm -r .papirus-nord
 	gsettings set org.gnome.desktop.interface icon-theme "Papirus-Dark"
-	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark
+	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark --create
 
 .PHONY: $(ICONS)/Papirus/clean
 $(ICONS)/Papirus/clean:

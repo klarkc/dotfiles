@@ -30,6 +30,7 @@
               devenv
               direnv
               nixos-rebuild
+	      nodejs
             ];
           };
         });

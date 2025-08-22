@@ -53,7 +53,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd gsettings xconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot
+yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
