@@ -3,7 +3,7 @@
 !/.gitignore
 !/.editorconfig
 !/Makefile
-!/.alacritty.yml
+!/.alacritty.toml
 !/.bashrc
 !/.bash_profile
 !/.LESS_TERMCAP

@@ -32,7 +32,6 @@ git checkout main
 
 ## Optional Features
 
-- [pacman-mirrorup](https://github.com/bpetlert/pacman-mirrorup) optimized mirrorlist
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [vimb](https://fanglingsu.github.io/vimb) web browser.
@@ -53,7 +52,8 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu git gvim alacritty-ligature-git qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget
+# TODO re-enable alacritty-ligature-git
+yay -Syu git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget gdm xorg-server taffybar blueman-applet dmenu
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
@@ -61,7 +61,7 @@ systemctl enable --now nix-daemon.socket
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine pacman-mirrorup bat git-delta ripgrep nyxt handlr spotifyd python-openai oterm ollama-cuda shell-gpt
+yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep nyxt handlr spotifyd python-openai oterm ollama-cuda shell-gpt discord enpass-bin brave-bin
 systemctl enable --now docker.socket
 ```
 
@@ -82,7 +82,7 @@ systemctl --user enable lorri.socket
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-systemctl enable --now pacman-mirrorup.timer
+systemctl enable gdm
 systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
@@ -97,7 +97,8 @@ Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
 ```
 [Desktop Entry]
 Name=GNOME Xmonad
-Exec=gnome-session --systemd-service --session=gnome-xmonad
+# TODO enable --systemd-service
+Exec=gnome-session --session=gnome-xmonad
 ```
 
 Add in `/etc/gdm/custom.conf`:
@@ -106,6 +107,8 @@ Add in `/etc/gdm/custom.conf`:
 [security]
 AllowCustomSessions=true
 ```
+
+Disable Wayland in gdm config (xmonad does not support it)
 
 Add in `.bashrc_override` (replace `hackme` with your [api key](https://platform.openai.com/account/api-keys)):
 
