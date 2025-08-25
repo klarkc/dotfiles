@@ -35,6 +35,9 @@ set -o vi
 # Editor
 export EDITOR=vim
 
+# Git
+export GIT_PAGER=cat
+
 # Lsd
 alias lsd="lsd --config-file ${HOME}/.lsd.yml"
 alias ls='lsd'
