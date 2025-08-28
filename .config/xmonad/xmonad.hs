@@ -70,6 +70,7 @@ myConfig =
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
       startupHook = do
+        spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --left-of DP-1"
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
         spawn "picom"
@@ -103,7 +104,6 @@ myLayout = tiled ||| full ||| mirror ||| tabbed
     delta = 3 / 100
 
 runSteam = do
-  spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --left-of DP-1"
   -- spawn "xrandr --output eDP-1 --off"
   spawn "steam steam://open/bigpicture"
   raise $ className =? "steam"
