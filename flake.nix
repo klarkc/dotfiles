@@ -13,7 +13,7 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, ... }@ctx:
+      ({ pkgs, code, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -30,7 +30,8 @@
               devenv
               direnv
               nixos-rebuild
-	      nodejs
+              nodejs
+              codex
             ];
           };
         });
