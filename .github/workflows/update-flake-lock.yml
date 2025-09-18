@@ -1,0 +1,33 @@
+name: update-flake-lock
+on:
+  workflow_dispatch: # allows manual triggering
+  schedule:
+    - cron: '0 0 * * 0' # runs weekly on Sunday at 00:00
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: DeterminateSystems/determinate-nix-action@v3.8.2
+        with:
+          extra-config: accept-flake-config = true
+    - uses: DeterminateSystems/magic-nix-cache-action@v13
+    - uses: DeterminateSystems/flake-checker-action@v12
+      with:
+        fail-mode: true
+    - name: Generate token
+        id: generate_token
+        uses: actions/create-github-app-token@v2.1.1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+    - name: Update flake.lock
+      uses: DeterminateSystems/update-flake-lock@v27
+      with:
+        commit-msg: "build(deps): Bump flake.lock dependencies"
+        pr-title: "Update flake.lock" 
+        pr-labels: |                  
+          dependencies
+          automated
+        token: ${{ steps.generate_token.outputs.token }}
