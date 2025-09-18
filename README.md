@@ -29,8 +29,8 @@ git checkout main
 
 Each machine has specific configurations and enabled features so I'm splitting it between different branches.
 
-- main (default), my personal laptop
-- sol098, work machine
+- `main` (default): my personal laptop
+- `sol098`: work machine
 
 ### Aliases
 
