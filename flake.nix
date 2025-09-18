@@ -13,7 +13,7 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, code, ... }@ctx:
+      ({ pkgs, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
