@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - solo098
 jobs:
     build:
         runs-on: "ubuntu-latest"
