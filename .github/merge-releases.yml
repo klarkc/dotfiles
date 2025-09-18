@@ -1,0 +1,33 @@
+name: Open PR from release into other branches
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  create-prs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [solo098]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+    - name: Generate token
+        id: generate_token
+        uses: actions/create-github-app-token@v2.1.1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+      - name: Create pull request into ${{ matrix.branch }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          base: ${{ matrix.branch }}
+          token: ${{ steps.generate_token.outputs.token }}
+          branch: release-merge-${{ github.ref_name }}-into-${{ matrix.branch }}
+          title: "Merge release ${{ github.ref_name }} into ${{ matrix.branch }}"
+          body: |
+            This PR merges the release **${{ github.ref_name }}** into **${{ matrix.branch }}**.
+          labels: release-merge
+          draft: false
