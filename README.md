@@ -25,6 +25,13 @@ git checkout main
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
 - [Codex](https://github.com/openai/codex)
 
+## Machines
+
+Each machine has specific configurations and enabled features so I'm splitting it between different branches.
+
+- main (default), my personal laptop
+- sol098, work machine
+
 ### Aliases
 
 - `l`: `ls -l`
