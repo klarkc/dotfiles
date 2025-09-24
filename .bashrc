@@ -46,7 +46,7 @@ alias ll='ls -la'
 alias lt='ls --tree'
 
 # yay
-alias yay="yay --noconfirm"
+# alias yay="yay --noconfirm"
 
 # Dircolors
 dir_colors="${HOME}/.local/bin/dir_colors"
