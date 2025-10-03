@@ -69,6 +69,7 @@ myConfig =
       focusedBorderColor = "#5E81AC",
       --modMask = controlMask, -- Ctrl
       startupHook = do
+        spawn "xrandr --output HDMI-0 --off"
         spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1"
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
