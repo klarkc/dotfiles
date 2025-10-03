@@ -52,15 +52,6 @@
 !/.config/taffybar
 !/.dmrc
 
-# vimb
-!/.config/vimb
-
-# spotifyd
-!/.config/spotifyd
-
-# sgpt
-!/.config/shell_gpt
-
 # yay
 !/.config/yay
 /.config/yay/*
