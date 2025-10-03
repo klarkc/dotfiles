@@ -18,7 +18,6 @@ git checkout main
 - [Lemurs](https://github.com/coastalwhite/lemurs) Window Manager
 - [Alacritty](https://github.com/alacritty/alacritty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
-- [Lorri](https://github.com/nix-community/lorri/) for faster nix-shell environment
 - [Nord Theme](https://www.nordtheme.com/)
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
@@ -43,10 +42,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
-- [spotifyd](https://github.com/Spotifyd/spotifyd) Spotify Connect service
-- AI models with [Ollama](https://github.com/ollama/ollama) and [llama.cpp](https://github.com/ggml-org/llama.cpp)
-- GPT with [CoderCookE/vim-chatgpt](https://github.com/CoderCookE/vim-chatgpt)
-- Llama with [vim-llama](https://github.com/Dr4x14913/vim-llama)
+- AI models with [llama.cpp](https://github.com/ggml-org/llama.cpp)
 - AI Agent with [crush](https://github.com/charmbracelet/crush)
 
 ## Supported setups
@@ -63,19 +59,14 @@ pacman -Syu yay
 yay -Syu git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget xorg-server taffybar blueman-applet dmenu
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
-cat > /etc/lemurs/wms/xmonad <<EOF
-#!/bin/sh
-exec xmonad
-EOF
-chmod 755 /etc/lemurs/wms/xmonad
 systemctl enable --now lemurs
 ```
 
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu git docker pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep nyxt handlr spotifyd python-openai ollama-cuda llama.cpp-cuda discord enpass-bin brave-bin crush
-systemctl enable --now docker.socket
+yay -Syu git pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush
+systemctl enable --now
 ```
 
 #### Build
@@ -89,26 +80,15 @@ make
 ```bash
 nix profile install .
 systemctl --user daemon-reload
-systemctl --user enable lorri.socket
 ```
 
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-systemctl --user enable docker-cleanup.timer
 systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
-systemctl --user enable --now spotifyd.service
-systemctl --user enable --now ollama.service
-```
-
-Download the llama models in vim:
-
-```vimscript
-:VLMAPull codellama
-:VLMAPull llama3
 ```
 
 ## Customization
