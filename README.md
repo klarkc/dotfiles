@@ -60,7 +60,7 @@ Below are the supported distro setups
 ```bash
 pacman -Syu yay
 # TODO re-enable alacritty-ligature-git
-yay -Syu git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap gnome-session gnome-settings-daemon notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget gdm xorg-server taffybar blueman-applet dmenu
+yay -Syu git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap notification-daemon xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget xorg-server taffybar blueman-applet dmenu
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 ```
@@ -97,30 +97,6 @@ systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
 systemctl --user enable --now spotifyd.service
 systemctl --user enable --now ollama.service
-```
-
-Add in `/usr/share/xsessions/gnome-xmonad.desktop`:
-
-```
-[Desktop Entry]
-Name=GNOME Xmonad
-# TODO enable --systemd-service
-Exec=gnome-session --session=gnome-xmonad
-```
-
-Add in `/etc/gdm/custom.conf`:
-
-```ini
-[security]
-AllowCustomSessions=true
-```
-
-Disable Wayland in gdm config (xmonad does not support it)
-
-Add in `.bashrc_override` (replace `hackme` with your [api key](https://platform.openai.com/account/api-keys)):
-
-```bash
-export OPENAI_API_KEY="hackme"
 ```
 
 Download the llama models in vim:
