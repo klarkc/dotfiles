@@ -50,11 +50,6 @@
 # xmonad
 !/.config/xmonad
 !/.config/taffybar
-!/.config/gnome-session
-/.config/gnome-session/*
-!/.config/gnome-session/sessions
-/.config/gnome-session/sessions/*
-!/.config/gnome-session/sessions/gnome-xmonad.session
 !/.dmrc
 
 # vimb
