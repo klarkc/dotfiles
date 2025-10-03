@@ -16,6 +16,7 @@ git checkout main
 ## Features
 
 - [Lemurs](https://github.com/coastalwhite/lemurs) Window Manager
+- [Pipewire](https://pipewire.org) Sound Server
 - [Alacritty](https://github.com/alacritty/alacritty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
 - [Nord Theme](https://www.nordtheme.com/)
@@ -56,7 +57,7 @@ Below are the supported distro setups
 ```bash
 pacman -Syu yay
 # TODO re-enable alacritty-ligature-git
-yay -Syu openssh git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget xorg-server taffybar blueman-applet dmenu
+yay -Syu openssh pwucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget xorg-server taffybar blueman-applet dmenu
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
