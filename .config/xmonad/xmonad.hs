@@ -37,7 +37,6 @@ import XMonad.Actions.ShowText (flashText, handleTimerEvent)
 import XMonad.Actions.WindowGo (raise)
 import XMonad.Config (defaultConfig)
 import XMonad.Config.Desktop (desktopConfig)
-import XMonad.Config.Gnome (gnomeConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
@@ -62,9 +61,8 @@ main :: IO ()
 main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 
 myConfig =
-  gnomeConfig
-    { -- undo gnomeConfig changes
-      keys = keys desktopConfig,
+  def
+    { keys = keys desktopConfig,
       terminal = "alacritty",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
