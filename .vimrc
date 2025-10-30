@@ -85,6 +85,10 @@ endfunction
 nmap <leader>o :call OpenGithubIssue()<CR>
 
 call plug#begin('~/.vim/plugged')
+"{{ OSC 52
+Plug 'ojroques/vim-oscyank'
+"}}
+"
 "{{ Which Key
 Plug 'liuchengxu/vim-which-key'
 nnoremap <silent> <leader> :<c-u>WhichKey '<Leader>'<CR>
