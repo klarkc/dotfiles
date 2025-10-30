@@ -31,7 +31,6 @@
               direnv
               nixos-rebuild
               nodejs
-              codex
             ];
           };
         });
