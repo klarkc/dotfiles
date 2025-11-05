@@ -67,7 +67,6 @@ systemctl enable --now lemurs
 
 ```bash
 yay -Syu git pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush
-systemctl enable --now
 ```
 
 #### Build
