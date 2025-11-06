@@ -57,7 +57,7 @@ Below are the supported distro setups
 ```bash
 pacman -Syu yay
 # TODO re-enable alacritty-ligature-git
-yay -Syu openssh pwucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor xfconf picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty acrot wget xorg-server taffybar blueman-applet dmenu
+yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar blueman dmenu
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
