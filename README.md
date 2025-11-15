@@ -69,6 +69,12 @@ systemctl enable --now lemurs
 yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush
 ```
 
+> Yazi as file manager with optional deps
+```bash
+yay -Syu yazi unzip
+yay -S --asdeps ffmpeg 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
+```
+
 #### Build
 
 ```bash
