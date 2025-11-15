@@ -63,6 +63,11 @@ systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
 ```
 
+> Below dependencies are not mandatory but highly recommended
+```bash
+yay -Syu ffmpeg unzip
+```
+
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
@@ -71,8 +76,8 @@ yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep
 
 > Yazi as file manager with optional deps
 ```bash
-yay -Syu yazi unzip
-yay -S --asdeps ffmpeg 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
+yay -Syu yazi
+yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 ```
 
 #### Build
