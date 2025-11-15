@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/klarkc/dotfiles/compare/v2.0.0...v2.1.0) (2025-11-15)
+
+
+### Features
+
+* add yazi ([7cedffd](https://github.com/klarkc/dotfiles/commit/7cedffd1127c34ed4724549812cb80627b8476b6))
+
 ## [2.0.0](https://github.com/klarkc/dotfiles/compare/v1.0.0...v2.0.0) (2025-11-05)
 
 
