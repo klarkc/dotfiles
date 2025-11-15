@@ -65,7 +65,7 @@ systemctl enable --now lemurs
 
 > Below dependencies are not mandatory but highly recommended
 ```bash
-yay -Syu ffmpeg unzip
+yay -Syu ffmpeg unzip htop
 ```
 
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
