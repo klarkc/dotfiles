@@ -12,3 +12,7 @@ done
 
 # Clean old files in cache
 find ~/.cache -type f -atime +30 -not -path '*/yay/*' -delete
+find ~/.config/discord/Cache/Cache_Data -type f -atime +30 -delete
+
+# Clean build tools and artifacts
+rm -Rf ~/{go,.gradle,.npm}
