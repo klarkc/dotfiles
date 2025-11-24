@@ -31,6 +31,7 @@
               devenv
               direnv
               nixos-rebuild
+              nix-output-monitor
               nix-fast-build
               nodejs
             ];
