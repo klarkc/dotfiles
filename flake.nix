@@ -2,6 +2,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     utils.url = "github:ursi/flake-utils";
+    nix-fast-build.url = "github:Mic92/nix-fast-build";
   };
 
   outputs = { self, utils, ... }@inputs:
@@ -30,6 +31,7 @@
               devenv
               direnv
               nixos-rebuild
+              nix-fast-build
               nodejs
             ];
           };
