@@ -1,3 +1,2 @@
 #!/bin/bash
-
-snapper -c home create -d "home-cleanup" -c "number" --command home-cleanup-post
+home-cleanup-post
