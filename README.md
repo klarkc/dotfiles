@@ -71,7 +71,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush btdu
 ```
 
 > Yazi as file manager with optional deps
