@@ -10,6 +10,7 @@ echo "running docker-cleanup"
 systemctl --user start --wait docker-cleanup
 echo "running aggresive nix-cleanup"
 sudo rm /nix/var/nix/gcroots/auto/*
+devenv gc
 nix-collect-garbage -d
 rm -Rf ~/.cache/nix
 echo "running pacreport"
