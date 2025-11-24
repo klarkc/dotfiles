@@ -1,6 +1,4 @@
 #!/bin/bash
-echo "upgrading system"
-yay
 echo "running yay cleanup"
 yay -Ycc
 yay -Scc
