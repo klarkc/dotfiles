@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0](https://github.com/klarkc/dotfiles/compare/v2.0.0...v2.1.0) (2025-11-26)
+
+
+### Features
+
+* add yazi ([7cedffd](https://github.com/klarkc/dotfiles/commit/7cedffd1127c34ed4724549812cb80627b8476b6))
+* **solaar:** add xmonad solaar integration and undo xmonad mod key ([520b219](https://github.com/klarkc/dotfiles/commit/520b219d38bdf997a13b37b2c4ec0a2b7455972e))
+
+
+### Bug Fixes
+
+* **vim:** add missing sword dep for vim-biblereader ([50141fd](https://github.com/klarkc/dotfiles/commit/50141fd1a4c6132fb996a845313c16b575d6194c))
+
 ## [2.0.0](https://github.com/klarkc/dotfiles/compare/v1.0.0...v2.0.0) (2025-11-05)
 
 
