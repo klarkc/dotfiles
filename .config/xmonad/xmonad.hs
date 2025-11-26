@@ -2,14 +2,13 @@ import Graphics.X11.ExtraTypes (xF86XK_PowerDown)
 import System.Taffybar (dyreTaffybar)
 import System.Taffybar.Context (defaultTaffybarConfig)
 import System.Taffybar.SimpleConfig (defaultSimpleTaffyConfig, toTaffyConfig)
-import XMonad.Hooks.TaffybarPagerHints (pagerHints)
 import XMonad
   ( Default (def),
     Full (Full),
     Layout (Layout),
     Mirror (Mirror),
     Tall (Tall),
-    XConfig (keys, terminal),
+    XConfig (keys, modMask, terminal),
     XState (windowset),
     className,
     composeAll,
@@ -30,7 +29,7 @@ import XMonad
     (-->),
     (<+>),
     (=?),
-    (|||),
+    (|||), (.|.),
   )
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
@@ -42,6 +41,7 @@ import XMonad.Hooks.ManageDocks (avoidStruts, docks)
 import XMonad.Hooks.ManageHelpers (doFullFloat)
 import XMonad.Hooks.StatusBar ()
 import XMonad.Hooks.StatusBar.PP ()
+import XMonad.Hooks.TaffybarPagerHints (pagerHints)
 import XMonad.Layout (JumpToLayout (JumpToLayout))
 import XMonad.Layout.Decoration (ModifiedLayout (ModifiedLayout))
 import XMonad.Layout.Grid (Grid (Grid))
@@ -49,7 +49,7 @@ import XMonad.Layout.IfMax (IfMax (IfMax))
 import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.MultiToggle (single)
 import XMonad.Layout.MultiToggle.Instances (StdTransformers (FULL))
-import XMonad.Layout.Tabbed (TabbedDecoration (Tabbed), shrinkText, simpleTabbed, tabbed, tabbedLeft, tabbedRight, simpleTabbedLeft)
+import XMonad.Layout.Tabbed (TabbedDecoration (Tabbed), shrinkText, simpleTabbed, simpleTabbedLeft, tabbed, tabbedLeft, tabbedRight)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.ToggleLayouts (ToggleLayout (ToggleLayout))
 import XMonad.Operations (unGrab)
@@ -67,6 +67,7 @@ myConfig =
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
+      --modMask = controlMask, -- Ctrl
       startupHook = do
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
@@ -75,8 +76,8 @@ myConfig =
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
         spawn "blueman-applet"
-        spawn "solaar -w hidden"
-        --spawn "steam-runtime -silent"
+        spawn "solaar -w hide -b regular"
+        -- spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
