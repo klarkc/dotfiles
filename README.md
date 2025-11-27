@@ -24,6 +24,7 @@ git checkout main
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
+- [Codex](https://github.com/openai/codex)
 
 ## Machines
 
