@@ -35,6 +35,7 @@
               nix-fast-build
               nodejs
               codex
+              uv
             ];
           };
         });
