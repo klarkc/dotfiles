@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/klarkc/dotfiles/compare/v2.1.0...v2.2.0) (2025-11-29)
+
+
+### Features
+
+* **cleanup:** add devenv cleanup ([e32c01c](https://github.com/klarkc/dotfiles/commit/e32c01cc5865d69f9870dbc38b8e50fff41c8949))
+* **cleanup:** add npm clean ([2a75986](https://github.com/klarkc/dotfiles/commit/2a7598613677393f95283bdf41b07de3a8f9756f))
+* **cleanup:** remove upgrade ([a76689d](https://github.com/klarkc/dotfiles/commit/a76689df77392017b6b93cef7b853a2a2904a332))
+* **codex:** add codex ([2e934e2](https://github.com/klarkc/dotfiles/commit/2e934e24b01fd7c3c6406ef5e77f2bbce1e70de4))
+* **home-cleanup:** add more cleanups ([dafb8af](https://github.com/klarkc/dotfiles/commit/dafb8af2406aaa530ac01cbd33babb17cb4e9d2c))
+* **nix:** add nix-fast-build and upgrade flake ([13193c0](https://github.com/klarkc/dotfiles/commit/13193c02427fcd2265f58dce56824a011f15629f))
+* **nix:** add nix-output-monitor ([0084063](https://github.com/klarkc/dotfiles/commit/0084063e0600d82c545d1e6df2558b30846ca1ae))
+* **nix:** bump inputs in order to upgrade devenv ([0e2e249](https://github.com/klarkc/dotfiles/commit/0e2e249b572c3311f35787028b6881491a97f503))
+
 ## [2.1.0](https://github.com/klarkc/dotfiles/compare/v2.0.0...v2.1.0) (2025-11-26)
 
 
