@@ -241,6 +241,45 @@ map <leader>bm :call VFindInBible()<CR>
 let g:which_key_map.b.m = 'find in bible (vertically)'
 map <leader>bp :call PasteVerse()<CR>
 let g:which_key_map.b.m = 'paste verse'
+
+" Compare a verse across installed modules using diatheke
+" Adjust this list to the modules shown by `installmgr -l`
+let g:bible_compare_modules = ['ACF2007', 'PorAlmeida1911', 'KJVPCE']
+
+function! BibleCompareVersions() abort
+  let l:verse = input('Verse (e.g. Jn3:16): ')
+  if empty(l:verse)
+    echo 'No verse given'
+    return
+  endif
+
+  let l:save_sr = &splitright | set splitright
+  let l:first = 1
+  for l:m in g:bible_compare_modules
+    if l:first
+      enew
+      let l:first = 0
+    else
+      vsplit | enew
+    endif
+    setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile
+    execute 'file ' . l:verse . ' (' . l:m . ')'
+
+    let l:cmd = 'diatheke -b ' . shellescape(l:m) . ' -k ' . shellescape(l:verse)
+    let l:out = system(l:cmd)
+    call setline(1, split(l:out, "\n"))
+    normal! gg
+  endfor
+  let &splitright = l:save_sr
+
+  " sync scroll & cursor across panes
+  windo setlocal scrollbind cursorbind
+  set scrollopt=ver,hor
+endfunction
+
+" Build comparison view / toggle synced scrolling
+nnoremap <leader>bc :call BibleCompareVersions()<CR>
+nnoremap <leader>sb :windo setlocal scrollbind! cursorbind!<CR>
 "}}
 
 "{{ VimWiki
