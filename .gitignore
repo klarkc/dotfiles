@@ -15,6 +15,7 @@
 !/.Xmodmap
 !/flake.nix
 !/flake.lock
+/.profile_override
 
 # systemd
 !/.config

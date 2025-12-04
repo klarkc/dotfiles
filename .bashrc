@@ -1,5 +1,9 @@
 # ~/.bashrc
 
+# Ensure non-interactive shells spawned from this session load profile exports (tokens, etc.)
+: "${BASH_ENV:=$HOME/.profile}"
+export BASH_ENV
+
 # If not running interactively, don't do anything
 [[ $- != *i* ]] && return
 
