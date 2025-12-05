@@ -24,7 +24,6 @@ git checkout main
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
-- [Codex](https://github.com/openai/codex)
 
 ## Machines
 
@@ -45,7 +44,8 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
-- AI Agents with [crush](https://github.com/charmbracelet/crush) and [codex](https://github.com/openai/codex)
+- AI Agents with [crush](https://github.com/charmbracelet/crush), [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+
 ## Supported setups
 
 Below are the supported distro setups
@@ -71,7 +71,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-bin ollama-cuda13-bin discord enpass-bin brave-bin crush btdu
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-bin ollama-cuda13-bin discord enpass-bin brave-bin crush btdu fzf mdcat lumen
 ```
 
 > Yazi as file manager with optional deps
