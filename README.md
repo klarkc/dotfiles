@@ -44,9 +44,8 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
-- AI models with [llama.cpp](https://github.com/ggml-org/llama.cpp)
-- AI Agent with [crush](https://github.com/charmbracelet/crush)
-
+- AI models with [ollama](https://ollama.com/)
+- AI Agents with [crush](https://github.com/charmbracelet/crush) and [codex](https://github.com/openai/codex)
 ## Supported setups
 
 Below are the supported distro setups
@@ -72,7 +71,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr llama.cpp-cuda discord enpass-bin brave-bin crush btdu
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-bin ollama-cuda13-bin discord enpass-bin brave-bin crush btdu
 ```
 
 > Yazi as file manager with optional deps
