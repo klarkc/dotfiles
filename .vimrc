@@ -244,7 +244,7 @@ let g:which_key_map.b.m = 'paste verse'
 
 " Compare a verse across installed modules using diatheke
 " Adjust this list to the modules shown by `installmgr -l`
-let g:bible_compare_modules = ['ACF2007', 'PorAlmeida1911', 'KJVPCE']
+let g:bible_compare_modules = ['PorAlmeida1911', 'ACF2007', 'KJVPCE', 'PorNVA']
 
 function! BibleCompareVersions() abort
   let l:verse = input('Verse (e.g. Jn3:16): ')
