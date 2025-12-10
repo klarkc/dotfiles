@@ -1,0 +1,51 @@
+model = "gpt-5.1-codex-max"
+model_reasoning_effort = "medium"
+sandbox_mode = "workspace-write"
+profile = "solosig"
+instructions = '''
+- When running any nix or devenv commands, always request execution with with_escalated_permissions=true so the nix-daemon socket is reachable while sandbox_mode=workspace-write.
+- Running `devenv` on nix 2.30.4 always emits many `unknown setting 'lazy-trees'` warnings but the command still succeeds -> treat as noise and proceed.
+'''
+
+[profiles.subagent]
+disable_response_storage = true
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[profiles.solosig.mcp_servers.magg]
+command = "magg"
+args = ["serve"]
+
+[profiles.solosig.mcp_servers.devenv]
+command = "devenv"
+args = ["mcp"]
+
+[profiles.solosig.sandbox_workspace_write]
+network_access = true
+
+[model_providers.ollama]
+name = "Ollama"
+base_url = "http://localhost:11434/v1"
+
+[features]
+streamable_shell = true
+web_search_request = true
+apply_patch_freeform = true
+experimental_sandbox_command_assessment = true
+ghost_commit = true
+
+[shell_environment_policy]
+inherit = "all"
+
+[sandbox_workspace_write]
+writable_roots = [
+    "/run/user/1000",
+    "/nix/var",
+    "/home/klarkc/.cache"
+]
+allowed_paths = [
+    "/nix",
+    "/nix/store",
+    "/nix/var",
+    "/home/klarkc/.cache"
+]
