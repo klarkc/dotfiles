@@ -57,3 +57,13 @@
 !/.config/yay
 /.config/yay/*
 !/.config/yay/config.json
+
+# crush
+!/.config/crush
+/.config/crush/*
+!/.config/crush/crush.json
+
+# codex
+!/.codex
+/.codex/*
+!/.codex/config.toml

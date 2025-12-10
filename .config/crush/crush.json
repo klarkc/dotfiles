@@ -1,0 +1,133 @@
+{
+	"$schema": "https://charm.land/crush.json",
+  "providers": {
+    "ollama": {
+      "name": "Ollama",
+      "base_url": "http://localhost:11434/v1/",
+      "type": "openai-compat",
+      "models": [
+        {
+          "name": "Qwen 3 8B",
+          "id": "qwen3:8b",
+          "context_window": 40960,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Qwen 3 VL 8B",
+          "id": "qwen3-vl:8b",
+          "context_window": 262144,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Qwen 3 14B",
+          "id": "qwen3:14b",
+          "context_window": 40960,
+          "default_max_tokens": 20000,
+          "can_reason": false
+        },
+        {
+          "name": "Qwen 3 Coder 30B",
+          "id": "qwen3-coder:30b",
+          "context_window": 262144,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Qwen 3 MoE 16B",
+          "id": "huihui_ai/qwen3-abliterated:16b",
+          "context_window": 40960,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Qwen 2.5 Coder 14B",
+          "id": "qwen2.5-coder:14b",
+          "context_window": 32768,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Magistral 24B",
+          "id": "magistral:24b",
+          "context_window": 40000,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Mistral 22B",
+          "id": "mistral-small:22b",
+          "context_window": 131072,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Ministral 3 14B",
+          "id": "ministral-3:14b",
+          "context_window": 262144,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Devstral 24B",
+          "id": "devstral:24b",
+          "context_window": 131072,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "Cogito 14B",
+          "id": "cogito:14b",
+          "context_window": 131072,
+          "default_max_tokens": 20000
+        },
+        {
+          "name": "GPT OSS 20B",
+          "id": "gpt-oss:20b",
+          "context_window": 131072,
+          "default_max_tokens": 20000
+        }
+      ]
+    }
+	},
+	"mcp": {
+		"codex": {
+			"type": "stdio",
+			"command": "codex",
+			"args": [
+				"mcp-server",
+        "-c",
+        "sandbox_mode=workspace-write",
+        "-c",
+        "shell_environment_policy.inherit=all"
+			]
+		},
+		"magg": {
+			"type": "stdio",
+			"command": "magg",
+			"args": ["serve"]
+		}
+	},
+	"permissions": {
+		"allowed_tools": [
+			"agentic_fetch",
+			"download",
+			"fetch",
+			"glob",
+			"grep",
+			"ls",
+			"lsp_diagnostics",
+			"lsp_references",
+			"sourcegraph",
+			"view",
+      "mcp_codex_codex",
+      "mcp_magg_magg_list_servers",
+      "mcp_magg_magg_add_server",
+      "mcp_magg_magg_remove_server",
+      "mcp_magg_magg_enable_server",
+      "mcp_magg_magg_disable_serve",
+      "mcp_magg_magg_check",
+      "mcp_magg_magg_reload_config",
+      "mcp_magg_magg_list_kits",
+      "mcp_magg_magg_load_kit",
+      "mcp_magg_magg_unload_kit",
+      "mcp_magg_magg_kit_info",
+      "mcp_magg_magg_search_servers",
+      "mcp_magg_magg_analyze_servers",
+      "mcp_magg_magg_status",
+      "mcp_magg_magg_smart_configure"
+		]
+	}
+}
