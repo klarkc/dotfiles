@@ -12,6 +12,10 @@ disable_response_storage = true
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
+[profiles.solosig]
+model = "gpt-5.2-codex"
+model_reasoning_effort = "medium"
+
 [profiles.solosig.mcp_servers.magg]
 command = "magg"
 args = ["serve"]
@@ -49,3 +53,6 @@ allowed_paths = [
     "/nix/var",
     "/home/klarkc/.cache"
 ]
+
+[notice.model_migrations]
+"gpt-5.1-codex-max" = "gpt-5.2-codex"
