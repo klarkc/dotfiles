@@ -426,6 +426,7 @@ Plug 'arthurxavierx/vim-unicoder'
 "}}
 
 "{{ vim-highlighter
+let g:HiSyncMode = 0
 function! GetFilePath(file)
   let l:keywords = ".keywords"
   return "./" . l:keywords . "/" . a:file 
@@ -481,9 +482,47 @@ function! HandleBufReadPost()
   call RunIfFileIsVimWiki('LoadHi')
 endfunction
 
+function! SyncHiMatchesForBuffer()
+  if !exists('*getwininfo')
+    return
+  endif
+
+  let l:buf = bufnr('%')
+  let l:wins = filter(getwininfo(), {_, w -> w.bufnr == l:buf})
+  if len(l:wins) <= 1
+    return
+  endif
+
+  let l:source_matches = []
+  for w in l:wins
+    let l:matches = filter(getmatches(w.winid), {_, m -> m.group =~# '^HiColor'})
+    if !empty(l:matches)
+      let l:source_matches = l:matches
+      break
+    endif
+  endfor
+  if empty(l:source_matches)
+    return
+  endif
+
+  for w in l:wins
+    let l:matches = filter(getmatches(w.winid), {_, m -> m.group =~# '^HiColor'})
+    if empty(l:matches)
+      for m in l:source_matches
+        call matchadd(m.group, m.pattern, 0, -1, {'window': w.winid})
+      endfor
+    endif
+  endfor
+endfunction
+
+function! HandleWinEnter()
+  call RunIfFileIsVimWiki('SyncHiMatchesForBuffer')
+endfunction
+
 autocmd BufUnload	* call HandleBufUnload()
 autocmd BufWritePost	* call HandleBufWritePost()
 autocmd BufReadPost * call HandleBufReadPost()
+autocmd WinEnter,WinNew * call HandleWinEnter()
 Plug 'azabiong/vim-highlighter'
 let g:which_key_map.h = { 'name': '+Highlighter' }
 let g:which_key_map.h.s = 'save'
