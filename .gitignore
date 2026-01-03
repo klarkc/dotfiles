@@ -4,6 +4,7 @@
 !/.gitignore
 !/.editorconfig
 !/Makefile
+!/AGENTS.md
 !/.alacritty.toml
 !/.bashrc
 !/.bash_profile
