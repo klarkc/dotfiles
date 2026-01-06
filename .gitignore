@@ -1,12 +1,15 @@
 /*
 !/.github
 !/README.md
+!/AGENTS.md
+!/COMMIT_GUIDELINES.md
 !/.gitignore
 !/.editorconfig
 !/Makefile
 !/.alacritty.toml
 !/.bashrc
 !/.bash_profile
+!/.profile
 !/.LESS_TERMCAP
 !/.tmux.conf
 !/.vim-cheatsheet.png
