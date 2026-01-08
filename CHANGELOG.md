@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.3.0](https://github.com/klarkc/dotfiles/compare/v2.2.0...v2.3.0) (2026-01-04)
+
+
+### Features
+
+* **vim:** add multi-version bible compare ([5c9cbaa](https://github.com/klarkc/dotfiles/commit/5c9cbaad13c9dbba67a0e2544b9cd524b85b8452))
+* **vim:** add PorNVA bible ([3e620da](https://github.com/klarkc/dotfiles/commit/3e620da13495177fa4c8583d429a877ca83a2c15))
+
+
+### Bug Fixes
+
+* **vim:** keep highlights when splitting ([705d711](https://github.com/klarkc/dotfiles/commit/705d7114ad25e80ac51e53b7aa077ef349f90b4c))
+
 ## [2.2.0](https://github.com/klarkc/dotfiles/compare/v2.1.0...v2.2.0) (2025-11-29)
 
 
