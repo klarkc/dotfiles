@@ -80,6 +80,38 @@
           "default_max_tokens": 20000
         }
       ]
+    },
+    "gemini": {
+      "name": "Google Gemini",
+      "id": "gemini",
+      "type": "google",
+      "api_endpoint": "$GEMINI_API_ENDPOINT",
+      "models": [
+        {
+          "id": "gemini-3-flash-preview",
+          "name": "Gemini 3 Flash (Preview)",
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "context_window": 120000,
+          "default_max_tokens": 1024,
+          "can_reason": true,
+          "supports_attachments": true
+        },
+        {
+          "id": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "context_window": 120000,
+          "default_max_tokens": 1024,
+          "can_reason": true,
+          "supports_attachments": true
+        }
+      ]
     }
 	},
 	"mcp": {
@@ -93,11 +125,6 @@
         "-c",
         "shell_environment_policy.inherit=all"
 			]
-		},
-		"magg": {
-			"type": "stdio",
-			"command": "magg",
-			"args": ["serve"]
 		}
 	},
 	"permissions": {
@@ -112,22 +139,7 @@
 			"lsp_references",
 			"sourcegraph",
 			"view",
-      "mcp_codex_codex",
-      "mcp_magg_magg_list_servers",
-      "mcp_magg_magg_add_server",
-      "mcp_magg_magg_remove_server",
-      "mcp_magg_magg_enable_server",
-      "mcp_magg_magg_disable_serve",
-      "mcp_magg_magg_check",
-      "mcp_magg_magg_reload_config",
-      "mcp_magg_magg_list_kits",
-      "mcp_magg_magg_load_kit",
-      "mcp_magg_magg_unload_kit",
-      "mcp_magg_magg_kit_info",
-      "mcp_magg_magg_search_servers",
-      "mcp_magg_magg_analyze_servers",
-      "mcp_magg_magg_status",
-      "mcp_magg_magg_smart_configure"
+      "mcp_codex_codex"
 		]
 	}
 }
