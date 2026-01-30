@@ -7,6 +7,20 @@
       "type": "openai-compat",
       "models": [
         {
+          "name": "GLM 4.7 Flash 30B",
+          "id": "glm-4.7-flash",
+          "context_window": 168000,
+          "default_max_tokens": 4096,
+          "can_reason": true
+        },
+        {
+          "name": "Nemotron 3 Nano 30B",
+          "id": "nemotron3-nano:30b",
+          "context_window": 1000000,
+          "default_max_tokens": 4096,
+          "can_reason": true
+        },
+        {
           "name": "Qwen 3 8B",
           "id": "qwen3:8b",
           "context_window": 40960,
@@ -16,68 +30,53 @@
           "name": "Qwen 3 VL 8B",
           "id": "qwen3-vl:8b",
           "context_window": 262144,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true,
+          "supports_attachments": true
         },
         {
           "name": "Qwen 3 14B",
           "id": "qwen3:14b",
           "context_window": 40960,
-          "default_max_tokens": 20000,
-          "can_reason": false
+          "default_max_tokens": 4096,
+          "can_reason": true
         },
         {
           "name": "Qwen 3 Coder 30B",
           "id": "qwen3-coder:30b",
           "context_window": 262144,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true
         },
         {
           "name": "Qwen 3 MoE 16B",
           "id": "huihui_ai/qwen3-abliterated:16b",
           "context_window": 40960,
-          "default_max_tokens": 20000
-        },
-        {
-          "name": "Qwen 2.5 Coder 14B",
-          "id": "qwen2.5-coder:14b",
-          "context_window": 32768,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true,
+          "supports_attachments": true
         },
         {
           "name": "Magistral 24B",
           "id": "magistral:24b",
           "context_window": 40000,
-          "default_max_tokens": 20000
-        },
-        {
-          "name": "Mistral 22B",
-          "id": "mistral-small:22b",
-          "context_window": 131072,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true
         },
         {
           "name": "Ministral 3 14B",
-          "id": "ministral-3:14b",
+          "id": "TechyShishy/ministral-3:14b",
           "context_window": 262144,
-          "default_max_tokens": 20000
-        },
-        {
-          "name": "Devstral 24B",
-          "id": "devstral:24b",
-          "context_window": 131072,
-          "default_max_tokens": 20000
-        },
-        {
-          "name": "Cogito 14B",
-          "id": "cogito:14b",
-          "context_window": 131072,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true,
+          "supports_attachments": true
         },
         {
           "name": "GPT OSS 20B",
           "id": "gpt-oss:20b",
           "context_window": 131072,
-          "default_max_tokens": 20000
+          "default_max_tokens": 4096,
+          "can_reason": true
         }
       ]
     },
@@ -94,8 +93,8 @@
           "cost_per_1m_out": 0,
           "cost_per_1m_in_cached": 0,
           "cost_per_1m_out_cached": 0,
-          "context_window": 120000,
-          "default_max_tokens": 1024,
+          "context_window": 160000,
+          "default_max_tokens": 2048,
           "can_reason": true,
           "supports_attachments": true
         },
@@ -106,8 +105,8 @@
           "cost_per_1m_out": 0,
           "cost_per_1m_in_cached": 0,
           "cost_per_1m_out_cached": 0,
-          "context_window": 120000,
-          "default_max_tokens": 1024,
+          "context_window": 160000,
+          "default_max_tokens": 2048,
           "can_reason": true,
           "supports_attachments": true
         }
