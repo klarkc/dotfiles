@@ -1,118 +1,50 @@
 {
-	"$schema": "https://charm.land/crush.json",
+  "$schema": "https://charm.land/crush.json",
   "providers": {
-    "ollama": {
-      "name": "Ollama",
-      "base_url": "http://localhost:11434/v1/",
+     "vllm": {
+      "name": "vLLM",
+      "base_url": "http://34.44.181.47:8000/v1/",
       "type": "openai-compat",
       "models": [
         {
-          "name": "GLM 4.7 Flash 30B",
-          "id": "glm-4.7-flash",
-          "context_window": 168000,
-          "default_max_tokens": 4096,
-          "can_reason": true
+          "name": "Qwen3 30B",
+          "id": "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",
+          "context_window": 65024,
+          "default_max_tokens": 10000,
+          "supports_tools": true,
+          "supports_vision": false,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
         },
         {
-          "name": "Nemotron 3 Nano 30B",
-          "id": "nemotron3-nano:30b",
-          "context_window": 1000000,
-          "default_max_tokens": 4096,
-          "can_reason": true
-        },
-        {
-          "name": "Qwen 3 8B",
-          "id": "qwen3:8b",
-          "context_window": 40960,
-          "default_max_tokens": 20000
-        },
-        {
-          "name": "Qwen 3 VL 8B",
-          "id": "qwen3-vl:8b",
-          "context_window": 262144,
-          "default_max_tokens": 4096,
-          "can_reason": true,
-          "supports_attachments": true
-        },
-        {
-          "name": "Qwen 3 14B",
-          "id": "qwen3:14b",
-          "context_window": 40960,
-          "default_max_tokens": 4096,
-          "can_reason": true
-        },
-        {
-          "name": "Qwen 3 Coder 30B",
-          "id": "qwen3-coder:30b",
-          "context_window": 262144,
-          "default_max_tokens": 4096,
-          "can_reason": true
-        },
-        {
-          "name": "Qwen 3 MoE 16B",
-          "id": "huihui_ai/qwen3-abliterated:16b",
-          "context_window": 40960,
-          "default_max_tokens": 4096,
-          "can_reason": true,
-          "supports_attachments": true
-        },
-        {
-          "name": "Magistral 24B",
-          "id": "magistral:24b",
-          "context_window": 40000,
-          "default_max_tokens": 4096,
-          "can_reason": true
-        },
-        {
-          "name": "Ministral 3 14B",
-          "id": "TechyShishy/ministral-3:14b",
-          "context_window": 262144,
-          "default_max_tokens": 4096,
-          "can_reason": true,
-          "supports_attachments": true
-        },
-        {
-          "name": "GPT OSS 20B",
-          "id": "gpt-oss:20b",
-          "context_window": 131072,
-          "default_max_tokens": 4096,
-          "can_reason": true
+          "name": "GLM 4.7 Flash",
+          "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
+          "context_window": 48640,
+          "default_max_tokens": 10000,
+          "supports_tools": true,
+          "supports_vision": false,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
         }
       ]
     },
-    "gemini": {
-      "name": "Google Gemini",
-      "id": "gemini",
-      "type": "google",
-      "api_endpoint": "$GEMINI_API_ENDPOINT",
+    "openai": {
       "models": [
-        {
-          "id": "gemini-3-flash-preview",
-          "name": "Gemini 3 Flash (Preview)",
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0,
-          "context_window": 160000,
-          "default_max_tokens": 2048,
-          "can_reason": true,
-          "supports_attachments": true
+        { 
+          "name": "GPT-5.1 Codex Mini",
+          "id": "gpt-5.1-codex-mini",
+          "context_window": 98304,
+          "default_max_tokens": 1024
         },
-        {
-          "id": "gemini-2.5-flash",
-          "name": "Gemini 2.5 Flash",
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0,
-          "cost_per_1m_in_cached": 0,
-          "cost_per_1m_out_cached": 0,
-          "context_window": 160000,
-          "default_max_tokens": 2048,
-          "can_reason": true,
-          "supports_attachments": true
+        { 
+          "name": "GPT-5.2 Codex",
+          "id": "gpt-5.2-codex",
+          "context_window": 98304,
+          "default_max_tokens": 1024
         }
       ]
     }
-	},
+  },
 	"mcp": {
 		"codex": {
 			"type": "stdio",
@@ -128,17 +60,21 @@
 	},
 	"permissions": {
 		"allowed_tools": [
+      "agent",
 			"agentic_fetch",
 			"download",
 			"fetch",
 			"glob",
 			"grep",
+      "job_output",
+      "list_mcp_resources",
 			"ls",
 			"lsp_diagnostics",
 			"lsp_references",
+			"lsp_restart",
+      "read_mcp_resource",
 			"sourcegraph",
-			"view",
-      "mcp_codex_codex"
+			"view"
 		]
 	}
 }
