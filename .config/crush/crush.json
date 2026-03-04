@@ -3,7 +3,7 @@
   "providers": {
      "vllm": {
       "name": "vLLM",
-      "base_url": "http://34.56.183.113:8000/v1/",
+      "base_url": "http://34.173.137.82:8000/v1/",
       "type": "openai-compat",
       "models": [
         {
@@ -19,7 +19,7 @@
         {
           "name": "GLM 4.7 Flash",
           "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
-          "context_window": 48640,
+          "context_window": 48128,
           "default_max_tokens": 2048,
           "supports_tools": true,
           "supports_vision": false,
