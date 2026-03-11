@@ -15,8 +15,7 @@
            "context_window": 130048,
            "default_max_tokens": 2048,
            "cost_per_1m_in": 0,
-           "cost_per_1m_out": 0,
-           "supports_attachments": true
+           "cost_per_1m_out": 0
          }
        ]
      },
