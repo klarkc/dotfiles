@@ -1,38 +1,65 @@
 {
   "$schema": "https://charm.land/crush.json",
+  "options": {
+    "debug": true
+  },
   "providers": {
      "vllm": {
-      "name": "vLLM",
-      "base_url": "http://34.173.137.82:8000/v1/",
+       "name": "vLLM",
+       "base_url": "http://localhost:8000/v1/",
+       "type": "openai-compat",
+       "models": [
+         {
+           "name": "Qwen3.5 9B",
+           "id": "cyankiwi/Qwen3.5-9B-AWQ-4bit",
+           "context_window": 130048,
+           "default_max_tokens": 2048,
+           "cost_per_1m_in": 0,
+           "cost_per_1m_out": 0,
+           "supports_attachments": true
+         }
+       ]
+     },
+     "vllm_cloud": {
+      "name": "vLLM Cloud",
+      "base_url": "http://34.60.234.157:8000/v1/",
       "type": "openai-compat",
       "models": [
         {
-          "name": "Qwen3 30B A3B",
-          "id": "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",
-          "context_window": 64512,
+          "name": "GLM 4.7 Flash",
+          "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
+          "context_window": 48128,
           "default_max_tokens": 2048,
-          "supports_tools": true,
-          "supports_vision": false,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "options": {
+            "properties": {
+              "temperature": 0.7,
+              "top_p": 1.0
+            }
+          }
+        },
+        {
+          "name": "Qwen3.5 35B A3B",
+          "id": "cyankiwi/Qwen3.5-35B-AWQ-4bit",
+          "context_window": 44560,
+          "default_max_tokens": 2048,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         },
         {
           "name": "Qwen3.5 27B",
           "id": "cyankiwi/Qwen3.5-27B-AWQ-4bit",
-          "context_window": 64512,
+          "context_window": 130048,
           "default_max_tokens": 2048,
-          "supports_tools": true,
-          "supports_vision": false,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         },
         {
-          "name": "GLM 4.7 Flash",
-          "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
-          "context_window": 48128,
+          "name": "Qwen3 30B A3B",
+          "id": "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",
+          "context_window": 44560,
           "default_max_tokens": 2048,
-          "supports_tools": true,
-          "supports_vision": false,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         }
