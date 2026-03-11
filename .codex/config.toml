@@ -13,7 +13,7 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
 [profiles.solosig]
-model = "gpt-5.1-codex-mini"
+model = "gpt-5.2-codex"
 model_reasoning_effort = "medium"
 
 [profiles.solosig.mcp_servers.devenv]
