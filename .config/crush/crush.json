@@ -13,7 +13,7 @@
            "name": "Qwen3.5 9B",
            "id": "cyankiwi/Qwen3.5-9B-AWQ-4bit",
            "context_window": 130048,
-           "default_max_tokens": 2048,
+           "default_max_tokens": 4096,
            "cost_per_1m_in": 0,
            "cost_per_1m_out": 0
          }
@@ -21,14 +21,14 @@
      },
      "vllm_cloud": {
       "name": "vLLM Cloud",
-      "base_url": "http://34.60.234.157:8000/v1/",
+      "base_url": "http://35.212.10.154:8000/v1/",
       "type": "openai-compat",
       "models": [
         {
           "name": "GLM 4.7 Flash",
           "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
           "context_window": 48128,
-          "default_max_tokens": 2048,
+          "default_max_tokens": 4096,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0,
           "options": {
@@ -42,7 +42,7 @@
           "name": "Qwen3.5 35B A3B",
           "id": "cyankiwi/Qwen3.5-35B-AWQ-4bit",
           "context_window": 44560,
-          "default_max_tokens": 2048,
+          "default_max_tokens": 4096,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         },
@@ -50,7 +50,7 @@
           "name": "Qwen3.5 27B",
           "id": "cyankiwi/Qwen3.5-27B-AWQ-4bit",
           "context_window": 130048,
-          "default_max_tokens": 2048,
+          "default_max_tokens": 4096,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         },
@@ -58,7 +58,7 @@
           "name": "Qwen3 30B A3B",
           "id": "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",
           "context_window": 44560,
-          "default_max_tokens": 2048,
+          "default_max_tokens": 4096,
           "cost_per_1m_in": 0,
           "cost_per_1m_out": 0
         }
