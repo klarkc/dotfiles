@@ -28,7 +28,6 @@
                 mkdir -p $out/etc/profile.d
                 cp ${nixProfile} $out/etc/profile.d/nix.sh 
               '')
-              devenv
               direnv
               nixos-rebuild
               nix-output-monitor
