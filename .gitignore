@@ -57,3 +57,8 @@
 !/.config/yay
 /.config/yay/*
 !/.config/yay/config.json
+
+# zeroclaw
+!/.zeroclaw
+/.zeroclaw/*
+!/.zeroclaw/config.toml
