@@ -62,3 +62,9 @@
 !/.zeroclaw
 /.zeroclaw/*
 !/.zeroclaw/config.toml
+
+# crush
+!/.config/crush
+/.config/crush/*
+!/.config/crush/crush.json
+
