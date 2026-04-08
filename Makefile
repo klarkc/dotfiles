@@ -63,6 +63,7 @@ npm.Config:
 	npm config set prefix "${HOME}/.npm-packages"
 
 .local/share/applications/xmonad.desktop:
+	mkdir -p .local/share/applications
 	ln -s /usr/share/xsessions/xmonad.desktop $@
 
 .PHONY: xmonad.Config
