@@ -4,6 +4,7 @@ ICONS=.icons
 all: xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config nix.Profile
 
 .themes/Nordic:
+	mkdir -p .themes
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
 	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
 	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
@@ -23,7 +24,7 @@ $(ICONS)/Papirus:
 	cd .papirus-nord && (yes "N" | ./install) && (./papirus-folders -C polarnight1 --theme Papirus-Dark)
 	-rm -r .papirus-nord
 	gsettings set org.gnome.desktop.interface icon-theme "Papirus-Dark"
-	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark --create
+	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark -t string --create
 
 .PHONY: $(ICONS)/Papirus/clean
 $(ICONS)/Papirus/clean:
