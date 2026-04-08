@@ -1,0 +1,71 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+     "vllm_cloud": {
+      "name": "vLLM Cloud",
+      "base_url": "http://35.212.158.193:8000/v1/",
+      "type": "openai-compat",
+      "models": [
+        {
+          "name": "GLM 4.7 Flash",
+          "id": "TheHouseOfTheDude/GLM-4.7-Flash_AWQ",
+          "context_window": 48128,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "options": {
+            "properties": {
+              "temperature": 0.7,
+              "top_p": 1.0
+            }
+          }
+        },
+        {
+          "name": "Qwen3.5 35B A3B",
+          "id": "cyankiwi/Qwen3.5-35B-AWQ-4bit",
+          "context_window": 44560,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        },
+        {
+          "name": "Qwen3.5 27B",
+          "id": "cyankiwi/Qwen3.5-27B-AWQ-4bit",
+          "context_window": 130048,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        },
+        {
+          "name": "Qwen3 30B A3B",
+          "id": "cyankiwi/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",
+          "context_window": 44560,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        }
+      ]
+    }
+  },
+	"permissions": {
+		"allowed_tools": [
+      "agent",
+			"agentic_fetch",
+			"download",
+			"fetch",
+			"glob",
+			"grep",
+      "job_output",
+      "list_mcp_resources",
+			"ls",
+			"lsp_diagnostics",
+			"lsp_references",
+			"lsp_restart",
+      "read_mcp_resource",
+			"sourcegraph",
+			"view",
+			"crush_info",
+			"crush_logs"
+		]
+	}
+}
