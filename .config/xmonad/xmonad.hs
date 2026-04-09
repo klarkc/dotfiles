@@ -1,4 +1,5 @@
 import Graphics.X11.ExtraTypes (xF86XK_PowerDown)
+import System.Exit (exitSuccess)
 import System.Taffybar (dyreTaffybar)
 import System.Taffybar.Context (defaultTaffybarConfig)
 import System.Taffybar.SimpleConfig (defaultSimpleTaffyConfig, toTaffyConfig)
@@ -22,6 +23,7 @@ import XMonad
     liftX,
     manageHook,
     normalBorderColor,
+    restart,
     sendMessage,
     spawn,
     startupHook,
@@ -80,14 +82,15 @@ myConfig =
         spawn "solaar -w hide -b regular"
         -- spawn "steam-runtime -silent"
     }
-    `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
+    `additionalKeysP` [ ("M-q", restart "xmonad" True),
+                        ("M-S-q", io exitSuccess),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
                         ("M-s", runSteam),
                         ("<XF86PowerOff>", spawn "systemctl suspend"),
-                        ("<XF86AudioRaiseVolume>", spawn "pamixer sset Master 10%+"),
-                        ("<XF86AudioLowerVolume>", spawn "pamixer sset Master 10%-"),
-                        ("<XF86AudioMute>", spawn "pamixer sset Master toggle"),
+                        ("<XF86AudioRaiseVolume>", spawn "wpctl set-volume @DEFAULT_AUDIO_SINK@ 10%+"),
+                        ("<XF86AudioLowerVolume>", spawn "wpctl set-volume @DEFAULT_AUDIO_SINK@ 10%-"),
+                        ("<XF86AudioMute>", spawn "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),
                         ("<XF86MonBrightnessUp>", spawn "brightnessctl set +10%"),
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-")
                       ]
