@@ -94,6 +94,32 @@ nix profile install .
 systemctl --user daemon-reload
 ```
 
+#### Keyboard layout
+
+For Arch Linux TTYs, set `/etc/vconsole.conf`:
+
+```bash
+sudoedit /etc/vconsole.conf
+```
+
+```ini
+KEYMAP=br-abnt2
+```
+
+Apply it with a reboot or:
+
+```bash
+sudo systemctl restart systemd-vconsole-setup
+```
+
+If the initramfs/early boot prompt should also use `br-abnt2`, ensure the `keymap` hook is enabled in `/etc/mkinitcpio.conf` and rebuild:
+
+```bash
+sudo mkinitcpio -P
+```
+
+X11 does not inherit `vconsole.conf`. In this setup, the X11 layout is applied from [`.config/xmonad/xmonad.hs`](/home/klarkc/.config/xmonad/xmonad.hs).
+
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash

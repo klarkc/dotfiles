@@ -69,6 +69,7 @@ myConfig =
       focusedBorderColor = "#5E81AC",
       --modMask = controlMask, -- Ctrl
       startupHook = do
+        spawn "setxkbmap -model abnt2 -layout br -variant abnt2"
         spawn "xsetroot -cursor_name left_ptr"
         spawn "taffybar"
         spawn "picom"
