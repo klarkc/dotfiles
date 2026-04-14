@@ -2,7 +2,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     utils.url = "github:ursi/flake-utils";
-    nix-fast-build.url = "github:Mic92/nix-fast-build";
   };
 
   outputs = { self, utils, ... }@inputs:
@@ -29,11 +28,7 @@
                 cp ${nixProfile} $out/etc/profile.d/nix.sh 
               '')
               direnv
-              nixos-rebuild
-              nix-output-monitor
-              nix-fast-build
-              nodejs
-              codex
+	      nodejs
             ];
           };
         });

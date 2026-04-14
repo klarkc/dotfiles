@@ -62,6 +62,7 @@ yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-als
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
+systemctl enable --now bluetooth
 ```
 
 > Below dependencies are not mandatory but highly recommended
