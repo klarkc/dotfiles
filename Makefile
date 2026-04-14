@@ -8,7 +8,7 @@ all: xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Pap
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
 	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
 	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
-	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic"
+	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic" --create
 
 .PHONY: .themes/Nordic/clean
 .themes/Nordic/clean:
