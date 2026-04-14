@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.4.0](https://github.com/klarkc/dotfiles/compare/v2.3.0...v2.4.0) (2026-04-14)
+
+
+### Features
+
+* **crush:** add config ([1038d36](https://github.com/klarkc/dotfiles/commit/1038d3620a39a9a379016ad8089f6d015c3216ef))
+* **crush:** add config ([85a39ae](https://github.com/klarkc/dotfiles/commit/85a39aecff2468251fe3d85054af42a814ea4782))
+* **nix:** remove devenv from flake ([d8c1d31](https://github.com/klarkc/dotfiles/commit/d8c1d314d4820d8f91007cd7c938d8106428f312))
+* **zeroclaw:** add config ([48f5901](https://github.com/klarkc/dotfiles/commit/48f59017c9567620bf846204ae760fdbb7ae03e7))
+* **zeroclaw:** add config ([f10c459](https://github.com/klarkc/dotfiles/commit/f10c4596555e278777b869a662f10ee004114a88))
+
+
+### Bug Fixes
+
+* broken make ([90301f1](https://github.com/klarkc/dotfiles/commit/90301f17019bcbeb959052f0b3b3b8028db04bbc))
+* build failure ([a7a3021](https://github.com/klarkc/dotfiles/commit/a7a302194e9536b94a43e4cd230c5dcb7476b7e2))
+* **crush:** context size ([720010c](https://github.com/klarkc/dotfiles/commit/720010c1e5850a141aefea6bb31d800e9c24cf1c))
+* **make:** missing flag ([2ffef0b](https://github.com/klarkc/dotfiles/commit/2ffef0bda5b7d6362800817935324049c278abd8))
+* **xmonad:** apply br-abnt2 layout on startup ([f7fd3d4](https://github.com/klarkc/dotfiles/commit/f7fd3d45f1313557ac815e23dd4f7bc3ed1a3b94))
+* **xmonad:** restore volume and session keybindings ([149dbe5](https://github.com/klarkc/dotfiles/commit/149dbe5e7796d164f653150a0f07231b3add52a2))
+* **zeroclaw:** increase summary timeout ([e05f0ff](https://github.com/klarkc/dotfiles/commit/e05f0ff31b41396e4a9312a1b5f8668df7080f95))
+* **zeroclaw:** service config ([1be652a](https://github.com/klarkc/dotfiles/commit/1be652a7440871ef7e8b328b403de1411b73b32b))
+* **zeroclaw:** service config ([35b7766](https://github.com/klarkc/dotfiles/commit/35b776698399368a9f8db6acd742b2d49c15def8))
+
 ## [2.3.0](https://github.com/klarkc/dotfiles/compare/v2.2.0...v2.3.0) (2026-01-04)
 
 
