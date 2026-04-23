@@ -51,6 +51,7 @@
                 MIN_RELIABILITY="''${MIN_RELIABILITY:-0.985}"
                 LABEL="''${LABEL:-qwen36-27b-fp8-48k}"
                 MAX_MODEL_LEN="''${MAX_MODEL_LEN:-49152}"
+                DRY_RUN="''${DRY_RUN:-0}"
 
                 usage() {
                   cat <<EOF
@@ -77,6 +78,7 @@ Market controls:
 
 Misc:
   --label STRING             Instance label (default: $LABEL)
+  --dry-run                  Show candidate but don't create instance
   -h, --help                 Show this help
 EOF
                 }
@@ -95,6 +97,7 @@ EOF
                     --bid-price) BID_PRICE="$2"; shift 2 ;;
                     --min-reliability) MIN_RELIABILITY="$2"; shift 2 ;;
                     --label) LABEL="$2"; shift 2 ;;
+                    --dry-run) DRY_RUN=1; shift ;;
                     -h|--help) usage; exit 0 ;;
                     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
                   esac
@@ -195,7 +198,7 @@ EOF
 
                 count="$(jq 'length' "$TMPDIR/candidates.json")"
                 if [[ "$count" -eq 0 ]]; then
-                  echo "No offers found within max price $"$MAX_PRICE"."
+                  echo "No offers found within max price $''${MAX_PRICE}."
                   echo "Try increasing --max-price."
                   exit 1
                 fi
@@ -231,6 +234,11 @@ EOF
                   echo "  volume      : disabled"
                 fi
                 echo
+
+                if [[ "$DRY_RUN" = "1" ]]; then
+                  echo "Dry run mode - no instance will be created."
+                  exit 0
+                fi
 
                 read -r -p "Create this instance? [Y/n] " reply
                 reply="''${reply:-Y}"
@@ -271,19 +279,19 @@ EOF
                   fi
                 fi
 
-                ONSTART_SCRIPT="$(cat <<EOF
+                ONSTART_SCRIPT="$(cat <<'EOF'
 set -euxo pipefail
-mkdir -p ${MOUNT_PATH}/hf
-export HF_HOME=${MOUNT_PATH}/hf
-export HUGGINGFACE_HUB_CACHE=${MOUNT_PATH}/hf
+mkdir -p ''${MOUNT_PATH}/hf
+export HF_HOME=''${MOUNT_PATH}/hf
+export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
 python3 -m vllm.entrypoints.openai.api_server \
-  --model ${MODEL} \
+  --model ''${MODEL} \
   --trust-remote-code \
   --dtype auto \
   --tensor-parallel-size 1 \
-  --max-model-len ${MAX_MODEL_LEN} \
+  --max-model-len ''${MAX_MODEL_LEN} \
   --gpu-memory-utilization 0.94 \
   --max-num-seqs 1 \
   --max-num-batched-tokens 2048 \
@@ -296,7 +304,7 @@ python3 -m vllm.entrypoints.openai.api_server \
   --port 8000
 EOF
 )"
-                ENV_STRING="-e HF_HOME=${MOUNT_PATH}/hf -e HUGGINGFACE_HUB_CACHE=${MOUNT_PATH}/hf -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True -e OMP_NUM_THREADS=4"
+                ENV_STRING="-e HF_HOME=''${MOUNT_PATH}/hf -e HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True -e OMP_NUM_THREADS=4"
                 if [[ -n "''${HF_TOKEN:-}" ]]; then
                   ENV_STRING="$ENV_STRING -e HF_TOKEN=''${HF_TOKEN}"
                 fi
