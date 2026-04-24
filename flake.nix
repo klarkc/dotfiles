@@ -47,6 +47,7 @@
                 MAX_PRICE="''${MAX_PRICE:-0.35}"
                 BID_PRICE="''${BID_PRICE:-0.33}"
                 MIN_RELIABILITY="''${MIN_RELIABILITY:-0.985}"
+                PREFERRED_RELIABILITY="''${PREFERRED_RELIABILITY:-0.99}"
                 LABEL="''${LABEL:-qwen36-27b-fp8-48k}"
                 MAX_MODEL_LEN="''${MAX_MODEL_LEN:-49152}"
                 DRY_RUN="''${DRY_RUN:-0}"
@@ -73,6 +74,7 @@ Market controls:
   --max-price FLOAT          Max hourly offer to consider (default: $MAX_PRICE)
   --bid-price FLOAT          Interruptible bid price (default: $BID_PRICE)
   --min-reliability FLOAT    Min reliability, e.g. 0.985 (default: $MIN_RELIABILITY)
+  --preferred-reliability FLOAT  Prefer offers at or above this reliability when available (default: $PREFERRED_RELIABILITY)
 
 Misc:
   --label STRING             Instance label (default: $LABEL)
@@ -94,6 +96,7 @@ EOF
                     --max-price) MAX_PRICE="$2"; shift 2 ;;
                     --bid-price) BID_PRICE="$2"; shift 2 ;;
                     --min-reliability) MIN_RELIABILITY="$2"; shift 2 ;;
+                    --preferred-reliability) PREFERRED_RELIABILITY="$2"; shift 2 ;;
                     --label) LABEL="$2"; shift 2 ;;
                     --dry-run) DRY_RUN=1; shift ;;
                     -h|--help) usage; exit 0 ;;
@@ -189,9 +192,23 @@ EOF
                   exit 1
                 fi
 
-                jq -s --argjson max_price "$MAX_PRICE" '
+                jq -s --argjson max_price "$MAX_PRICE" --argjson preferred_reliability "$PREFERRED_RELIABILITY" '
+                  def loc_tier:
+                    (.geolocation | ascii_downcase) as $loc
+                    | if ($loc | test("brazil|brasil|sao paulo|rio de janeiro|curitiba|porto alegre|belo horizonte|br$")) then 0
+                      elif ($loc | test("argentina|chile|uruguay|paraguay|peru|colombia")) then 1
+                      elif ($loc | test("miami|florida|virginia|north carolina|south carolina|georgia|texas|illinois|california|washington|oregon|new york|pennsylvania|us|united states")) then 2
+                      elif ($loc | test("portugal|spain|france|netherlands|germany|italy|uk|united kingdom")) then 3
+                      elif ($loc | length) > 0 then 4
+                      else 5
+                      end;
+
+                  def rel_tier:
+                    if .reliability >= $preferred_reliability then 0 else 1 end;
+
                   map(select(.dph <= $max_price))
-                  | sort_by(.rank, .dph, -.dlperf, -.reliability)
+                  | map(. + { loc_tier: loc_tier, rel_tier: rel_tier })
+                  | sort_by(.rank, .rel_tier, .loc_tier, .dph, -.dlperf, -.reliability)
                 ' "$TMPDIR/all.jsonl" > "$TMPDIR/candidates.json"
 
                 count="$(jq 'length' "$TMPDIR/candidates.json")"
@@ -205,7 +222,7 @@ EOF
                 echo "Top candidates:"
                 jq -r '
                   .[:5][] |
-                  "  ask_id=\(.ask_id)  gpu=\(.gpu_name)  $/h=\(.dph)  rel=\(.reliability)  dlperf=\(.dlperf)  loc=\(.geolocation)"
+                  "  ask_id=\(.ask_id)  gpu=\(.gpu_name)  $/h=\(.dph)  rel=\(.reliability)  loc-tier=\(.loc_tier)  dlperf=\(.dlperf)  loc=\(.geolocation)"
                 ' "$TMPDIR/candidates.json"
                 echo
 
@@ -277,7 +294,7 @@ EOF
                   fi
                 fi
 
-ONSTART_SCRIPT="$(cat <<EOF
+                ONSTART_SCRIPT="$(cat <<EOF
 set -euxo pipefail
 mkdir -p ''${MOUNT_PATH}/hf
 export HF_HOME=''${MOUNT_PATH}/hf
