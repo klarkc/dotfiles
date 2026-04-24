@@ -20,6 +20,11 @@
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
 
+          mkApp = program: {
+            type = "app";
+            inherit program;
+          };
+
           ntm = pkgs.writeShellApplication {
             name = "ntm";
             runtimeInputs = with pkgs; [ git go ];
@@ -225,11 +230,11 @@ EOF
           };
 
           apps = {
-            ntm.program = "${ntm}/bin/ntm";
-            zeroclaw.program = "${zeroclaw}/bin/zeroclaw";
-            crush-agent.program = "${crush-agent}/bin/crush-agent";
-            ntm-crush.program = "${ntm-crush}/bin/ntm-crush";
-            zeroclaw-ntm-foreman.program = "${zeroclaw-ntm-foreman}/bin/zeroclaw-ntm-foreman";
+            ntm = mkApp "${ntm}/bin/ntm";
+            zeroclaw = mkApp "${zeroclaw}/bin/zeroclaw";
+            crush-agent = mkApp "${crush-agent}/bin/crush-agent";
+            ntm-crush = mkApp "${ntm-crush}/bin/ntm-crush";
+            zeroclaw-ntm-foreman = mkApp "${zeroclaw-ntm-foreman}/bin/zeroclaw-ntm-foreman";
           };
 
           devShells.default = pkgs.mkShell {
