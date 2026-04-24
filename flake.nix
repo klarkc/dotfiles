@@ -33,6 +33,8 @@
                 #!/usr/bin/env bash
                 set -euo pipefail
 
+                # Keep numeric parsing/formatting stable across locales.
+                export LC_NUMERIC=C
                 export PATH="$HOME/.local/bin:$PATH"
 
                 VASTAI_VERSION="''${VASTAI_VERSION:-1.0.3}"
@@ -146,6 +148,10 @@ EOF
                     rows
                     | map({
                         ask_id: (.id // .ask_id // .instance_id // .offer_id),
+                        machine_id: (.machine_id // .machine // null),
+                        host_id: (.host_id // null),
+                        avail_vol_ask_id: (.avail_vol_ask_id // null),
+                        avail_vol_size: ((.avail_vol_size // 0) | tonumber),
                         gpu_name: (.gpu_name // .gpu_name_display // $gpu),
                         dph: ((.dph_total // .dph_base // .dph // .discounted_dph_total // 999999) | tonumber),
                         reliability: ((.reliability2 // .reliability // 0) | tonumber),
@@ -157,7 +163,7 @@ EOF
                         num_gpus: ((.num_gpus // 1) | tonumber),
                         gpu_ram: ((.gpu_ram // .gpu_mem // 0) | tonumber)
                     })
-                    | map(select(.ask_id != null))
+                    | map(select(.ask_id != null and .machine_id != null))
                   '
                 }
 
@@ -192,7 +198,49 @@ EOF
                   exit 1
                 fi
 
-                jq -s --argjson max_price "$MAX_PRICE" --argjson preferred_reliability "$PREFERRED_RELIABILITY" '
+                jq -s '.' "$TMPDIR/all.jsonl" > "$TMPDIR/offers.json"
+
+                if [[ "$USE_VOLUME" = "1" ]]; then
+                  echo "Searching compatible volume offers..."
+                  if ! vastai search volumes --raw "disk_space>=$VOLUME_SIZE_GB" > "$TMPDIR/volumes.raw.json" 2>/dev/null; then
+                    echo "Volume search failed."
+                    exit 1
+                  fi
+
+                  jq '
+                    def rows:
+                      if type == "array" then .
+                      elif has("offers") then .offers
+                      elif has("results") then .results
+                      else [] end;
+
+                    rows
+                    | map({
+                        volume_offer_id: (.id // .ask_contract_id // .volume_id),
+                        machine_id: (.machine_id // .machine // null),
+                        host_id: (.host_id // null),
+                        geolocation: (.geolocation // ""),
+                        reliability: ((.reliability2 // .reliability // 0) | tonumber),
+                        storage_total_cost: ((.storage_total_cost // 0) | tonumber),
+                        disk_space: ((.disk_space // 0) | tonumber)
+                    })
+                    | map(select(.volume_offer_id != null and .machine_id != null))
+                  ' "$TMPDIR/volumes.raw.json" > "$TMPDIR/volumes.json"
+
+                  if [[ "$(jq 'length' "$TMPDIR/volumes.json")" -eq 0 ]]; then
+                    echo "No compatible volume offers were returned by Vast."
+                    exit 1
+                  fi
+                else
+                  echo '[]' > "$TMPDIR/volumes.json"
+                fi
+
+                jq -n \
+                  --slurpfile offers "$TMPDIR/offers.json" \
+                  --slurpfile volumes "$TMPDIR/volumes.json" \
+                  --argjson max_price "$MAX_PRICE" \
+                  --argjson preferred_reliability "$PREFERRED_RELIABILITY" \
+                  --argjson require_volume "$USE_VOLUME" '
                   def loc_tier:
                     (.geolocation | ascii_downcase) as $loc
                     | if ($loc | test("brazil|brasil|sao paulo|rio de janeiro|curitiba|porto alegre|belo horizonte|br$")) then 0
@@ -203,18 +251,43 @@ EOF
                       else 5
                       end;
 
-                  def rel_tier:
-                    if .reliability >= $preferred_reliability then 0 else 1 end;
+                  def rel_tier($preferred):
+                    if .reliability >= $preferred then 0 else 1 end;
 
-                  map(select(.dph <= $max_price))
-                  | map(. + { loc_tier: loc_tier, rel_tier: rel_tier })
-                  | sort_by(.rank, .rel_tier, .loc_tier, .dph, -.dlperf, -.reliability)
-                ' "$TMPDIR/all.jsonl" > "$TMPDIR/candidates.json"
+                  ($offers[0]) as $offer_list
+                  | ($volumes[0]) as $volume_list
+                  | $offer_list
+                  | map(select(.dph <= $max_price))
+                  | map(
+                      . as $offer
+                      | ($volume_list
+                          | map(select(.machine_id == $offer.machine_id))
+                          | sort_by(.storage_total_cost, -.reliability)
+                          | .[0]
+                        ) as $volume
+                      | . + {
+                          loc_tier: loc_tier,
+                          rel_tier: rel_tier($preferred_reliability),
+                          volume_offer_id: ($volume.volume_offer_id // .avail_vol_ask_id // null),
+                          volume_cost: ($volume.storage_total_cost // 0),
+                          volume_reliability: ($volume.reliability // null),
+                          total_hourly_cost: (.dph + ($volume.storage_total_cost // 0))
+                        }
+                    )
+                  | if ($require_volume == 1 or $require_volume == "1")
+                    then map(select(.volume_offer_id != null))
+                    else .
+                    end
+                  | sort_by(.rank, .rel_tier, .loc_tier, .total_hourly_cost, -.dlperf, -.reliability)
+                ' > "$TMPDIR/candidates.json"
 
                 count="$(jq 'length' "$TMPDIR/candidates.json")"
                 if [[ "$count" -eq 0 ]]; then
-                  echo "No offers found within max price $MAX_PRICE."
-                  echo "Try increasing --max-price."
+                  if [[ "$USE_VOLUME" = "1" ]]; then
+                    echo "No offers found within price/reliability constraints that also have a same-machine volume."
+                  else
+                    echo "No offers found within max price $MAX_PRICE."
+                  fi
                   exit 1
                 fi
 
@@ -222,31 +295,57 @@ EOF
                 echo "Top candidates:"
                 jq -r '
                   .[:5][] |
-                  "  ask_id=\(.ask_id)  gpu=\(.gpu_name)  $/h=\(.dph)  rel=\(.reliability)  loc-tier=\(.loc_tier)  dlperf=\(.dlperf)  loc=\(.geolocation)"
-                ' "$TMPDIR/candidates.json"
+                  [
+                    .ask_id,
+                    (.volume_offer_id // ""),
+                    .gpu_name,
+                    .dph,
+                    .volume_cost,
+                    .total_hourly_cost,
+                    .reliability,
+                    .loc_tier,
+                    .dlperf,
+                    .geolocation
+                  ] | @tsv
+                ' "$TMPDIR/candidates.json" | while IFS=$'\t' read -r ask_id vol_id gpu_name dph volume_cost total_hourly_cost reliability loc_tier dlperf geolocation; do
+                  printf '  ask_id=%s  vol_id=%s  gpu=%s  inst=$/h:%.6f  vol=$/h:%.6f  total=$/h:%.6f  rel=%s  loc-tier=%s  dlperf=%s  loc=%s\n' \
+                    "$ask_id" "$vol_id" "$gpu_name" "$dph" "$volume_cost" "$total_hourly_cost" "$reliability" "$loc_tier" "$dlperf" "$geolocation"
+                done
                 echo
 
                 BEST_ASK_ID="$(jq -r '.[0].ask_id' "$TMPDIR/candidates.json")"
+                BEST_MACHINE_ID="$(jq -r '.[0].machine_id' "$TMPDIR/candidates.json")"
                 BEST_GPU="$(jq -r '.[0].gpu_name' "$TMPDIR/candidates.json")"
                 BEST_DPH="$(jq -r '.[0].dph' "$TMPDIR/candidates.json")"
                 BEST_REL="$(jq -r '.[0].reliability' "$TMPDIR/candidates.json")"
                 BEST_LOC="$(jq -r '.[0].geolocation' "$TMPDIR/candidates.json")"
+                BEST_VOLUME_OFFER_ID="$(jq -r '.[0].volume_offer_id // empty' "$TMPDIR/candidates.json")"
+                BEST_VOLUME_COST="$(jq -r '.[0].volume_cost // 0' "$TMPDIR/candidates.json")"
+                BEST_TOTAL_COST="$(jq -r '.[0].total_hourly_cost // .[0].dph' "$TMPDIR/candidates.json")"
 
                 echo "Selected:"
-                echo "  ask_id      : $BEST_ASK_ID"
-                echo "  gpu         : $BEST_GPU"
-                echo "  offer $/h   : $BEST_DPH"
-                echo "  bid $/h     : $BID_PRICE"
-                echo "  reliability : $BEST_REL"
-                echo "  location    : $BEST_LOC"
-                echo "  image       : $IMAGE"
-                echo "  model       : $MODEL"
-                echo "  max context : $MAX_MODEL_LEN"
-                echo "  disk        : $DISK_GB GB"
+                printf '  ask_id        : %s\n' "$BEST_ASK_ID"
+                printf '  machine_id    : %s\n' "$BEST_MACHINE_ID"
+                printf '  gpu           : %s\n' "$BEST_GPU"
+                printf '  instance $/h  : %.6f\n' "$BEST_DPH"
                 if [[ "$USE_VOLUME" = "1" ]]; then
-                  echo "  volume      : $VOLUME_SIZE_GB GB at $MOUNT_PATH"
+                  printf '  volume offer  : %s\n' "$BEST_VOLUME_OFFER_ID"
+                  printf '  volume $/h    : %.6f\n' "$BEST_VOLUME_COST"
+                  printf '  total $/h     : %.6f\n' "$BEST_TOTAL_COST"
                 else
-                  echo "  volume      : disabled"
+                  printf '  total $/h     : %.6f\n' "$BEST_DPH"
+                fi
+                printf '  bid $/h       : %.6f\n' "$BID_PRICE"
+                printf '  reliability   : %.6f\n' "$BEST_REL"
+                printf '  location      : %s\n' "$BEST_LOC"
+                printf '  image         : %s\n' "$IMAGE"
+                printf '  model         : %s\n' "$MODEL"
+                printf '  max context   : %s\n' "$MAX_MODEL_LEN"
+                printf '  disk          : %s GB\n' "$DISK_GB"
+                if [[ "$USE_VOLUME" = "1" ]]; then
+                  printf '  volume        : %s GB at %s\n' "$VOLUME_SIZE_GB" "$MOUNT_PATH"
+                else
+                  printf '  volume        : disabled\n'
                 fi
                 echo
 
@@ -264,34 +363,16 @@ EOF
 
                 VOLUME_ARGS=()
                 if [[ "$USE_VOLUME" = "1" ]]; then
-                  echo "Searching for a compatible local volume offer..."
-                  if vastai search volumes --raw "disk_space>=$VOLUME_SIZE_GB" > "$TMPDIR/volumes.raw.json" 2>/dev/null; then
-                    VOLUME_ID="$({
-                      jq -r '
-                        def rows:
-                          if type == "array" then .
-                          elif has("offers") then .offers
-                          elif has("results") then .results
-                          else [] end;
-                        rows
-                        | map(select((.id // .ask_id // .volume_id) != null))
-                        | first
-                        | (.id // .ask_id // .volume_id // empty)
-                      ' "$TMPDIR/volumes.raw.json"
-                    })"
-                    if [[ -n "$VOLUME_ID" ]]; then
-                      VOLUME_ARGS=(
-                        --create-volume "$VOLUME_ID"
-                        --volume-size "$VOLUME_SIZE_GB"
-                        --mount-path "$MOUNT_PATH"
-                        --volume-label "qwen36vol"
-                      )
-                    else
-                      echo "No volume offer found. Continuing without volume."
-                    fi
-                  else
-                    echo "Volume search failed. Continuing without volume."
+                  if [[ -z "$BEST_VOLUME_OFFER_ID" ]]; then
+                    echo "Refusing to launch without a same-machine volume."
+                    exit 1
                   fi
+                  VOLUME_ARGS=(
+                    --create-volume "$BEST_VOLUME_OFFER_ID"
+                    --volume-size "$VOLUME_SIZE_GB"
+                    --mount-path "$MOUNT_PATH"
+                    --volume-label "qwen36vol"
+                  )
                 fi
 
                 ONSTART_SCRIPT="$(cat <<EOF
