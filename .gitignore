@@ -42,6 +42,11 @@
 !/.local/bin/pacman-paccache
 !/.local/bin/cleanup
 
+# git
+!/.config/git
+/.config/git/*
+!/.config/git/ignore
+
 # xdg
 !/.config/mimeapps.list
 
