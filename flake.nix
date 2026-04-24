@@ -17,21 +17,19 @@
       apps = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-        in {
-          default = {
-            type = "app";
-            program = toString (pkgs.writeShellApplication {
-              name = "vast-qwen-launch";
-              runtimeInputs = with pkgs; [
-                bash
-                coreutils
-                gnugrep
-                gnused
-                gawk
-                jq
-                uv
-              ];
-              text = ''
+
+          launcher = pkgs.writeShellApplication {
+            name = "vast-qwen-launch";
+            runtimeInputs = with pkgs; [
+              bash
+              coreutils
+              gnugrep
+              gnused
+              gawk
+              jq
+              uv
+            ];
+            text = ''
                 #!/usr/bin/env bash
                 set -euo pipefail
 
@@ -328,8 +326,12 @@ EOF
                 echo "Next:"
                 echo "  vastai show instances -v"
                 echo "  vastai ssh-url <instance_id>"
-              '';
-            });
+            '';
+          };
+        in {
+          default = {
+            type = "app";
+            program = "${launcher}/bin/vast-qwen-launch";
           };
         });
 
