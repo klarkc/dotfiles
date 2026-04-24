@@ -1,0 +1,13 @@
+[Unit]
+Description=ZeroClaw NTM Foreman
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.nix-profile/bin/zeroclaw-ntm-foreman
+Restart=always
+RestartSec=5
+Environment=PATH=%h/.nix-profile/bin:/usr/bin
+
+[Install]
+WantedBy=default.target
