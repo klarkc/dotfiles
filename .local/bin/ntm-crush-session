@@ -9,10 +9,12 @@ fi
 
 SESSION="crush-${PWD##*/}"
 
+CMD="cd '$PWD' && direnv allow . && direnv exec . crush '$TASK'"
+
 if tmux has-session -t "$SESSION" 2>/dev/null; then
-  tmux send-keys -t "$SESSION" "devenv shell -- crush '$TASK'" C-m
+  tmux send-keys -t "$SESSION" "$CMD" C-m
 else
-  tmux new-session -d -s "$SESSION" "devenv shell -- crush '$TASK'"
+  tmux new-session -d -s "$SESSION" "$CMD"
 fi
 
 echo "session: $SESSION"
