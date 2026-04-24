@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TASK="${1:-}"
+if [ -z "$TASK" ]; then
+  echo "usage: ntm-crush-session <task>" >&2
+  exit 64
+fi
+
+SESSION="crush-${PWD##*/}"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux send-keys -t "$SESSION" "devenv shell -- crush '$TASK'" C-m
+else
+  tmux new-session -d -s "$SESSION" "devenv shell -- crush '$TASK'"
+fi
+
+echo "session: $SESSION"
