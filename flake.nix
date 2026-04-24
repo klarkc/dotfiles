@@ -110,6 +110,89 @@ EOF
               exec zeroclaw "$@"
             '';
           };
+
+          agent-e2e = pkgs.runCommand "agent-e2e" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
+            set -euo pipefail
+
+            work="$TMPDIR/workspace"
+            bin="$TMPDIR/bin"
+            mkdir -p "$work" "$bin"
+
+            cat > "$bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+log="''${TMUX_TEST_LOG:?}"
+case "$1" in
+  has-session)
+    echo "tmux has-session $*" >> "$log"
+    exit 1
+    ;;
+  new-session)
+    echo "tmux new-session $*" >> "$log"
+    ;;
+  send-keys)
+    echo "tmux send-keys $*" >> "$log"
+    ;;
+  *)
+    echo "unexpected tmux command: $*" >> "$log"
+    exit 2
+    ;;
+esac
+EOF
+            chmod +x "$bin/tmux"
+
+            cat > "$bin/direnv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+log="''${DIRENV_TEST_LOG:?}"
+echo "direnv $*" >> "$log"
+case "$1" in
+  allow)
+    exit 0
+    ;;
+  exec)
+    shift
+    dir="$1"
+    shift
+    cd "$dir"
+    exec "$@"
+    ;;
+  *)
+    echo "unexpected direnv command: $*" >> "$log"
+    exit 2
+    ;;
+esac
+EOF
+            chmod +x "$bin/direnv"
+
+            cat > "$bin/crush" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "crush $*" >> "''${CRUSH_TEST_LOG:?}"
+EOF
+            chmod +x "$bin/crush"
+
+            export PATH="$bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin"
+            export TMUX_TEST_LOG="$TMPDIR/tmux.log"
+            export DIRENV_TEST_LOG="$TMPDIR/direnv.log"
+            export CRUSH_TEST_LOG="$TMPDIR/crush.log"
+
+            cd "$work"
+            ${crush-agent}/bin/crush-agent "write an e2e test"
+
+            grep -F "tmux new-session" "$TMUX_TEST_LOG"
+            grep -F "direnv allow ." "$TMUX_TEST_LOG"
+            grep -F "direnv exec . crush 'write an e2e test'" "$TMUX_TEST_LOG"
+
+            command_line="$(sed -n 's/^tmux new-session -d -s [^ ]* //p' "$TMUX_TEST_LOG")"
+            bash -lc "$command_line"
+
+            grep -F "direnv allow ." "$DIRENV_TEST_LOG"
+            grep -F "direnv exec . crush write an e2e test" "$DIRENV_TEST_LOG"
+            grep -F "crush write an e2e test" "$CRUSH_TEST_LOG"
+
+            touch $out
+          '';
         in
         {
           packages = {
@@ -168,10 +251,13 @@ EOF
             ];
           };
 
-          checks.default = pkgs.runCommand "dotfiles-check" { nativeBuildInputs = with pkgs; [ nixfmt-rfc-style shellcheck ]; } ''
-            nixfmt --check ${./flake.nix}
-            shellcheck ${./.local/bin/ntm-crush-session} ${./.local/bin/zeroclaw-ntm-watch}
-            touch $out
-          '';
+          checks = {
+            default = pkgs.runCommand "dotfiles-check" { nativeBuildInputs = with pkgs; [ nixfmt-rfc-style shellcheck ]; } ''
+              nixfmt --check ${./flake.nix}
+              shellcheck ${./.local/bin/ntm-crush-session} ${./.local/bin/zeroclaw-ntm-watch}
+              touch $out
+            '';
+            agent-e2e = agent-e2e;
+          };
         });
 }
