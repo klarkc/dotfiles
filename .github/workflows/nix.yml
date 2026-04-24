@@ -24,5 +24,8 @@ jobs:
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 5G
 
+      - name: nixfmt
+        run: nix shell nixpkgs#nixfmt-rfc-style -c nixfmt --check flake.nix
+
       - name: flake check (includes e2e)
         run: nix flake check --print-build-logs
