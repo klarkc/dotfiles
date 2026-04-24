@@ -58,7 +58,7 @@
 
           crush-agent = pkgs.writeShellApplication {
             name = "crush-agent";
-            runtimeInputs = with pkgs; [ bash coreutils devenv git tmux ];
+            runtimeInputs = with pkgs; [ bash coreutils direnv git tmux ];
             text = ''
               set -euo pipefail
 
@@ -69,7 +69,7 @@
               fi
 
               session="''${CRUSH_AGENT_SESSION:-crush-$(basename "$PWD" | tr -cs '[:alnum:]_.-' '-') }"
-              command="cd '$PWD' && devenv shell -- crush '$task'"
+              command="cd '$PWD' && direnv allow . && direnv exec . crush '$task'"
 
               if tmux has-session -t "$session" 2>/dev/null; then
                 tmux send-keys -t "$session" "$command" C-m
@@ -159,6 +159,7 @@ EOF
               statix
               tmux
               devenv
+              direnv
               ntm
               zeroclaw
               crush-agent
