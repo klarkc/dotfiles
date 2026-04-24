@@ -38,7 +38,10 @@
                 export PATH="$HOME/.local/bin:$PATH"
 
                 VASTAI_VERSION="''${VASTAI_VERSION:-1.0.3}"
-                IMAGE="''${IMAGE:-vllm/vllm-openai:v0.9.1}"
+                DEFAULT_IMAGE="''${DEFAULT_IMAGE:-vllm/vllm-openai:v0.19.1}"
+                BLACKWELL_IMAGE="''${BLACKWELL_IMAGE:-vllm/vllm-openai:cu130-nightly-968ed02acedf60d9a8128f96cc69a350327a5143}"
+                IMAGE="''${IMAGE:-$DEFAULT_IMAGE}"
+                IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
 
                 DISK_GB="''${DISK_GB:-40}"
@@ -60,7 +63,10 @@ Usage: nix run . -- [options]
 
 Version pins:
   --vastai-version X.Y.Z     Vast CLI PyPI version (default: $VASTAI_VERSION)
-  --image IMAGE:TAG          Docker image tag (default: $IMAGE)
+  --image IMAGE:TAG          Docker image tag override (default: auto-selected)
+  --default-image IMAGE:TAG  Stable default image (default: $DEFAULT_IMAGE)
+  --blackwell-image IMAGE:TAG  Image used for RTX 5090 hosts when auto-select is enabled (default: $BLACKWELL_IMAGE)
+  --image-auto-select 0|1    Auto-pick a pinned Blackwell image for RTX 5090 hosts (default: $IMAGE_AUTO_SELECT)
 
 Model/runtime:
   --model HF_MODEL           Hugging Face model (default: $MODEL)
@@ -88,7 +94,10 @@ EOF
                 while [[ $# -gt 0 ]]; do
                   case "$1" in
                     --vastai-version) VASTAI_VERSION="$2"; shift 2 ;;
-                    --image) IMAGE="$2"; shift 2 ;;
+                    --image) IMAGE="$2"; IMAGE_AUTO_SELECT=0; shift 2 ;;
+                    --default-image) DEFAULT_IMAGE="$2"; if [[ "''${IMAGE_AUTO_SELECT}" = "1" ]]; then IMAGE="$2"; fi; shift 2 ;;
+                    --blackwell-image) BLACKWELL_IMAGE="$2"; shift 2 ;;
+                    --image-auto-select) IMAGE_AUTO_SELECT="$2"; shift 2 ;;
                     --model) MODEL="$2"; shift 2 ;;
                     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
                     --disk) DISK_GB="$2"; shift 2 ;;
@@ -323,6 +332,13 @@ EOF
                 BEST_VOLUME_COST="$(jq -r '.[0].volume_cost // 0' "$TMPDIR/candidates.json")"
                 BEST_TOTAL_COST="$(jq -r '.[0].total_hourly_cost // .[0].dph' "$TMPDIR/candidates.json")"
 
+                if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then
+                  IMAGE="$DEFAULT_IMAGE"
+                  if [[ "$BEST_GPU" = "RTX 5090" ]]; then
+                    IMAGE="$BLACKWELL_IMAGE"
+                  fi
+                fi
+
                 echo "Selected:"
                 printf '  ask_id        : %s\n' "$BEST_ASK_ID"
                 printf '  machine_id    : %s\n' "$BEST_MACHINE_ID"
@@ -382,8 +398,9 @@ export HF_HOME=''${MOUNT_PATH}/hf
 export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
-python3 -m vllm.entrypoints.openai.api_server \
-  --model ''${MODEL} \
+vllm serve ''${MODEL} \
+  --host 0.0.0.0 \
+  --port 8000 \
   --trust-remote-code \
   --dtype auto \
   --tensor-parallel-size 1 \
@@ -396,8 +413,7 @@ python3 -m vllm.entrypoints.openai.api_server \
   --enable-prefix-caching \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
-  --reasoning-parser qwen3 \
-  --port 8000
+  --reasoning-parser qwen3
 EOF
 )"
                 ENV_STRING="-e HF_HOME=''${MOUNT_PATH}/hf -e HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True -e OMP_NUM_THREADS=4"
@@ -405,7 +421,7 @@ EOF
                   ENV_STRING="$ENV_STRING -e HF_TOKEN=''${HF_TOKEN}"
                 fi
 
-                set -x
+                echo "Requesting instance creation..."
                 if ! vastai create instance "$BEST_ASK_ID" \
                   --image "$IMAGE" \
                   --disk "$DISK_GB" \
@@ -417,12 +433,10 @@ EOF
                   --env "$ENV_STRING" \
                   --onstart-cmd "$ONSTART_SCRIPT" \
                   "''${VOLUME_ARGS[@]}"; then
-                  set +x
                   echo
                   echo "Instance creation failed."
                   exit 1
                 fi
-                set +x
 
                 echo
                 echo "Instance requested."
