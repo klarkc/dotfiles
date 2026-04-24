@@ -5,7 +5,8 @@
     nix-fast-build.url = "github:Mic92/nix-fast-build";
   };
 
-  outputs = { self, utils, ... }@inputs:
+  outputs =
+    { self, utils, ... }@inputs:
     utils.apply-systems
       {
         inherit inputs;
@@ -14,7 +15,8 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, ... }@ctx:
+      (
+        { pkgs, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -27,7 +29,10 @@
 
           ntm = pkgs.writeShellApplication {
             name = "ntm";
-            runtimeInputs = with pkgs; [ git go ];
+            runtimeInputs = with pkgs; [
+              git
+              go
+            ];
             text = ''
               set -euo pipefail
 
@@ -45,7 +50,10 @@
 
           zeroclaw = pkgs.writeShellApplication {
             name = "zeroclaw";
-            runtimeInputs = with pkgs; [ git go ];
+            runtimeInputs = with pkgs; [
+              git
+              go
+            ];
             text = ''
               set -euo pipefail
 
@@ -63,7 +71,13 @@
 
           crush-agent = pkgs.writeShellApplication {
             name = "crush-agent";
-            runtimeInputs = with pkgs; [ bash coreutils direnv git tmux ];
+            runtimeInputs = with pkgs; [
+              bash
+              coreutils
+              direnv
+              git
+              tmux
+            ];
             text = ''
               set -euo pipefail
 
@@ -96,7 +110,15 @@
 
           zeroclaw-ntm-foreman = pkgs.writeShellApplication {
             name = "zeroclaw-ntm-foreman";
-            runtimeInputs = with pkgs; [ bash coreutils git jq tmux ntm zeroclaw ];
+            runtimeInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              jq
+              tmux
+              ntm
+              zeroclaw
+            ];
             text = ''
               set -euo pipefail
 
@@ -104,19 +126,23 @@
               mkdir -p "$state_dir"
 
               cat > "$state_dir/README" <<'EOF'
-ZeroClaw NTM foreman state directory.
+              ZeroClaw NTM foreman state directory.
 
-This wrapper intentionally stays conservative: it starts the ZeroClaw runtime
-and expects ZeroClaw tools/prompts to call NTM for session orchestration.
-Configure channels, provider keys, autonomy, and schedules in ZeroClaw's own
-configuration files under XDG_CONFIG_HOME.
-EOF
+              This wrapper intentionally stays conservative: it starts the ZeroClaw runtime
+              and expects ZeroClaw tools/prompts to call NTM for session orchestration.
+              Configure channels, provider keys, autonomy, and schedules in ZeroClaw's own
+              configuration files under XDG_CONFIG_HOME.
+              EOF
 
               exec zeroclaw "$@"
             '';
           };
 
-          agent-e2e = pkgs.runCommand "agent-e2e" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
+          agent-e2e = pkgs.runCommand "agent-e2e" { nativeBuildInputs = with pkgs; [
+            bash
+            coreutils
+            gnugrep
+          ]; } ''
             set -euo pipefail
 
             work="$TMPDIR/workspace"
@@ -124,57 +150,57 @@ EOF
             mkdir -p "$work" "$bin"
 
             cat > "$bin/tmux" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-log="''${TMUX_TEST_LOG:?}"
-case "$1" in
-  has-session)
-    echo "tmux has-session $*" >> "$log"
-    exit 1
-    ;;
-  new-session)
-    echo "tmux new-session $*" >> "$log"
-    ;;
-  send-keys)
-    echo "tmux send-keys $*" >> "$log"
-    ;;
-  *)
-    echo "unexpected tmux command: $*" >> "$log"
-    exit 2
-    ;;
-esac
-EOF
+            #!/usr/bin/env bash
+            set -euo pipefail
+            log="''${TMUX_TEST_LOG:?}"
+            case "$1" in
+              has-session)
+                echo "tmux has-session $*" >> "$log"
+                exit 1
+                ;;
+              new-session)
+                echo "tmux new-session $*" >> "$log"
+                ;;
+              send-keys)
+                echo "tmux send-keys $*" >> "$log"
+                ;;
+              *)
+                echo "unexpected tmux command: $*" >> "$log"
+                exit 2
+                ;;
+            esac
+            EOF
             chmod +x "$bin/tmux"
 
             cat > "$bin/direnv" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-log="''${DIRENV_TEST_LOG:?}"
-echo "direnv $*" >> "$log"
-case "$1" in
-  allow)
-    exit 0
-    ;;
-  exec)
-    shift
-    dir="$1"
-    shift
-    cd "$dir"
-    exec "$@"
-    ;;
-  *)
-    echo "unexpected direnv command: $*" >> "$log"
-    exit 2
-    ;;
-esac
-EOF
+            #!/usr/bin/env bash
+            set -euo pipefail
+            log="''${DIRENV_TEST_LOG:?}"
+            echo "direnv $*" >> "$log"
+            case "$1" in
+              allow)
+                exit 0
+                ;;
+              exec)
+                shift
+                dir="$1"
+                shift
+                cd "$dir"
+                exec "$@"
+                ;;
+              *)
+                echo "unexpected direnv command: $*" >> "$log"
+                exit 2
+                ;;
+            esac
+            EOF
             chmod +x "$bin/direnv"
 
             cat > "$bin/crush" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "crush $*" >> "''${CRUSH_TEST_LOG:?}"
-EOF
+            #!/usr/bin/env bash
+            set -euo pipefail
+            echo "crush $*" >> "''${CRUSH_TEST_LOG:?}"
+            EOF
             chmod +x "$bin/crush"
 
             export PATH="$bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin:${pkgs.gnugrep}/bin"
@@ -201,7 +227,13 @@ EOF
         in
         {
           packages = {
-            inherit ntm zeroclaw crush-agent ntm-crush zeroclaw-ntm-foreman;
+            inherit
+              ntm
+              zeroclaw
+              crush-agent
+              ntm-crush
+              zeroclaw-ntm-foreman
+              ;
             default = pkgs.buildEnv {
               name = "klarkc-dotfiles_profile";
               paths = with pkgs; [
@@ -257,12 +289,16 @@ EOF
           };
 
           checks = {
-            default = pkgs.runCommand "dotfiles-check" { nativeBuildInputs = with pkgs; [ nixfmt-rfc-style shellcheck ]; } ''
+            default = pkgs.runCommand "dotfiles-check" { nativeBuildInputs = with pkgs; [
+              nixfmt-rfc-style
+              shellcheck
+            ]; } ''
               nixfmt --check ${./flake.nix}
               shellcheck ${./.local/bin/ntm-crush-session} ${./.local/bin/zeroclaw-ntm-watch}
               touch $out
             '';
             agent-e2e = agent-e2e;
           };
-        });
+        }
+      );
 }
