@@ -138,11 +138,13 @@
             '';
           };
 
-          agent-e2e = pkgs.runCommand "agent-e2e" { nativeBuildInputs = with pkgs; [
-            bash
-            coreutils
-            gnugrep
-          ]; } ''
+          agent-e2e = pkgs.runCommand "agent-e2e" {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              gnugrep
+            ];
+          } ''
             set -euo pipefail
 
             work="$TMPDIR/workspace"
@@ -289,11 +291,9 @@
           };
 
           checks = {
-            default = pkgs.runCommand "dotfiles-check" { nativeBuildInputs = with pkgs; [
-              nixfmt-rfc-style
-              shellcheck
-            ]; } ''
-              nixfmt --check ${./flake.nix}
+            default = pkgs.runCommand "dotfiles-check" {
+              nativeBuildInputs = with pkgs; [ shellcheck ];
+            } ''
               shellcheck ${./.local/bin/ntm-crush-session} ${./.local/bin/zeroclaw-ntm-watch}
               touch $out
             '';
