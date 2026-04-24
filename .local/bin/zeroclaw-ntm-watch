@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Placeholder watcher for NTM sessions.
+# Intended to be called by ZeroClaw prompts/tools.
+
+while true; do
+  echo "[zeroclaw-ntm] monitoring sessions..."
+  tmux list-sessions || true
+  sleep 30
+done
