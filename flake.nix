@@ -279,17 +279,17 @@ EOF
 
 ONSTART_SCRIPT="$(cat <<EOF
 set -euxo pipefail
-mkdir -p ${MOUNT_PATH}/hf
-export HF_HOME=${MOUNT_PATH}/hf
-export HUGGINGFACE_HUB_CACHE=${MOUNT_PATH}/hf
+mkdir -p ''${MOUNT_PATH}/hf
+export HF_HOME=''${MOUNT_PATH}/hf
+export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
 python3 -m vllm.entrypoints.openai.api_server \
-  --model ${MODEL} \
+  --model ''${MODEL} \
   --trust-remote-code \
   --dtype auto \
   --tensor-parallel-size 1 \
-  --max-model-len ${MAX_MODEL_LEN} \
+  --max-model-len ''${MAX_MODEL_LEN} \
   --gpu-memory-utilization 0.94 \
   --max-num-seqs 1 \
   --max-num-batched-tokens 2048 \
