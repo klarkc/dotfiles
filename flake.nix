@@ -38,7 +38,6 @@
                 VASTAI_BIN="''${VASTAI_BIN:-vastai}"
                 DEFAULT_IMAGE="''${DEFAULT_IMAGE:-vllm/vllm-openai:v0.19.1}"
                 CUDA13_IMAGE="''${CUDA13_IMAGE:-vllm/vllm-openai:v0.19.1-x86_64-cu130}"
-                BLACKWELL_IMAGE="''${BLACKWELL_IMAGE:-$CUDA13_IMAGE}"
                 IMAGE="''${IMAGE:-$DEFAULT_IMAGE}"
                 IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
@@ -55,61 +54,144 @@
                 LABEL="''${LABEL:-qwen36-27b-fp8-48k}"
                 VOLUME_LABEL="''${VOLUME_LABEL:-qwen36vol}"
                 MAX_MODEL_LEN="''${MAX_MODEL_LEN:-49152}"
-                FORCE_REPLACE_ACTIVE="''${FORCE_REPLACE_ACTIVE:-0}"
                 MAX_CREATE_ATTEMPTS="''${MAX_CREATE_ATTEMPTS:-3}"
                 DESTROY_TIMEOUT_SECS="''${DESTROY_TIMEOUT_SECS:-20}"
                 READINESS_RETRY_ATTEMPTS="''${READINESS_RETRY_ATTEMPTS:-2}"
                 READINESS_RETRY_BID_MARGIN="''${READINESS_RETRY_BID_MARGIN:-1.08}"
+                COMMAND="check"
+                SELECTED_ASK_ID="''${SELECTED_ASK_ID:-}"
+                EXPECTED_REBID_CURRENT_BID="''${EXPECTED_REBID_CURRENT_BID:-}"
+                EXPECTED_REBID_MIN_BID="''${EXPECTED_REBID_MIN_BID:-}"
+                EXPECTED_REBID_TARGET_BID="''${EXPECTED_REBID_TARGET_BID:-}"
+                WATCH_INTERVAL="''${WATCH_INTERVAL:-60}"
+                CHECK_RECOMMENDATION_FILE="''${CHECK_RECOMMENDATION_FILE:-}"
                 MAX_BID_PRICE="''${MAX_BID_PRICE:-0.45}"
+                MIN_REPLACE_SAVINGS_PCT="''${MIN_REPLACE_SAVINGS_PCT:-15}"
+                STARTUP_BID_MARGIN="''${STARTUP_BID_MARGIN:-1.15}"
+                STEADY_BID_MARGIN="''${STEADY_BID_MARGIN:-1.08}"
 
                 usage() {
-                  cat <<EOF
-Usage: nix run . -- [options]
+                  local topic="''${1:-all}"
+                  case "$topic" in
+                    check)
+                      cat <<EOF
+Usage: nix run . -- check [options]
+       nix run . -- [options]
 
-Version pins:
-  --vastai-version X.Y.Z       Vast CLI PyPI version (default: $VASTAI_VERSION)
-  --image IMAGE:TAG            Docker image tag override (default: auto-selected)
-  --default-image IMAGE:TAG    Stable default image (default: $DEFAULT_IMAGE)
-  --cuda13-image IMAGE:TAG     Fixed CUDA 13 image for hosts with cuda_max_good>=13.0 (default: $CUDA13_IMAGE)
-  --blackwell-image IMAGE:TAG  Alias/default for CUDA 13 image (default: $BLACKWELL_IMAGE)
-  --image-auto-select 0|1      Auto-pick fixed image by Vast cuda_max_good (default: $IMAGE_AUTO_SELECT)
+Default command. Inspect the current labeled instance and market.
+It never destroys instances and never changes bids.
 
-Model/runtime:
-  --model HF_MODEL             Hugging Face model (default: $MODEL)
-  --max-model-len N            Context length (default: $MAX_MODEL_LEN)
-
-Instance sizing:
-  --disk N                     Container disk GB (default: $DISK_GB)
-  --use-volume 0|1             Use workspace volume (default: $USE_VOLUME)
-  --volume-size N              Workspace volume GB (default: $VOLUME_SIZE_GB)
-  --mount-path PATH            Workspace mount path (default: $MOUNT_PATH)
-  --volume-label STRING        Name to use for newly created volumes (default: $VOLUME_LABEL)
-
-Market controls:
-  --max-price FLOAT            Max hourly offer to consider (default: $MAX_PRICE)
-  --bid-price FLOAT            Interruptible bid price (default: $BID_PRICE)
-  --min-reliability FLOAT      Min reliability, e.g. 0.985 (default: $MIN_RELIABILITY)
-  --preferred-reliability FLOAT Prefer offers at or above this reliability when available (default: $PREFERRED_RELIABILITY)
-
-Misc:
-  --label STRING               Instance label used for upsert matching (default: $LABEL)
-  --force-replace-active 0|1   Replace an existing loading/running instance instead of staying put (default: $FORCE_REPLACE_ACTIVE)
-  --max-create-attempts N      Retry the next candidate when an ask goes stale (default: $MAX_CREATE_ATTEMPTS)
-  --destroy-timeout-secs N     Timeout for non-blocking destroy requests during fresh-volume replacement (default: $DESTROY_TIMEOUT_SECS)
-  --readiness-retry-attempts N Retry launch when instance dies/outbids before API readiness (default: $READINESS_RETRY_ATTEMPTS)
-  --readiness-retry-bid-margin FLOAT  Bid multiplier after readiness failure (default: $READINESS_RETRY_BID_MARGIN)
-  --max-bid-price FLOAT        Max bid after automatic readiness retry bumps (default: $MAX_BID_PRICE)
-  -h, --help                   Show this help
+Options:
+  --ask-id ASK_ID               Require this exact Vast offer id
+  --max-price FLOAT             Max hourly offer to consider (default: $MAX_PRICE)
+  --min-reliability FLOAT       Min reliability (default: $MIN_RELIABILITY)
+  --preferred-reliability FLOAT Preferred reliability (default: $PREFERRED_RELIABILITY)
+  --min-replace-savings-pct N   Savings needed before recommending replace (default: $MIN_REPLACE_SAVINGS_PCT)
+  --use-volume 0|1              Include volumes in selection/cost (default: $USE_VOLUME)
+  --help                        Show this help
 EOF
+                      ;;
+                    replace)
+                      cat <<EOF
+Usage: nix run . -- replace [ask_id] [options]
+       nix run . -- replace --ask-id ASK_ID [options]
+
+Destroy the existing labeled instance, then create the selected replacement.
+When ask_id is provided, replace verifies that exact offer is still available before destroying anything.
+This command is destructive. The default check command only recommends it.
+
+Options:
+  --max-price FLOAT             Max hourly offer to consider (default: $MAX_PRICE)
+  --bid-price FLOAT             Base bid floor (default: $BID_PRICE)
+  --startup-bid-margin FLOAT    Startup bid multiplier (default: $STARTUP_BID_MARGIN)
+  --steady-bid-margin FLOAT     Post-readiness bid multiplier (default: $STEADY_BID_MARGIN)
+  --max-bid-price FLOAT         Bid ceiling (default: $MAX_BID_PRICE)
+  --readiness-retry-attempts N  Retry if instance dies before readiness (default: $READINESS_RETRY_ATTEMPTS)
+  --use-volume 0|1              Include volumes in selection/cost (default: $USE_VOLUME)
+  --help                        Show this help
+EOF
+                      ;;
+                    rebid)
+                      cat <<EOF
+Usage: nix run . -- rebid [options]
+
+Adjust the existing labeled instance bid without replacing it.
+When expected bid parameters are provided by check, rebid verifies the market/instance state has not changed before updating the bid.
+
+Options:
+  --expected-current-bid FLOAT  Require current bid to still match this value before rebidding
+  --expected-min-bid FLOAT      Require min bid to still match this value before rebidding
+  --expected-target-bid FLOAT   Require computed target bid to still match this value before rebidding
+  --steady-bid-margin FLOAT     Rebid multiplier over current effective cost (default: $STEADY_BID_MARGIN)
+  --max-bid-price FLOAT         Bid ceiling (default: $MAX_BID_PRICE)
+  --use-volume 0|1              Include attached volume in effective cost when present (default: $USE_VOLUME)
+  --help                        Show this help
+EOF
+                      ;;
+                    watch)
+                      cat <<EOF
+Usage: nix run . -- watch [options]
+
+Continuously monitor with check and automatically run the suggested action.
+It sleeps --interval seconds between successful cycles.
+It stops on failure or when interrupted.
+
+Options:
+  --interval SECONDS            Delay between watch cycles (default: $WATCH_INTERVAL)
+  --max-price FLOAT             Max hourly offer to consider (default: $MAX_PRICE)
+  --min-reliability FLOAT       Min reliability (default: $MIN_RELIABILITY)
+  --min-replace-savings-pct N   Savings needed before replacing (default: $MIN_REPLACE_SAVINGS_PCT)
+  --startup-bid-margin FLOAT    Startup bid multiplier (default: $STARTUP_BID_MARGIN)
+  --steady-bid-margin FLOAT     Rebid/post-readiness multiplier (default: $STEADY_BID_MARGIN)
+  --max-bid-price FLOAT         Bid ceiling (default: $MAX_BID_PRICE)
+  --help                        Show this help
+EOF
+                      ;;
+                    *)
+                      cat <<EOF
+Usage: nix run . -- [command] [options]
+
+Commands:
+  check     Inspect existing instance and market; recommend replace/rebid/stay (default)
+  replace   Destroy existing labeled instance and create selected replacement
+  rebid     Adjust existing labeled instance bid only
+  watch     Keep monitoring and applying suggested replace/rebid actions
+
+Run command-specific help:
+  nix run . -- check --help
+  nix run . -- replace --help
+  nix run . -- rebid --help
+  nix run . -- watch --help
+EOF
+                      ;;
+                  esac
                 }
+
+                if [[ $# -gt 0 ]]; then
+                  case "$1" in
+                    check|replace|rebid|watch)
+                      COMMAND="$1"
+                      shift
+                      ;;
+                    -h|--help)
+                      usage all
+                      exit 0
+                      ;;
+                  esac
+                fi
+
+                if [[ "$COMMAND" = "replace" && $# -gt 0 && "$1" != --* ]]; then
+                  SELECTED_ASK_ID="$1"
+                  shift
+                fi
+
 
                 while [[ $# -gt 0 ]]; do
                   case "$1" in
                     --vastai-version) VASTAI_VERSION="$2"; shift 2 ;;
                     --image) IMAGE="$2"; IMAGE_AUTO_SELECT=0; shift 2 ;;
                     --default-image) DEFAULT_IMAGE="$2"; if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then IMAGE="$2"; fi; shift 2 ;;
-                    --cuda13-image) CUDA13_IMAGE="$2"; BLACKWELL_IMAGE="$2"; shift 2 ;;
-                    --blackwell-image) BLACKWELL_IMAGE="$2"; CUDA13_IMAGE="$2"; shift 2 ;;
+                    --cuda13-image) CUDA13_IMAGE="$2"; shift 2 ;;
                     --image-auto-select) IMAGE_AUTO_SELECT="$2"; shift 2 ;;
                     --model) MODEL="$2"; shift 2 ;;
                     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
@@ -118,21 +200,165 @@ EOF
                     --volume-size) VOLUME_SIZE_GB="$2"; shift 2 ;;
                     --mount-path) MOUNT_PATH="$2"; shift 2 ;;
                     --volume-label) VOLUME_LABEL="$2"; shift 2 ;;
+                    --ask-id) SELECTED_ASK_ID="$2"; shift 2 ;;
                     --max-price) MAX_PRICE="$2"; shift 2 ;;
                     --bid-price) BID_PRICE="$2"; shift 2 ;;
                     --min-reliability) MIN_RELIABILITY="$2"; shift 2 ;;
                     --preferred-reliability) PREFERRED_RELIABILITY="$2"; shift 2 ;;
                     --label) LABEL="$2"; shift 2 ;;
-                    --force-replace-active) FORCE_REPLACE_ACTIVE="$2"; shift 2 ;;
                     --max-create-attempts) MAX_CREATE_ATTEMPTS="$2"; shift 2 ;;
                     --destroy-timeout-secs) DESTROY_TIMEOUT_SECS="$2"; shift 2 ;;
                     --readiness-retry-attempts) READINESS_RETRY_ATTEMPTS="$2"; shift 2 ;;
                     --readiness-retry-bid-margin) READINESS_RETRY_BID_MARGIN="$2"; shift 2 ;;
                     --max-bid-price) MAX_BID_PRICE="$2"; shift 2 ;;
-                    -h|--help) usage; exit 0 ;;
+                    --expected-current-bid) EXPECTED_REBID_CURRENT_BID="$2"; shift 2 ;;
+                    --expected-min-bid) EXPECTED_REBID_MIN_BID="$2"; shift 2 ;;
+                    --expected-target-bid) EXPECTED_REBID_TARGET_BID="$2"; shift 2 ;;
+                    --interval) WATCH_INTERVAL="$2"; shift 2 ;;
+                    --min-replace-savings-pct) MIN_REPLACE_SAVINGS_PCT="$2"; shift 2 ;;
+                    --startup-bid-margin) STARTUP_BID_MARGIN="$2"; shift 2 ;;
+                    --steady-bid-margin) STEADY_BID_MARGIN="$2"; shift 2 ;;
+                    -h|--help) usage "$COMMAND"; exit 0 ;;
                     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
                   esac
                 done
+                case "$COMMAND" in
+                  check|replace|rebid|watch)
+                    ;;
+                  *)
+                    echo "Unknown command: $COMMAND" >&2
+                    usage all
+                    exit 1
+                    ;;
+                esac
+
+                run_watch_loop() {
+                  echo "Starting watch loop. Press Ctrl-C to stop."
+                  echo "Interval: $WATCH_INTERVAL seconds"
+
+                  while true; do
+                    recommendation_file="$(mktemp)"
+                    echo
+                    echo "Watch cycle: checking current instance and market..."
+
+                    set +e
+                    CHECK_RECOMMENDATION_FILE="$recommendation_file" \
+                    "$0" check \
+                      --vastai-version "$VASTAI_VERSION" \
+                      --default-image "$DEFAULT_IMAGE" \
+                      --cuda13-image "$CUDA13_IMAGE" \
+                      --image-auto-select "$IMAGE_AUTO_SELECT" \
+                      --model "$MODEL" \
+                      --max-model-len "$MAX_MODEL_LEN" \
+                      --disk "$DISK_GB" \
+                      --use-volume "$USE_VOLUME" \
+                      --volume-size "$VOLUME_SIZE_GB" \
+                      --mount-path "$MOUNT_PATH" \
+                      --volume-label "$VOLUME_LABEL" \
+                      --max-price "$MAX_PRICE" \
+                      --bid-price "$BID_PRICE" \
+                      --min-reliability "$MIN_RELIABILITY" \
+                      --preferred-reliability "$PREFERRED_RELIABILITY" \
+                      --label "$LABEL" \
+                      --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
+                      --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
+                      --readiness-retry-attempts "$READINESS_RETRY_ATTEMPTS" \
+                      --readiness-retry-bid-margin "$READINESS_RETRY_BID_MARGIN" \
+                      --max-bid-price "$MAX_BID_PRICE" \
+                      --min-replace-savings-pct "$MIN_REPLACE_SAVINGS_PCT" \
+                      --startup-bid-margin "$STARTUP_BID_MARGIN" \
+                      --steady-bid-margin "$STEADY_BID_MARGIN"
+                    check_status=$?
+                    set -e
+
+                    recommendation="stay"
+                    recommended_ask_id=""
+                    if [[ -s "$recommendation_file" ]]; then
+                      recommendation="$(cat "$recommendation_file")"
+                    fi
+                    rm -f "$recommendation_file"
+
+                    expected_current_bid=""
+                    expected_min_bid=""
+                    expected_target_bid=""
+
+                    if [[ "$recommendation" = replace:* ]]; then
+                      recommended_ask_id="''${recommendation#replace:}"
+                      recommendation="replace"
+                    elif [[ "$recommendation" = rebid:* ]]; then
+                      IFS=: read -r recommendation expected_current_bid expected_min_bid expected_target_bid <<< "$recommendation"
+                    fi
+
+                    if [[ "$check_status" -ne 0 && "$recommendation" != "replace" && "$recommendation" != "rebid" ]]; then
+                      echo "Watch check failed without actionable recommendation."
+                      exit "$check_status"
+                    fi
+
+                    case "$recommendation" in
+                      stay)
+                        echo "Watch recommendation: stay."
+                        ;;
+                      replace)
+                        echo "Watch recommendation: replace. Applying replacement..."
+                        if [[ -n "$recommended_ask_id" ]]; then
+                          replace_args=(replace "$recommended_ask_id")
+                        else
+                          replace_args=(replace)
+                        fi
+                        "$0" "''${replace_args[@]}" \
+                          --vastai-version "$VASTAI_VERSION" \
+                          --default-image "$DEFAULT_IMAGE" \
+                          --cuda13-image "$CUDA13_IMAGE" \
+                          --image-auto-select "$IMAGE_AUTO_SELECT" \
+                          --model "$MODEL" \
+                          --max-model-len "$MAX_MODEL_LEN" \
+                          --disk "$DISK_GB" \
+                          --use-volume "$USE_VOLUME" \
+                          --volume-size "$VOLUME_SIZE_GB" \
+                          --mount-path "$MOUNT_PATH" \
+                          --volume-label "$VOLUME_LABEL" \
+                          --max-price "$MAX_PRICE" \
+                          --bid-price "$BID_PRICE" \
+                          --min-reliability "$MIN_RELIABILITY" \
+                          --preferred-reliability "$PREFERRED_RELIABILITY" \
+                          --label "$LABEL" \
+                          --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
+                          --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
+                          --readiness-retry-attempts "$READINESS_RETRY_ATTEMPTS" \
+                          --readiness-retry-bid-margin "$READINESS_RETRY_BID_MARGIN" \
+                          --max-bid-price "$MAX_BID_PRICE" \
+                          --min-replace-savings-pct "$MIN_REPLACE_SAVINGS_PCT" \
+                          --startup-bid-margin "$STARTUP_BID_MARGIN" \
+                          --steady-bid-margin "$STEADY_BID_MARGIN"
+                        ;;
+                      rebid)
+                        echo "Watch recommendation: rebid. Applying rebid..."
+                        "$0" rebid \
+                          --vastai-version "$VASTAI_VERSION" \
+                          --use-volume "$USE_VOLUME" \
+                          --label "$LABEL" \
+                          --steady-bid-margin "$STEADY_BID_MARGIN" \
+                          --max-bid-price "$MAX_BID_PRICE" \
+                          --expected-current-bid "$expected_current_bid" \
+                          --expected-min-bid "$expected_min_bid" \
+                          --expected-target-bid "$expected_target_bid"
+                        ;;
+                      *)
+                        echo "Unknown watch recommendation: $recommendation" >&2
+                        exit 1
+                        ;;
+                    esac
+
+                    echo "Sleeping $WATCH_INTERVAL seconds..."
+                    sleep "$WATCH_INTERVAL"
+                  done
+                }
+
+                if [[ "$COMMAND" = "watch" ]]; then
+                  run_watch_loop
+                  exit 0
+                fi
+
 
                 need_cmd() {
                   command -v "$1" >/dev/null 2>&1
@@ -142,13 +368,6 @@ EOF
                   local response_file="$1"
                   jq -e '.success == true' "$response_file" >/dev/null 2>&1 && return 0
                   grep -Eq "['\"]success['\"]:[[:space:]]*(True|true)" "$response_file"
-                }
-
-                status_is_activeish() {
-                  case "$1" in
-                    loading|running|scheduling) return 0 ;;
-                    *) return 1 ;;
-                  esac
                 }
 
                 load_candidate() {
@@ -383,6 +602,42 @@ EOF
                     '
                 }
 
+                compute_margin_bid() {
+                  local candidate_price="$1"
+                  local current_bid="$2"
+                  local margin="$3"
+                  awk \
+                    -v candidate="$candidate_price" \
+                    -v current="$current_bid" \
+                    -v margin="$margin" \
+                    -v max_bid="$MAX_BID_PRICE" '
+                      BEGIN {
+                        wanted = candidate * margin
+                        if (wanted < current) wanted = current
+                        if (wanted > max_bid) wanted = max_bid
+                        printf "%.6f", wanted
+                      }
+                    '
+                }
+
+                set_instance_bid_best_effort() {
+                  local instance_id="$1"
+                  local target_bid="$2"
+                  if [[ -z "$instance_id" || -z "$target_bid" ]]; then
+                    return 0
+                  fi
+                  echo "Setting instance $instance_id bid to $target_bid..."
+                  set +e
+                  "$VASTAI_BIN" change bid "$instance_id" --price "$target_bid" >/dev/null 2>&1
+                  local status=$?
+                  set -e
+                  if [[ "$status" -ne 0 ]]; then
+                    echo "Warning: could not change bid for instance $instance_id. Check Vast CLI syntax/version if needed."
+                    return 1
+                  fi
+                  return 0
+                }
+
                 destroy_failed_readiness_instance() {
                   local instance_id="$1"
                   if [[ -z "$instance_id" ]]; then
@@ -403,6 +658,130 @@ EOF
                     return 1
                   fi
                   return 0
+                }
+
+                offer_still_available() {
+                  local ask_id="$1"
+                  jq -e --argjson ask_id "$ask_id" '
+                    map(select((.ask_id // .id // .offer_id // -1) == $ask_id))
+                    | length > 0
+                  ' "$TMPDIR/candidates.json" >/dev/null
+                }
+
+                current_rebid_target() {
+                  local effective_cost="$1"
+                  local min_bid="$2"
+                  local current_bid="$3"
+                  awk \
+                    -v effective="$effective_cost" \
+                    -v min_bid="$min_bid" \
+                    -v current_bid="$current_bid" \
+                    -v margin="$STEADY_BID_MARGIN" \
+                    -v max_bid="$MAX_BID_PRICE" '
+                      BEGIN {
+                        floor = min_bid * margin
+                        effective_target = effective * margin
+                        target = floor
+                        if (effective_target > target) target = effective_target
+                        if (current_bid > target) target = current_bid
+                        if (target > max_bid) target = max_bid
+                        printf "%.6f", target
+                      }
+                    '
+                }
+
+                rebid_is_useful() {
+                  local target_bid="$1"
+                  local current_bid="$2"
+                  local min_bid="$3"
+                  awk \
+                    -v target="$target_bid" \
+                    -v current="$current_bid" \
+                    -v min_bid="$min_bid" '
+                      BEGIN {
+                        threshold = current
+                        if (min_bid > threshold) threshold = min_bid
+                        exit !(target > threshold + 0.000001)
+                      }
+                    '
+                }
+
+                float_close() {
+                  local left="$1"
+                  local right="$2"
+                  awk -v left="$left" -v right="$right" '
+                    BEGIN {
+                      diff = left - right
+                      if (diff < 0) diff = -diff
+                      exit !(diff <= 0.000001)
+                    }
+                  '
+                }
+
+                verify_expected_rebid_state() {
+                  local current_bid="$1"
+                  local min_bid="$2"
+                  local target_bid="$3"
+
+                  if [[ -n "$EXPECTED_REBID_CURRENT_BID" ]] && ! float_close "$current_bid" "$EXPECTED_REBID_CURRENT_BID"; then
+                    echo "Refusing to rebid: current bid changed since check."
+                    printf '  expected current bid: %.6f\n' "$EXPECTED_REBID_CURRENT_BID"
+                    printf '  observed current bid: %.6f\n' "$current_bid"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REBID_MIN_BID" ]] && ! float_close "$min_bid" "$EXPECTED_REBID_MIN_BID"; then
+                    echo "Refusing to rebid: min bid changed since check."
+                    printf '  expected min bid: %.6f\n' "$EXPECTED_REBID_MIN_BID"
+                    printf '  observed min bid: %.6f\n' "$min_bid"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REBID_TARGET_BID" ]] && ! float_close "$target_bid" "$EXPECTED_REBID_TARGET_BID"; then
+                    echo "Refusing to rebid: computed target bid changed since check."
+                    printf '  expected target bid: %.6f\n' "$EXPECTED_REBID_TARGET_BID"
+                    printf '  observed target bid: %.6f\n' "$target_bid"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  return 0
+                }
+
+
+                replacement_savings_pct() {
+                  local current_cost="$1"
+                  local candidate_cost="$2"
+                  awk -v current="$current_cost" -v candidate="$candidate_cost" '
+                    BEGIN {
+                      if (current <= 0) {
+                        print "0.000000"
+                      } else {
+                        printf "%.6f", ((current - candidate) / current) * 100
+                      }
+                    }
+                  '
+                }
+
+                replacement_is_worth_it() {
+                  local current_cost="$1"
+                  local candidate_cost="$2"
+                  local existing_status="$3"
+                  if status_is_terminal_or_bad "$existing_status"; then
+                    return 0
+                  fi
+                  awk \
+                    -v current="$current_cost" \
+                    -v candidate="$candidate_cost" \
+                    -v min_pct="$MIN_REPLACE_SAVINGS_PCT" '
+                      BEGIN {
+                        if (current <= 0) exit 1
+                        savings = ((current - candidate) / current) * 100
+                        exit !(savings >= min_pct)
+                      }
+                    '
                 }
 
                 TMPDIR="$(mktemp -d)"
@@ -430,7 +809,10 @@ EOF
                 EXISTING_INSTANCE_ID=""
                 EXISTING_INSTANCE_MACHINE_ID=""
                 EXISTING_INSTANCE_STATUS=""
+                EXISTING_INSTANCE_GPU=""
                 EXISTING_INSTANCE_DPH="0"
+                EXISTING_INSTANCE_MIN_BID="0"
+                EXISTING_INSTANCE_CURRENT_BID="0"
                 EXISTING_TOTAL_ESTIMATE="0"
                 if [[ "$CURRENT_INSTANCE_COUNT" -eq 1 ]]; then
                   EXISTING_INSTANCE_ID="$(jq -r --arg label "$LABEL" '
@@ -460,6 +842,15 @@ EOF
                     | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
                     | .[0].actual_status // .[0].cur_state // "unknown"
                   ' "$TMPDIR/current-instances.json")"
+                  EXISTING_INSTANCE_GPU="$(jq -r --arg label "$LABEL" '
+                    def rows:
+                      if type == "array" then .
+                      elif has("instances") then .instances
+                      else [] end;
+                    rows
+                    | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
+                    | .[0].gpu_name // .[0].gpu_name_display // ""
+                  ' "$TMPDIR/current-instances.json")"
                   EXISTING_INSTANCE_DPH="$(jq -r --arg label "$LABEL" '
                     def rows:
                       if type == "array" then .
@@ -469,21 +860,53 @@ EOF
                     | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
                     | (.[0].dph_total // .[0].dph // .[0].discounted_dph_total // 0)
                   ' "$TMPDIR/current-instances.json")"
+                  EXISTING_INSTANCE_MIN_BID="$(jq -r --arg label "$LABEL" '
+                    def rows:
+                      if type == "array" then .
+                      elif has("instances") then .instances
+                      else [] end;
+                    rows
+                    | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
+                    | (.[0].min_bid // .[0].bid_floor // 0)
+                  ' "$TMPDIR/current-instances.json")"
+                  EXISTING_INSTANCE_CURRENT_BID="$(jq -r --arg label "$LABEL" '
+                    def rows:
+                      if type == "array" then .
+                      elif has("instances") then .instances
+                      else [] end;
+                    rows
+                    | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
+                    | (.[0].bid_price // .[0].bid // .[0].dph_base // .[0].search.gpuCostPerHour // .[0].min_bid // 0)
+                  ' "$TMPDIR/current-instances.json")"
                   echo "Found existing instance:"
                   printf '  instance_id : %s\n' "$EXISTING_INSTANCE_ID"
                   printf '  machine_id  : %s\n' "$EXISTING_INSTANCE_MACHINE_ID"
                   printf '  status      : %s\n' "$EXISTING_INSTANCE_STATUS"
+                  if [[ -n "$EXISTING_INSTANCE_GPU" && "$EXISTING_INSTANCE_GPU" != "null" ]]; then
+                    printf '  gpu         : %s\n' "$EXISTING_INSTANCE_GPU"
+                  fi
                   printf '  current $/h : %.6f\n' "$EXISTING_INSTANCE_DPH"
+                  printf '  min bid $/h : %.6f\n' "$EXISTING_INSTANCE_MIN_BID"
+                  printf '  bid $/h     : %.6f\n' "$EXISTING_INSTANCE_CURRENT_BID"
                 else
                   echo "No existing labeled instance found."
+                  if [[ "$COMMAND" = "check" ]]; then
+                    echo "No action is performed by default."
+                    echo "Run this to create an instance:"
+                    echo "  nix run . -- replace"
+                    if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                      echo "replace:$BEST_ASK_ID" > "$CHECK_RECOMMENDATION_FILE"
+                    fi
+                    exit 1
+                  fi
                 fi
 
-                if [[ -n "$EXISTING_INSTANCE_ID" ]] && [[ "$FORCE_REPLACE_ACTIVE" != "1" ]] && status_is_activeish "$EXISTING_INSTANCE_STATUS"; then
+                EXISTING_INSTANCE_NEEDS_FORCE_DECISION=0
+                if [[ -n "$EXISTING_INSTANCE_ID" ]] && [[ "$COMMAND" = "check" ]]; then
+                  EXISTING_INSTANCE_NEEDS_FORCE_DECISION=1
                   echo
-                  echo "Keeping current placement."
-                  echo "Existing instance is still $EXISTING_INSTANCE_STATUS, so upsert will not replace it by default."
-                  echo "Use --force-replace-active 1 if you really want to tear it down and move now."
-                  exit 0
+                  echo "Existing labeled instance found. Searching market first to decide whether replacement is worth it."
+                  echo "No destructive action is performed without replace."
                 fi
 
                 EXISTING_VOLUME_ID=""
@@ -539,6 +962,33 @@ EOF
                       printf '  total est $/h: %.6f\n' "$EXISTING_TOTAL_ESTIMATE"
                     fi
                   fi
+                fi
+
+                if [[ -n "$EXISTING_INSTANCE_ID" && "$COMMAND" = "rebid" ]]; then
+                  if [[ "$USE_VOLUME" = "1" && -n "$EXISTING_VOLUME_ID" ]]; then
+                    CURRENT_EFFECTIVE_COST="$EXISTING_TOTAL_ESTIMATE"
+                  else
+                    CURRENT_EFFECTIVE_COST="$EXISTING_INSTANCE_DPH"
+                  fi
+                  TARGET_REBID_PRICE="$(current_rebid_target "$CURRENT_EFFECTIVE_COST" "$EXISTING_INSTANCE_MIN_BID" "$EXISTING_INSTANCE_CURRENT_BID")"
+
+                  echo
+                  echo "Rebid requested for existing instance $EXISTING_INSTANCE_ID."
+                  printf '  current effective $/h: %.6f\n' "$CURRENT_EFFECTIVE_COST"
+                  printf '  current bid $/h      : %.6f\n' "$EXISTING_INSTANCE_CURRENT_BID"
+                  printf '  current min bid $/h  : %.6f\n' "$EXISTING_INSTANCE_MIN_BID"
+                  printf '  target bid $/h       : %.6f\n' "$TARGET_REBID_PRICE"
+                  printf '  max bid $/h          : %.6f\n' "$MAX_BID_PRICE"
+
+                  if [[ "$TARGET_REBID_PRICE" = "$MAX_BID_PRICE" ]]; then
+                    echo "Target bid reached the configured roof."
+                  fi
+
+                  verify_expected_rebid_state "$EXISTING_INSTANCE_CURRENT_BID" "$EXISTING_INSTANCE_MIN_BID" "$TARGET_REBID_PRICE"
+
+                  set_instance_bid_best_effort "$EXISTING_INSTANCE_ID" "$TARGET_REBID_PRICE"
+                  echo "Rebid requested."
+                  exit 0
                 fi
 
                 GPUS=(
@@ -771,18 +1221,113 @@ EOF
                 done
                 echo
 
-                load_candidate 0
+                SELECTED_CANDIDATE_INDEX=0
+                if [[ -n "$SELECTED_ASK_ID" ]]; then
+                  SELECTED_CANDIDATE_INDEX="$(jq -r --argjson ask_id "$SELECTED_ASK_ID" '
+                    to_entries
+                    | map(select((.value.ask_id // .value.id // .value.offer_id // -1) == $ask_id))
+                    | .[0].key // empty
+                  ' "$TMPDIR/candidates.json")"
+
+                  if [[ -z "$SELECTED_CANDIDATE_INDEX" ]]; then
+                    echo "Requested offer $SELECTED_ASK_ID is no longer available in the current market snapshot."
+                    echo "Run check again to get a fresh recommendation."
+                    exit 1
+                  fi
+                fi
+
+                load_candidate "$SELECTED_CANDIDATE_INDEX"
                 print_selected_candidate
 
-                read -r -p "Proceed with this upsert? [Y/n] " reply
-                reply="''${reply:-Y}"
-                case "$reply" in
-                  Y|y|"") ;;
-                  *) echo "Aborted."; exit 0 ;;
-                esac
+                if [[ "$EXISTING_INSTANCE_NEEDS_FORCE_DECISION" = "1" ]]; then
+                  if [[ "$USE_VOLUME" = "1" && -n "$EXISTING_VOLUME_ID" ]]; then
+                    CURRENT_EFFECTIVE_COST="$EXISTING_TOTAL_ESTIMATE"
+                    CANDIDATE_EFFECTIVE_COST="$BEST_TOTAL_COST"
+                  else
+                    CURRENT_EFFECTIVE_COST="$EXISTING_INSTANCE_DPH"
+                    CANDIDATE_EFFECTIVE_COST="$BEST_DPH"
+                  fi
+
+                  SAVINGS_PCT="$(replacement_savings_pct "$CURRENT_EFFECTIVE_COST" "$CANDIDATE_EFFECTIVE_COST")"
+
+                  echo "Existing instance replacement analysis:"
+                  printf '  current effective $/h : %.6f\n' "$CURRENT_EFFECTIVE_COST"
+                  printf '  current bid $/h       : %.6f\n' "$EXISTING_INSTANCE_CURRENT_BID"
+                  printf '  current min bid $/h   : %.6f\n' "$EXISTING_INSTANCE_MIN_BID"
+                  printf '  candidate effective $/h: %.6f\n' "$CANDIDATE_EFFECTIVE_COST"
+                  printf '  savings              : %.2f%%\n' "$SAVINGS_PCT"
+                  printf '  required savings     : %.2f%%\n' "$MIN_REPLACE_SAVINGS_PCT"
+
+                  REBID_TARGET_PRICE="$(current_rebid_target "$CURRENT_EFFECTIVE_COST" "$EXISTING_INSTANCE_MIN_BID" "$EXISTING_INSTANCE_CURRENT_BID")"
+
+                  if replacement_is_worth_it "$CURRENT_EFFECTIVE_COST" "$CANDIDATE_EFFECTIVE_COST" "$EXISTING_INSTANCE_STATUS"; then
+                    echo
+                    if status_is_terminal_or_bad "$EXISTING_INSTANCE_STATUS"; then
+                      echo "Replacement is worth it because the existing instance status is $EXISTING_INSTANCE_STATUS."
+                    else
+                      echo "Replacement appears worth it based on the savings threshold."
+                    fi
+                    if offer_still_available "$BEST_ASK_ID"; then
+                      echo "Selected offer is still present in this market snapshot."
+                    else
+                      echo "Selected offer disappeared from this market snapshot; rerun default mode to refresh."
+                      exit 1
+                    fi
+                    echo "No destructive action is performed by default."
+                    echo "Run this to destroy the existing instance and create the selected replacement:"
+                    echo "  nix run . -- replace $BEST_ASK_ID"
+                    if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                      echo replace > "$CHECK_RECOMMENDATION_FILE"
+                    fi
+                    exit 1
+                  else
+                    echo
+                    if status_is_terminal_or_bad "$EXISTING_INSTANCE_STATUS"; then
+                      echo "Existing instance is not healthy, but replacement is not attractive enough by the savings threshold."
+                      echo "A rebid may be a better recovery action than replacement."
+                      printf '  suggested rebid $/h : %.6f
+' "$REBID_TARGET_PRICE"
+                      echo "Current bid is below the effective-cost adjusted target."
+                      echo "Instance is at risk of being outbid."
+                      echo "No bid change is performed by default."
+                      echo "Run this to adjust the existing instance bid if this snapshot is still valid:"
+                      echo "  nix run . -- rebid --expected-current-bid $EXISTING_INSTANCE_CURRENT_BID --expected-min-bid $EXISTING_INSTANCE_MIN_BID --expected-target-bid $REBID_TARGET_PRICE"
+                      if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                        echo "rebid:$EXISTING_INSTANCE_CURRENT_BID:$EXISTING_INSTANCE_MIN_BID:$REBID_TARGET_PRICE" > "$CHECK_RECOMMENDATION_FILE"
+                      fi
+                      exit 1
+                    fi
+
+                    echo "Replacement is not worth it right now."
+                    if rebid_is_useful "$REBID_TARGET_PRICE" "$EXISTING_INSTANCE_CURRENT_BID" "$EXISTING_INSTANCE_MIN_BID"; then
+                      printf '  suggested rebid $/h : %.6f\n' "$REBID_TARGET_PRICE"
+                      echo "Current bid is below the effective-cost adjusted target."
+                      echo "Instance is at risk of being outbid."
+                      echo "Run this to adjust the existing instance bid if this snapshot is still valid:"
+                      echo "  nix run . -- rebid --expected-current-bid $EXISTING_INSTANCE_CURRENT_BID --expected-min-bid $EXISTING_INSTANCE_MIN_BID --expected-target-bid $REBID_TARGET_PRICE"
+                      if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                        echo "rebid:$EXISTING_INSTANCE_CURRENT_BID:$EXISTING_INSTANCE_MIN_BID:$REBID_TARGET_PRICE" > "$CHECK_RECOMMENDATION_FILE"
+                      fi
+                      exit 1
+                    fi
+                    echo "Keeping the existing instance. No action taken."
+                    if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                      echo stay > "$CHECK_RECOMMENDATION_FILE"
+                    fi
+                    exit 0
+                  fi
+                fi
+
+                echo "Proceeding noninteractively. Replacement command selected or no existing instance was found."
 
                 OLD_VOLUME_ID_TO_DELETE=""
                 if [[ -n "$EXISTING_INSTANCE_ID" ]]; then
+                  echo "Verifying selected offer $BEST_ASK_ID is still available before destructive replacement..."
+                  if ! offer_still_available "$BEST_ASK_ID"; then
+                    echo "Selected offer $BEST_ASK_ID is no longer available; refusing to replace."
+                    echo "Run default mode again to refresh the market snapshot."
+                    exit 1
+                  fi
                   echo "Replacing existing instance $EXISTING_INSTANCE_ID..."
 
                   if [[ "$USE_VOLUME" != "1" ]]; then
@@ -989,7 +1534,11 @@ EOF
                     esac
                   fi
 
+                  STEADY_BID_PRICE="$(compute_margin_bid "$BEST_DPH" "$BID_PRICE" "$STEADY_BID_MARGIN")"
+                  STARTUP_BID_PRICE="$(compute_margin_bid "$BEST_DPH" "$STEADY_BID_PRICE" "$STARTUP_BID_MARGIN")"
                   echo "Requesting instance upsert..."
+                  printf '  startup bid $/h: %s\n' "$STARTUP_BID_PRICE"
+                  printf '  steady bid $/h : %s\n' "$STEADY_BID_PRICE"
                   CREATE_OUTPUT_FILE="$TMPDIR/create-instance.out"
                   set +e
                   vast create instance "$BEST_ASK_ID" \
@@ -999,7 +1548,7 @@ EOF
                     --ssh \
                     --direct \
                     --cancel-unavail \
-                    --bid_price "$BID_PRICE" \
+                    --bid_price "$STARTUP_BID_PRICE" \
                     --env "$ENV_STRING" \
                     --onstart-cmd "$ONSTART_SCRIPT" \
                     "''${VOLUME_ARGS[@]}" >"$CREATE_OUTPUT_FILE" 2>&1
@@ -1048,7 +1597,12 @@ EOF
                 fi
 
                 if [[ -n "$NEW_CONTRACT_ID" ]]; then
-                  if ! wait_for_local_api_ready "$NEW_CONTRACT_ID" "$(expected_context_for_gpu "$BEST_GPU")"; then
+                  if wait_for_local_api_ready "$NEW_CONTRACT_ID" "$(expected_context_for_gpu "$BEST_GPU")"; then
+                    if [[ "$STEADY_BID_PRICE" != "$STARTUP_BID_PRICE" ]]; then
+                      echo "Lowering bid after readiness: $STARTUP_BID_PRICE -> $STEADY_BID_PRICE"
+                      set_instance_bid_best_effort "$NEW_CONTRACT_ID" "$STEADY_BID_PRICE" || true
+                    fi
+                  else
                     echo "Instance failed before API readiness. This can happen if the bid is outcompeted or the host exits early."
                     destroy_failed_readiness_instance "$NEW_CONTRACT_ID" || true
 
@@ -1060,6 +1614,7 @@ EOF
                       echo "Increasing bid margin to reduce early outbid risk: $OLD_BID_PRICE -> $BID_PRICE"
                       echo "Refreshing market and re-running launcher..."
                       "$0" \
+                        replace \
                         --vastai-version "$VASTAI_VERSION" \
                         --default-image "$DEFAULT_IMAGE" \
                         --cuda13-image "$CUDA13_IMAGE" \
@@ -1076,12 +1631,14 @@ EOF
                         --min-reliability "$MIN_RELIABILITY" \
                         --preferred-reliability "$PREFERRED_RELIABILITY" \
                         --label "$LABEL" \
-                        --force-replace-active 1 \
                         --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
                         --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
                         --readiness-retry-attempts "$((READINESS_RETRY_ATTEMPTS - readiness_retry))" \
                         --readiness-retry-bid-margin "$READINESS_RETRY_BID_MARGIN" \
-                        --max-bid-price "$MAX_BID_PRICE"
+                        --max-bid-price "$MAX_BID_PRICE" \
+                        --min-replace-savings-pct "$MIN_REPLACE_SAVINGS_PCT" \
+                        --startup-bid-margin "$STARTUP_BID_MARGIN" \
+                        --steady-bid-margin "$STEADY_BID_MARGIN"
                       exit $?
                     done
 
@@ -1231,7 +1788,7 @@ EOF
             touch $out
           '';
 
-          loading-instance-stays-put = pkgs.runCommand "vast-qwen-launch-loading-instance-stays-put" {
+          existing-instance-default-is-nondestructive = pkgs.runCommand "vast-qwen-launch-existing-instance-default-is-nondestructive" {
             nativeBuildInputs = [ pkgs.bash pkgs.gnugrep ];
           } ''
             set -euo pipefail
@@ -1240,34 +1797,25 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-status_is_activeish() {
-  case "$1" in
-    loading|running|scheduling) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 EXISTING_INSTANCE_ID=35543075
-EXISTING_INSTANCE_STATUS=loading
-FORCE_REPLACE_ACTIVE=0
+COMMAND=check
+EXISTING_INSTANCE_NEEDS_FORCE_DECISION=0
 
-if [[ -n "$EXISTING_INSTANCE_ID" ]] && [[ "$FORCE_REPLACE_ACTIVE" != "1" ]] && status_is_activeish "$EXISTING_INSTANCE_STATUS"; then
-  echo "Keeping current placement."
-  echo "Existing instance is still $EXISTING_INSTANCE_STATUS, so upsert will not replace it by default."
-  echo "Use --force-replace-active 1 if you really want to tear it down and move now."
-  exit 0
+if [[ -n "$EXISTING_INSTANCE_ID" ]] && [[ "$COMMAND" = "check" ]]; then
+  EXISTING_INSTANCE_NEEDS_FORCE_DECISION=1
+  echo "Existing labeled instance found. Searching market first to decide whether replacement is worth it."
+  echo "No destructive action is performed without replace."
 fi
 
-exit 1
+test "$EXISTING_INSTANCE_NEEDS_FORCE_DECISION" = "1"
 EOF
             bash check.sh > out.txt
-
-            grep -Fq 'Keeping current placement.' out.txt
-            grep -Fq 'Use --force-replace-active 1 if you really want to tear it down and move now.' out.txt
+            grep -Fq 'Existing labeled instance found. Searching market first to decide whether replacement is worth it.' out.txt
+            grep -Fq 'No destructive action is performed without replace.' out.txt
             touch $out
           '';
 
-          replace-create-skips-wait = pkgs.runCommand "vast-qwen-launch-replace-create-skips-wait" {
+                    replace-create-skips-wait = pkgs.runCommand "vast-qwen-launch-replace-create-skips-wait" {
             nativeBuildInputs = [ pkgs.bash pkgs.gnugrep ];
           } ''
             set -euo pipefail
@@ -1361,6 +1909,130 @@ EOF
             bash check.sh
             touch $out
           '';
+
+          rebid-expected-state-guard = pkgs.runCommand "vast-qwen-launch-rebid-expected-state-guard" {
+            nativeBuildInputs = [ pkgs.gawk ];
+          } ''
+            set -euo pipefail
+
+            float_close() {
+              awk -v left="$1" -v right="$2" '
+                BEGIN {
+                  diff = left - right
+                  if (diff < 0) diff = -diff
+                  exit !(diff <= 0.000001)
+                }
+              '
+            }
+
+            float_close 0.340800 0.340800
+            if float_close 0.340800 0.340900; then
+              echo "float comparison should reject changed bid" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
+
+          rebid-target-uses-instance-bid-fields = pkgs.runCommand "vast-qwen-launch-rebid-target-uses-instance-bid-fields" {
+            nativeBuildInputs = [ pkgs.gawk ];
+          } ''
+            set -euo pipefail
+
+            compute() {
+              awk \
+                -v effective="$1" \
+                -v min_bid="$2" \
+                -v current_bid="$3" \
+                -v margin="$4" \
+                -v max_bid="$5" '
+                  BEGIN {
+                    floor = min_bid * margin
+                    effective_target = effective * margin
+                    target = floor
+                    if (effective_target > target) target = effective_target
+                    if (current_bid > target) target = current_bid
+                    if (target > max_bid) target = max_bid
+                    printf "%.6f", target
+                  }
+                '
+            }
+
+            test "$(compute 0.30 0.34 0.33 1.08 0.45)" = "0.367200"
+            test "$(compute 0.40 0.20 0.42 1.08 0.45)" = "0.432000"
+            test "$(compute 0.50 0.20 0.42 1.08 0.45)" = "0.450000"
+            touch $out
+          '';
+
+          command-interface = pkgs.runCommand "vast-qwen-launch-command-interface" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+
+            grep -Fq 'Usage: nix run . -- check [options]' "$launcher"
+            grep -Fq 'Usage: nix run . -- replace [ask_id] [options]' "$launcher"
+            grep -Fq 'Usage: nix run . -- rebid [options]' "$launcher"
+            grep -Fq 'Usage: nix run . -- watch [options]' "$launcher"
+            grep -Fq 'nix run . -- replace' "$launcher"
+            grep -Fq 'nix run . -- rebid' "$launcher"
+
+            if grep -Fq 'read -r -p' "$launcher"; then
+              echo "interactive prompt should not exist" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
+
+                    command-parser-modes = pkgs.runCommand "vast-qwen-launch-command-parser-modes" {
+            nativeBuildInputs = [ pkgs.bash ];
+          } ''
+            set -euo pipefail
+
+            cat > parser.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+COMMAND=check
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    check|replace|rebid|watch)
+      COMMAND="$1"
+      shift
+      ;;
+  esac
+fi
+
+case "$COMMAND" in
+  check|replace|rebid|watch) ;;
+  *) exit 1 ;;
+esac
+
+printf '%s\n' "$COMMAND"
+EOF
+
+            test "$(bash parser.sh)" = "check"
+            test "$(bash parser.sh check)" = "check"
+            test "$(bash parser.sh replace --max-price 0.35)" = "replace"
+            test "$(bash parser.sh rebid --max-bid-price 0.42)" = "rebid"
+            test "$(bash parser.sh watch --interval 1)" = "watch"
+            touch $out
+          '';
+
+                    replace-and-rebid-recommendations = pkgs.runCommand "vast-qwen-launch-replace-and-rebid-recommendations" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+
+            grep -Fq 'Run this to destroy the existing instance and create the selected replacement:' "$launcher"
+            grep -Fq 'Run this to adjust the existing instance bid' "$launcher"
+            grep -Fq -- '--expected-current-bid' "$launcher"
+            grep -Fq 'Replacement is not worth it right now.' "$launcher"
+            touch $out
+          '';
+
         });
 
       devShells = forAllSystems (system:
@@ -1374,6 +2046,7 @@ EOF
               gnugrep
               gnused
               gawk
+              curl
               jq
               uv
             ];
