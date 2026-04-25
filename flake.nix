@@ -721,8 +721,8 @@ EOF
                           --mount-path "$MOUNT_PATH"
                         )
                         ;;
-                      create)
-                        CREATE_VOLUME_LABEL="''${VOLUME_LABEL}-''${BEST_ASK_ID}"
+                    create)
+                        CREATE_VOLUME_LABEL="''${VOLUME_LABEL}_''${BEST_ASK_ID}"
                         VOLUME_ARGS=(
                           --create-volume "$BEST_CREATE_VOLUME_OFFER_ID"
                           --volume-size "$VOLUME_SIZE_GB"
