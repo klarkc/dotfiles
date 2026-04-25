@@ -65,6 +65,11 @@
                 READINESS_RETRY_BID_MARGIN="''${READINESS_RETRY_BID_MARGIN:-1.08}"
                 COMMAND="check"
                 SELECTED_ASK_ID="''${SELECTED_ASK_ID:-}"
+                EXPECTED_REPLACE_MACHINE_ID="''${EXPECTED_REPLACE_MACHINE_ID:-}"
+                EXPECTED_REPLACE_PRICE="''${EXPECTED_REPLACE_PRICE:-}"
+                EXPECTED_REPLACE_TOTAL_PRICE="''${EXPECTED_REPLACE_TOTAL_PRICE:-}"
+                EXPECTED_REPLACE_GPU="''${EXPECTED_REPLACE_GPU:-}"
+                EXPECTED_REPLACE_CUDA="''${EXPECTED_REPLACE_CUDA:-}"
                 EXPECTED_REBID_CURRENT_BID="''${EXPECTED_REBID_CURRENT_BID:-}"
                 EXPECTED_REBID_MIN_BID="''${EXPECTED_REBID_MIN_BID:-}"
                 EXPECTED_REBID_TARGET_BID="''${EXPECTED_REBID_TARGET_BID:-}"
@@ -88,6 +93,11 @@ It never destroys instances and never changes bids.
 
 Options:
   --ask-id ASK_ID               Require this exact Vast offer id
+  --expected-machine-id ID      Require selected offer machine id to match
+  --expected-price FLOAT        Require selected instance price to match
+  --expected-total-price FLOAT  Require selected total effective price to match
+  --expected-gpu STRING         Require selected GPU name to match
+  --expected-cuda FLOAT         Require selected cuda_max_good to match
   --max-price FLOAT             Max hourly offer to consider (default: $MAX_PRICE)
   --min-reliability FLOAT       Min reliability (default: $MIN_RELIABILITY)
   --preferred-reliability FLOAT Preferred reliability (default: $PREFERRED_RELIABILITY)
@@ -102,7 +112,7 @@ Usage: nix run . -- replace [ask_id] [options]
        nix run . -- replace --ask-id ASK_ID [options]
 
 Destroy the existing labeled instance, then create the selected replacement.
-When ask_id is provided, replace verifies that exact offer is still available before destroying anything.
+When ask_id and expected fields are provided by check, replace verifies that exact offer and market snapshot still match before destroying anything.
 This command is destructive. The default check command only recommends it.
 
 Options:
@@ -211,6 +221,11 @@ EOF
                     --mount-path) MOUNT_PATH="$2"; shift 2 ;;
                     --volume-label) VOLUME_LABEL="$2"; shift 2 ;;
                     --ask-id) SELECTED_ASK_ID="$2"; shift 2 ;;
+                    --expected-machine-id) EXPECTED_REPLACE_MACHINE_ID="$2"; shift 2 ;;
+                    --expected-price) EXPECTED_REPLACE_PRICE="$2"; shift 2 ;;
+                    --expected-total-price) EXPECTED_REPLACE_TOTAL_PRICE="$2"; shift 2 ;;
+                    --expected-gpu) EXPECTED_REPLACE_GPU="$2"; shift 2 ;;
+                    --expected-cuda) EXPECTED_REPLACE_CUDA="$2"; shift 2 ;;
                     --max-price) MAX_PRICE="$2"; shift 2 ;;
                     --bid-price) BID_PRICE="$2"; shift 2 ;;
                     --min-reliability) MIN_RELIABILITY="$2"; shift 2 ;;
@@ -297,9 +312,14 @@ EOF
                     expected_min_bid=""
                     expected_target_bid=""
 
+                    expected_machine_id=""
+                    expected_replace_price=""
+                    expected_replace_total_price=""
+                    expected_replace_gpu=""
+                    expected_replace_cuda=""
+
                     if [[ "$recommendation" = replace:* ]]; then
-                      recommended_ask_id="''${recommendation#replace:}"
-                      recommendation="replace"
+                      IFS=: read -r recommendation recommended_ask_id expected_machine_id expected_replace_price expected_replace_total_price expected_replace_gpu expected_replace_cuda <<< "$recommendation"
                     elif [[ "$recommendation" = rebid:* ]]; then
                       IFS=: read -r recommendation expected_current_bid expected_min_bid expected_target_bid <<< "$recommendation"
                     fi
@@ -321,6 +341,11 @@ EOF
                           replace_args=(replace)
                         fi
                         "$0" "''${replace_args[@]}" \
+                          --expected-machine-id "$expected_machine_id" \
+                          --expected-price "$expected_replace_price" \
+                          --expected-total-price "$expected_replace_total_price" \
+                          --expected-gpu "$expected_replace_gpu" \
+                          --expected-cuda "$expected_replace_cuda" \
                           --vastai-version "$VASTAI_VERSION" \
                           --default-image "$DEFAULT_IMAGE" \
                           --cuda13-image "$CUDA13_IMAGE" \
@@ -783,6 +808,51 @@ EOF
                 }
 
 
+                verify_expected_replace_state() {
+                  if [[ -n "$EXPECTED_REPLACE_MACHINE_ID" ]] && [[ "$BEST_MACHINE_ID" != "$EXPECTED_REPLACE_MACHINE_ID" ]]; then
+                    echo "Refusing to replace: selected offer machine changed since check."
+                    printf '  expected machine_id: %s\n' "$EXPECTED_REPLACE_MACHINE_ID"
+                    printf '  observed machine_id: %s\n' "$BEST_MACHINE_ID"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REPLACE_GPU" ]] && [[ "$BEST_GPU" != "$EXPECTED_REPLACE_GPU" ]]; then
+                    echo "Refusing to replace: selected offer GPU changed since check."
+                    printf '  expected gpu: %s\n' "$EXPECTED_REPLACE_GPU"
+                    printf '  observed gpu: %s\n' "$BEST_GPU"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REPLACE_CUDA" ]] && ! float_close "$BEST_CUDA_MAX_GOOD" "$EXPECTED_REPLACE_CUDA"; then
+                    echo "Refusing to replace: selected offer CUDA capability changed since check."
+                    printf '  expected cuda: %.6f\n' "$EXPECTED_REPLACE_CUDA"
+                    printf '  observed cuda: %.6f\n' "$BEST_CUDA_MAX_GOOD"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REPLACE_PRICE" ]] && ! float_close "$BEST_DPH" "$EXPECTED_REPLACE_PRICE"; then
+                    echo "Refusing to replace: selected offer price changed since check."
+                    printf '  expected price: %.6f\n' "$EXPECTED_REPLACE_PRICE"
+                    printf '  observed price: %.6f\n' "$BEST_DPH"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  if [[ -n "$EXPECTED_REPLACE_TOTAL_PRICE" ]] && ! float_close "$BEST_TOTAL_COST" "$EXPECTED_REPLACE_TOTAL_PRICE"; then
+                    echo "Refusing to replace: selected offer total effective price changed since check."
+                    printf '  expected total: %.6f\n' "$EXPECTED_REPLACE_TOTAL_PRICE"
+                    printf '  observed total: %.6f\n' "$BEST_TOTAL_COST"
+                    echo "Run check again for a fresh recommendation."
+                    return 1
+                  fi
+
+                  return 0
+                }
+
+
                 replacement_savings_pct() {
                   local current_cost="$1"
                   local candidate_cost="$2"
@@ -927,7 +997,8 @@ EOF
                     echo "Run this to create an instance:"
                     echo "  nix run . -- replace"
                     if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
-                      echo "replace:$BEST_ASK_ID" > "$CHECK_RECOMMENDATION_FILE"
+                      printf 'replace:%s:%s:%s:%s:%s:%s
+' "$BEST_ASK_ID" "$BEST_MACHINE_ID" "$BEST_DPH" "$BEST_TOTAL_COST" "$BEST_GPU" "$BEST_CUDA_MAX_GOOD" > "$CHECK_RECOMMENDATION_FILE"
                     fi
                     exit 1
                   fi
@@ -1358,8 +1429,8 @@ EOF
                       exit 1
                     fi
                     echo "No destructive action is performed by default."
-                    echo "Run this to destroy the existing instance and create the selected replacement:"
-                    echo "  nix run . -- replace $BEST_ASK_ID"
+                    echo "Run this to destroy the existing instance and create the selected replacement if this snapshot is still valid:"
+                    echo "  nix run . -- replace $BEST_ASK_ID --expected-machine-id $BEST_MACHINE_ID --expected-price $BEST_DPH --expected-total-price $BEST_TOTAL_COST --expected-gpu '$BEST_GPU' --expected-cuda $BEST_CUDA_MAX_GOOD"
                     if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
                       echo replace > "$CHECK_RECOMMENDATION_FILE"
                     fi
@@ -1409,9 +1480,10 @@ EOF
                   echo "Verifying selected offer $BEST_ASK_ID is still available before destructive replacement..."
                   if ! offer_still_available "$BEST_ASK_ID"; then
                     echo "Selected offer $BEST_ASK_ID is no longer available; refusing to replace."
-                    echo "Run default mode again to refresh the market snapshot."
+                    echo "Run check again to refresh the market snapshot."
                     exit 1
                   fi
+                  verify_expected_replace_state
                   echo "Replacing existing instance $EXISTING_INSTANCE_ID..."
 
                   if [[ "$USE_VOLUME" != "1" ]]; then
@@ -1996,6 +2068,18 @@ EOF
             touch $out
           '';
 
+          replace-expected-state-guard = pkgs.runCommand "vast-qwen-launch-replace-expected-state-guard" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq -- '--expected-machine-id' "$launcher"
+            grep -Fq -- '--expected-total-price' "$launcher"
+            grep -Fq 'verify_expected_replace_state' "$launcher"
+            grep -Fq 'Refusing to replace: selected offer price changed since check.' "$launcher"
+            touch $out
+          '';
+
           rebid-expected-state-guard = pkgs.runCommand "vast-qwen-launch-rebid-expected-state-guard" {
             nativeBuildInputs = [ pkgs.gawk ];
           } ''
@@ -2112,7 +2196,8 @@ EOF
             set -euo pipefail
             launcher=${launcher}/bin/vast-qwen-launch
 
-            grep -Fq 'Run this to destroy the existing instance and create the selected replacement:' "$launcher"
+            grep -Fq 'Run this to destroy the existing instance and create the selected replacement' "$launcher"
+            grep -Fq -- '--expected-machine-id' "$launcher"
             grep -Fq 'Run this to adjust the existing instance bid' "$launcher"
             grep -Fq -- '--expected-current-bid' "$launcher"
             grep -Fq 'Replacement is not worth it right now.' "$launcher"
