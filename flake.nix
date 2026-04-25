@@ -85,8 +85,8 @@
                   case "$topic" in
                     check)
                       cat <<EOF
-Usage: nix run . -- check [options]
-       nix run . -- [options]
+Usage: launcher check [options]
+       launcher [options]
 
 Default command. Inspect the current labeled instance and market.
 It never destroys instances and never changes bids.
@@ -108,8 +108,8 @@ EOF
                       ;;
                     replace)
                       cat <<EOF
-Usage: nix run . -- replace [ask_id] [options]
-       nix run . -- replace --ask-id ASK_ID [options]
+Usage: launcher replace [ask_id] [options]
+       launcher replace --ask-id ASK_ID [options]
 
 Destroy the existing labeled instance, then create the selected replacement.
 When ask_id and expected fields are provided by check, replace verifies that exact offer and market snapshot still match before destroying anything.
@@ -128,7 +128,7 @@ EOF
                       ;;
                     rebid)
                       cat <<EOF
-Usage: nix run . -- rebid [options]
+Usage: launcher rebid [options]
 
 Adjust the existing labeled instance bid without replacing it.
 When expected bid parameters are provided by check, rebid verifies the market/instance state has not changed before updating the bid.
@@ -145,7 +145,7 @@ EOF
                       ;;
                     watch)
                       cat <<EOF
-Usage: nix run . -- watch [options]
+Usage: launcher watch [options]
 
 Continuously monitor with check and automatically run the suggested action.
 It sleeps --interval seconds between successful cycles.
@@ -164,7 +164,7 @@ EOF
                       ;;
                     *)
                       cat <<EOF
-Usage: nix run . -- [command] [options]
+Usage: launcher [command] [options]
 
 Commands:
   check     Inspect existing instance and market; recommend replace/rebid/stay (default)
@@ -173,10 +173,10 @@ Commands:
   watch     Keep monitoring and applying suggested replace/rebid actions
 
 Run command-specific help:
-  nix run . -- check --help
-  nix run . -- replace --help
-  nix run . -- rebid --help
-  nix run . -- watch --help
+  launcher check --help
+  launcher replace --help
+  launcher rebid --help
+  launcher watch --help
 EOF
                       ;;
                   esac
@@ -256,6 +256,10 @@ EOF
                     exit 1
                     ;;
                 esac
+
+                suggest_command() {
+                  printf '  %s\n' "$*"
+                }
 
                 run_watch_loop() {
                   echo "Starting watch loop. Press Ctrl-C to stop."
@@ -725,6 +729,58 @@ EOF
                   ' "$TMPDIR/candidates.json" >/dev/null
                 }
 
+                select_candidate_index() {
+                  if [[ -n "$SELECTED_ASK_ID" ]]; then
+                    local ask_index
+                    ask_index="$(jq -r --argjson ask_id "$SELECTED_ASK_ID" '
+                      to_entries
+                      | map(select((.value.ask_id // .value.id // .value.offer_id // -1) == $ask_id))
+                      | .[0].key // empty
+                    ' "$TMPDIR/candidates.json")"
+
+                    if [[ -n "$ask_index" ]]; then
+                      echo "$ask_index"
+                      return 0
+                    fi
+
+                    if [[ -n "$EXPECTED_REPLACE_MACHINE_ID" ]]; then
+                      local expected_index
+                      expected_index="$(jq -r \
+                        --arg machine_id "$EXPECTED_REPLACE_MACHINE_ID" \
+                        --arg gpu "$EXPECTED_REPLACE_GPU" \
+                        --argjson price "''${EXPECTED_REPLACE_PRICE:-0}" \
+                        --argjson total "''${EXPECTED_REPLACE_TOTAL_PRICE:-0}" \
+                        --argjson cuda "''${EXPECTED_REPLACE_CUDA:-0}" '
+                          def close($a; $b): (($a - $b) | if . < 0 then -. else . end) <= 0.000001;
+                          to_entries
+                          | map(select(
+                              ((.value.machine_id | tostring) == $machine_id)
+                              and ($gpu == "" or .value.gpu_name == $gpu)
+                              and (($cuda == 0) or close((.value.cuda_max_good // 0); $cuda))
+                              and (($price == 0) or close((.value.dph // 0); $price))
+                              and (($total == 0) or close((.value.total_hourly_cost // .value.dph // 0); $total))
+                            ))
+                          | .[0].key // empty
+                        ' "$TMPDIR/candidates.json")"
+
+                      if [[ -n "$expected_index" ]]; then
+                        echo "$expected_index"
+                        return 0
+                      fi
+
+                      echo "Requested offer $SELECTED_ASK_ID is no longer available, and no current offer matched the expected replacement snapshot."
+                      echo "Run check again to get a fresh recommendation."
+                      return 1
+                    fi
+
+                    echo "Requested offer $SELECTED_ASK_ID is no longer available in the current market snapshot."
+                    echo "Run check again to get a fresh recommendation."
+                    return 1
+                  fi
+
+                  echo 0
+                }
+
                 current_rebid_target() {
                   local effective_cost="$1"
                   local min_bid="$2"
@@ -994,8 +1050,8 @@ EOF
                   echo "No existing labeled instance found."
                   if [[ "$COMMAND" = "check" ]]; then
                     echo "No action is performed by default."
-                    echo "Run this to create an instance:"
-                    echo "  nix run . -- replace"
+                    echo "Run the replace command to create an instance:"
+                    suggest_command replace
                     if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
                       printf 'replace:%s:%s:%s:%s:%s:%s
 ' "$BEST_ASK_ID" "$BEST_MACHINE_ID" "$BEST_DPH" "$BEST_TOTAL_COST" "$BEST_GPU" "$BEST_CUDA_MAX_GOOD" > "$CHECK_RECOMMENDATION_FILE"
@@ -1335,22 +1391,11 @@ EOF
                 done
                 echo
 
-                SELECTED_CANDIDATE_INDEX=0
-                if [[ -n "$SELECTED_ASK_ID" ]]; then
-                  SELECTED_CANDIDATE_INDEX="$(jq -r --argjson ask_id "$SELECTED_ASK_ID" '
-                    to_entries
-                    | map(select((.value.ask_id // .value.id // .value.offer_id // -1) == $ask_id))
-                    | .[0].key // empty
-                  ' "$TMPDIR/candidates.json")"
-
-                  if [[ -z "$SELECTED_CANDIDATE_INDEX" ]]; then
-                    echo "Requested offer $SELECTED_ASK_ID is no longer available in the current market snapshot."
-                    echo "Run check again to get a fresh recommendation."
-                    exit 1
-                  fi
-                fi
-
+                SELECTED_CANDIDATE_INDEX="$(select_candidate_index)"
                 load_candidate "$SELECTED_CANDIDATE_INDEX"
+                if [[ -n "$SELECTED_ASK_ID" && "$BEST_ASK_ID" != "$SELECTED_ASK_ID" ]]; then
+                  echo "Requested offer id $SELECTED_ASK_ID rotated to current offer id $BEST_ASK_ID on the same expected market snapshot."
+                fi
                 tune_runtime_for_selected_gpu() {
                   RUNTIME_MODEL="$MODEL"
                   RUNTIME_QUANTIZATION=""
@@ -1429,8 +1474,8 @@ EOF
                       exit 1
                     fi
                     echo "No destructive action is performed by default."
-                    echo "Run this to destroy the existing instance and create the selected replacement if this snapshot is still valid:"
-                    echo "  nix run . -- replace $BEST_ASK_ID --expected-machine-id $BEST_MACHINE_ID --expected-price $BEST_DPH --expected-total-price $BEST_TOTAL_COST --expected-gpu '$BEST_GPU' --expected-cuda $BEST_CUDA_MAX_GOOD"
+                    echo "Run the replace command to destroy the existing instance and create the selected replacement if this snapshot is still valid:"
+                    suggest_command replace "$BEST_ASK_ID" --expected-machine-id "$BEST_MACHINE_ID" --expected-price "$BEST_DPH" --expected-total-price "$BEST_TOTAL_COST" --expected-gpu "$BEST_GPU" --expected-cuda "$BEST_CUDA_MAX_GOOD"
                     if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
                       echo replace > "$CHECK_RECOMMENDATION_FILE"
                     fi
@@ -1445,8 +1490,8 @@ EOF
                       echo "Current bid is below the effective-cost adjusted target."
                       echo "Instance is at risk of being outbid."
                       echo "No bid change is performed by default."
-                      echo "Run this to adjust the existing instance bid if this snapshot is still valid:"
-                      echo "  nix run . -- rebid --expected-current-bid $EXISTING_INSTANCE_CURRENT_BID --expected-min-bid $EXISTING_INSTANCE_MIN_BID --expected-target-bid $REBID_TARGET_PRICE"
+                      echo "Run the rebid command to adjust the existing instance bid if this snapshot is still valid:"
+                      suggest_command rebid --expected-current-bid "$EXISTING_INSTANCE_CURRENT_BID" --expected-min-bid "$EXISTING_INSTANCE_MIN_BID" --expected-target-bid "$REBID_TARGET_PRICE"
                       if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
                         echo "rebid:$EXISTING_INSTANCE_CURRENT_BID:$EXISTING_INSTANCE_MIN_BID:$REBID_TARGET_PRICE" > "$CHECK_RECOMMENDATION_FILE"
                       fi
@@ -1458,8 +1503,8 @@ EOF
                       printf '  suggested rebid $/h : %.6f\n' "$REBID_TARGET_PRICE"
                       echo "Current bid is below the effective-cost adjusted target."
                       echo "Instance is at risk of being outbid."
-                      echo "Run this to adjust the existing instance bid if this snapshot is still valid:"
-                      echo "  nix run . -- rebid --expected-current-bid $EXISTING_INSTANCE_CURRENT_BID --expected-min-bid $EXISTING_INSTANCE_MIN_BID --expected-target-bid $REBID_TARGET_PRICE"
+                      echo "Run the rebid command to adjust the existing instance bid if this snapshot is still valid:"
+                      suggest_command rebid --expected-current-bid "$EXISTING_INSTANCE_CURRENT_BID" --expected-min-bid "$EXISTING_INSTANCE_MIN_BID" --expected-target-bid "$REBID_TARGET_PRICE"
                       if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
                         echo "rebid:$EXISTING_INSTANCE_CURRENT_BID:$EXISTING_INSTANCE_MIN_BID:$REBID_TARGET_PRICE" > "$CHECK_RECOMMENDATION_FILE"
                       fi
@@ -2068,6 +2113,18 @@ EOF
             touch $out
           '';
 
+          replace-resolves-rotated-offer-id = pkgs.runCommand "vast-qwen-launch-replace-resolves-rotated-offer-id" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'select_candidate_index' "$launcher"
+            grep -Fq 'rotated to current offer id' "$launcher"
+            grep -Fq 'same expected market snapshot' "$launcher"
+            grep -Fq 'EXPECTED_REPLACE_MACHINE_ID' "$launcher"
+            touch $out
+          '';
+
           replace-expected-state-guard = pkgs.runCommand "vast-qwen-launch-replace-expected-state-guard" {
             nativeBuildInputs = [ pkgs.gnugrep ];
           } ''
@@ -2077,6 +2134,7 @@ EOF
             grep -Fq -- '--expected-total-price' "$launcher"
             grep -Fq 'verify_expected_replace_state' "$launcher"
             grep -Fq 'Refusing to replace: selected offer price changed since check.' "$launcher"
+            grep -Fq 'Refusing to replace: selected offer machine changed since check.' "$launcher"
             touch $out
           '';
 
@@ -2140,12 +2198,12 @@ EOF
             set -euo pipefail
             launcher=${launcher}/bin/vast-qwen-launch
 
-            grep -Fq 'Usage: nix run . -- check [options]' "$launcher"
-            grep -Fq 'Usage: nix run . -- replace [ask_id] [options]' "$launcher"
-            grep -Fq 'Usage: nix run . -- rebid [options]' "$launcher"
-            grep -Fq 'Usage: nix run . -- watch [options]' "$launcher"
-            grep -Fq 'nix run . -- replace' "$launcher"
-            grep -Fq 'nix run . -- rebid' "$launcher"
+            grep -Fq 'Usage: launcher check [options]' "$launcher"
+            grep -Fq 'Usage: launcher replace [ask_id] [options]' "$launcher"
+            grep -Fq 'Usage: launcher rebid [options]' "$launcher"
+            grep -Fq 'Usage: launcher watch [options]' "$launcher"
+            grep -Fq 'suggest_command replace' "$launcher"
+            grep -Fq 'suggest_command rebid' "$launcher"
 
             if grep -Fq 'read -r -p' "$launcher"; then
               echo "interactive prompt should not exist" >&2
@@ -2196,9 +2254,11 @@ EOF
             set -euo pipefail
             launcher=${launcher}/bin/vast-qwen-launch
 
-            grep -Fq 'Run this to destroy the existing instance and create the selected replacement' "$launcher"
+            grep -Fq 'Run the replace command to destroy the existing instance and create the selected replacement' "$launcher"
+            grep -Fq 'suggest_command replace' "$launcher"
             grep -Fq -- '--expected-machine-id' "$launcher"
-            grep -Fq 'Run this to adjust the existing instance bid' "$launcher"
+            grep -Fq 'Run the rebid command to adjust the existing instance bid' "$launcher"
+            grep -Fq 'suggest_command rebid' "$launcher"
             grep -Fq -- '--expected-current-bid' "$launcher"
             grep -Fq 'Replacement is not worth it right now.' "$launcher"
             touch $out
