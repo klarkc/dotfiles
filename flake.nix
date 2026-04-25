@@ -1412,34 +1412,39 @@ EOF
                 tune_runtime_for_selected_gpu() {
                   RUNTIME_MODEL="$MODEL"
                   RUNTIME_QUANTIZATION=""
-                  RUNTIME_MAX_MODEL_LEN="$MAX_MODEL_LEN"
-                  RUNTIME_GPU_UTIL=0.94
-                  RUNTIME_MAX_BATCHED_TOKENS=2048
+                  RUNTIME_MAX_MODEL_LEN=49152
+                  RUNTIME_GPU_UTIL=0.90
+                  RUNTIME_MAX_BATCHED_TOKENS=1024
 
                   if [[ "$BEST_GPU_RAM_MB" -lt 30000 ]]; then
+                    # 24GB-class cards: use INT4 AWQ to keep the 48k floor.
                     RUNTIME_MODEL="$MODEL_24GB"
                     RUNTIME_QUANTIZATION="compressed-tensors"
                     RUNTIME_MAX_MODEL_LEN=49152
-                    RUNTIME_GPU_UTIL=0.90
+                    RUNTIME_GPU_UTIL=0.88
                     RUNTIME_MAX_BATCHED_TOKENS=1024
                   elif [[ "$BEST_GPU_RAM_MB" -lt 45000 ]]; then
+                    # 32GB-class cards, including RTX 5090: FP8 works, but 65k
+                    # leaves too little autotuner/warmup headroom. Keep 48k.
                     RUNTIME_MODEL="$MODEL_32GB"
                     RUNTIME_QUANTIZATION=""
-                    RUNTIME_MAX_MODEL_LEN=65536
-                    RUNTIME_GPU_UTIL=0.95
-                    RUNTIME_MAX_BATCHED_TOKENS=3072
+                    RUNTIME_MAX_MODEL_LEN=49152
+                    RUNTIME_GPU_UTIL=0.90
+                    RUNTIME_MAX_BATCHED_TOKENS=1024
                   elif [[ "$BEST_GPU_RAM_MB" -lt 70000 ]]; then
+                    # 48GB-class cards: still conservative, but can go above 48k.
                     RUNTIME_MODEL="$MODEL_48GB"
                     RUNTIME_QUANTIZATION=""
-                    RUNTIME_MAX_MODEL_LEN=73728
-                    RUNTIME_GPU_UTIL=0.95
-                    RUNTIME_MAX_BATCHED_TOKENS=3072
+                    RUNTIME_MAX_MODEL_LEN=65536
+                    RUNTIME_GPU_UTIL=0.92
+                    RUNTIME_MAX_BATCHED_TOKENS=2048
                   else
+                    # 80GB+ cards: allow 96k, but keep warmup headroom.
                     RUNTIME_MODEL="$MODEL_80GB"
                     RUNTIME_QUANTIZATION=""
                     RUNTIME_MAX_MODEL_LEN=98304
-                    RUNTIME_GPU_UTIL=0.96
-                    RUNTIME_MAX_BATCHED_TOKENS=4096
+                    RUNTIME_GPU_UTIL=0.94
+                    RUNTIME_MAX_BATCHED_TOKENS=3072
                   fi
 
                   if [[ "$RUNTIME_MAX_MODEL_LEN" -lt 49152 ]]; then
@@ -1447,7 +1452,6 @@ EOF
                     exit 1
                   fi
                 }
-
 
                 tune_runtime_for_selected_gpu
                 print_selected_candidate
@@ -1645,6 +1649,7 @@ echo "QUANTIZATION: ''${RUNTIME_QUANTIZATION:-auto}"
 echo "CONTEXT: ''${RUNTIME_MAX_MODEL_LEN}"
 echo "GPU_UTIL: ''${RUNTIME_GPU_UTIL}"
 echo "MAX_BATCHED_TOKENS: ''${RUNTIME_MAX_BATCHED_TOKENS}"
+echo "PROFILE: safe-by-vram-tier"
 
 mkdir -p ''${MOUNT_PATH}/hf
 export HF_HOME=''${MOUNT_PATH}/hf
@@ -2292,6 +2297,18 @@ EOF
               echo "server-side gpu_ram search filter should not be used" >&2
               exit 1
             fi
+            touch $out
+          '';
+
+          safe-vram-runtime-tiers = pkgs.runCommand "vast-qwen-launch-safe-vram-runtime-tiers" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'RUNTIME_MAX_MODEL_LEN=49152' "$launcher"
+            grep -Fq 'RUNTIME_GPU_UTIL=0.90' "$launcher"
+            grep -Fq 'RUNTIME_MAX_BATCHED_TOKENS=1024' "$launcher"
+            grep -Fq 'PROFILE: safe-by-vram-tier' "$launcher"
             touch $out
           '';
 
