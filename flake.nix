@@ -41,6 +41,10 @@
                 IMAGE="''${IMAGE:-$DEFAULT_IMAGE}"
                 IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
+                MODEL_24GB="''${MODEL_24GB:-cyankiwi/Qwen3.6-27B-AWQ-INT4}"
+                MODEL_32GB="''${MODEL_32GB:-Qwen/Qwen3.6-27B-FP8}"
+                MODEL_48GB="''${MODEL_48GB:-Qwen/Qwen3.6-27B-FP8}"
+                MODEL_80GB="''${MODEL_80GB:-Qwen/Qwen3.6-27B-FP8}"
 
                 DISK_GB="''${DISK_GB:-40}"
                 USE_VOLUME="''${USE_VOLUME:-0}"
@@ -54,6 +58,7 @@
                 LABEL="''${LABEL:-qwen36-27b-fp8-48k}"
                 VOLUME_LABEL="''${VOLUME_LABEL:-qwen36vol}"
                 MAX_MODEL_LEN="''${MAX_MODEL_LEN:-49152}"
+                MIN_GPU_RAM_MB="''${MIN_GPU_RAM_MB:-22000}"
                 MAX_CREATE_ATTEMPTS="''${MAX_CREATE_ATTEMPTS:-3}"
                 DESTROY_TIMEOUT_SECS="''${DESTROY_TIMEOUT_SECS:-20}"
                 READINESS_RETRY_ATTEMPTS="''${READINESS_RETRY_ATTEMPTS:-2}"
@@ -194,7 +199,12 @@ EOF
                     --cuda13-image) CUDA13_IMAGE="$2"; shift 2 ;;
                     --image-auto-select) IMAGE_AUTO_SELECT="$2"; shift 2 ;;
                     --model) MODEL="$2"; shift 2 ;;
+                    --model-24gb) MODEL_24GB="$2"; shift 2 ;;
+                    --model-32gb) MODEL_32GB="$2"; shift 2 ;;
+                    --model-48gb) MODEL_48GB="$2"; shift 2 ;;
+                    --model-80gb) MODEL_80GB="$2"; shift 2 ;;
                     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
+                    --min-gpu-ram-mb) MIN_GPU_RAM_MB="$2"; shift 2 ;;
                     --disk) DISK_GB="$2"; shift 2 ;;
                     --use-volume) USE_VOLUME="$2"; shift 2 ;;
                     --volume-size) VOLUME_SIZE_GB="$2"; shift 2 ;;
@@ -249,7 +259,12 @@ EOF
                       --cuda13-image "$CUDA13_IMAGE" \
                       --image-auto-select "$IMAGE_AUTO_SELECT" \
                       --model "$MODEL" \
+                      --model-24gb "$MODEL_24GB" \
+                      --model-32gb "$MODEL_32GB" \
+                      --model-48gb "$MODEL_48GB" \
+                      --model-80gb "$MODEL_80GB" \
                       --max-model-len "$MAX_MODEL_LEN" \
+                      --min-gpu-ram-mb "$MIN_GPU_RAM_MB" \
                       --disk "$DISK_GB" \
                       --use-volume "$USE_VOLUME" \
                       --volume-size "$VOLUME_SIZE_GB" \
@@ -311,7 +326,16 @@ EOF
                           --cuda13-image "$CUDA13_IMAGE" \
                           --image-auto-select "$IMAGE_AUTO_SELECT" \
                           --model "$MODEL" \
+                          --model-24gb "$MODEL_24GB" \
+                          --model-32gb "$MODEL_32GB" \
+                          --model-48gb "$MODEL_48GB" \
+                          --model-80gb "$MODEL_80GB" \
+                          --model-24gb "$MODEL_24GB" \
+                          --model-32gb "$MODEL_32GB" \
+                          --model-48gb "$MODEL_48GB" \
+                          --model-80gb "$MODEL_80GB" \
                           --max-model-len "$MAX_MODEL_LEN" \
+                          --min-gpu-ram-mb "$MIN_GPU_RAM_MB" \
                           --disk "$DISK_GB" \
                           --use-volume "$USE_VOLUME" \
                           --volume-size "$VOLUME_SIZE_GB" \
@@ -375,6 +399,7 @@ EOF
                   BEST_ASK_ID="$(jq -r ".[$idx].ask_id" "$TMPDIR/candidates.json")"
                   BEST_MACHINE_ID="$(jq -r ".[$idx].machine_id" "$TMPDIR/candidates.json")"
                   BEST_GPU="$(jq -r ".[$idx].gpu_name" "$TMPDIR/candidates.json")"
+                  BEST_GPU_RAM_MB="$(jq -r ".[$idx].gpu_ram_mb // .[$idx].gpu_ram // 0" "$TMPDIR/candidates.json")"
                   BEST_CUDA_MAX_GOOD="$(jq -r ".[$idx].cuda_max_good // 0" "$TMPDIR/candidates.json")"
                   BEST_DPH="$(jq -r ".[$idx].dph" "$TMPDIR/candidates.json")"
                   BEST_REL="$(jq -r ".[$idx].reliability" "$TMPDIR/candidates.json")"
@@ -398,6 +423,7 @@ EOF
                   printf '  ask_id        : %s\n' "$BEST_ASK_ID"
                   printf '  machine_id    : %s\n' "$BEST_MACHINE_ID"
                   printf '  gpu           : %s\n' "$BEST_GPU"
+                  printf '  gpu ram MB    : %s\n' "$BEST_GPU_RAM_MB"
                   printf '  cuda max good : %s\n' "$BEST_CUDA_MAX_GOOD"
                   printf '  instance $/h  : %.6f\n' "$BEST_DPH"
                   if [[ "$USE_VOLUME" = "1" ]]; then
@@ -417,7 +443,14 @@ EOF
                   printf '  reliability   : %.6f\n' "$BEST_REL"
                   printf '  location      : %s\n' "$BEST_LOC"
                   printf '  image         : %s\n' "$IMAGE"
-                  printf '  model         : %s\n' "$MODEL"
+                  if [[ -n "''${RUNTIME_MODEL:-}" ]]; then
+                    printf '  model         : %s\n' "$RUNTIME_MODEL"
+                    if [[ -n "''${RUNTIME_QUANTIZATION:-}" ]]; then
+                      printf '  quantization  : %s\n' "$RUNTIME_QUANTIZATION"
+                    fi
+                  else
+                    printf '  model         : %s\n' "$MODEL"
+                  fi
                   printf '  max context   : %s\n' "$(expected_context_for_gpu "$BEST_GPU")"
                   printf '  disk          : %s GB\n' "$DISK_GB"
                   if [[ "$USE_VOLUME" = "1" ]]; then
@@ -470,7 +503,6 @@ EOF
                     *H100*|*H200*) echo 98304 ;;
                     *L40*|*A6000*) echo 73728 ;;
                     *5090*) echo 65536 ;;
-                    *4090*) echo 49152 ;;
                     *) echo "$MAX_MODEL_LEN" ;;
                   esac
                 }
@@ -992,10 +1024,18 @@ EOF
                 fi
 
                 GPUS=(
-                  "L40S"
-                  "RTX_5090"
+                  "H100"
+                  "H200"
+                  "A100_SXM4"
                   "A100_PCIE"
+                  "L40S"
+                  "L40"
+                  "RTX_6000Ada"
+                  "RTX_5090"
+                  "RTX_5080"
                   "RTX_4090"
+                  "RTX_A5000"
+                  "RTX_3090"
                 )
 
                 normalize_offers() {
@@ -1034,11 +1074,13 @@ EOF
 
                 preference_rank() {
                   case "$1" in
-                    L40S) echo 0 ;;
-                    RTX_5090) echo 1 ;;
-                    A100_PCIE) echo 2 ;;
-                    RTX_4090) echo 3 ;;
-                    *) echo 99 ;;
+                    H100|H200) echo 0 ;;
+                    A100_SXM4|A100_PCIE) echo 1 ;;
+                    L40S|L40|RTX_6000Ada) echo 2 ;;
+                    RTX_5090) echo 3 ;;
+                    RTX_5080) echo 4 ;;
+                    RTX_4090|RTX_A5000|RTX_3090) echo 5 ;;
+                    *) echo 9 ;;
                   esac
                 }
 
@@ -1206,6 +1248,7 @@ EOF
                     (.create_volume_offer_id // "-"),
                     (.volume_mode // "-"),
                     .gpu_name,
+                    (.gpu_ram_mb // .gpu_ram),
                     .cuda_max_good,
                     .dph,
                     .volume_cost,
@@ -1215,9 +1258,9 @@ EOF
                     .dlperf,
                     .geolocation
                   ] | @tsv
-                ' "$TMPDIR/candidates.json" | while IFS=$'\t' read -r ask_id reusable_volume_id create_volume_offer_id volume_mode gpu_name cuda_max_good dph volume_cost total_hourly_cost reliability loc_tier dlperf geolocation; do
-                  printf '  ask_id=%s  reuse_vol=%s  create_vol=%s  vol-mode=%s  gpu=%s  cuda=%s  inst=$/h:%.6f  vol-est=$/h:%.6f  total-est=$/h:%.6f  rel=%s  loc-tier=%s  dlperf=%s  loc=%s\n' \
-                    "$ask_id" "$reusable_volume_id" "$create_volume_offer_id" "$volume_mode" "$gpu_name" "$cuda_max_good" "$dph" "$volume_cost" "$total_hourly_cost" "$reliability" "$loc_tier" "$dlperf" "$geolocation"
+                ' "$TMPDIR/candidates.json" | while IFS=$'\t' read -r ask_id reusable_volume_id create_volume_offer_id volume_mode gpu_name gpu_ram cuda_max_good dph volume_cost total_hourly_cost reliability loc_tier dlperf geolocation; do
+                  printf '  ask_id=%s  reuse_vol=%s  create_vol=%s  vol-mode=%s  gpu=%s  vramMB=%s  cuda=%s  inst=$/h:%.6f  vol-est=$/h:%.6f  total-est=$/h:%.6f  rel=%s  loc-tier=%s  dlperf=%s  loc=%s\n' \
+                    "$ask_id" "$reusable_volume_id" "$create_volume_offer_id" "$volume_mode" "$gpu_name" "$gpu_ram" "$cuda_max_good" "$dph" "$volume_cost" "$total_hourly_cost" "$reliability" "$loc_tier" "$dlperf" "$geolocation"
                 done
                 echo
 
@@ -1237,6 +1280,47 @@ EOF
                 fi
 
                 load_candidate "$SELECTED_CANDIDATE_INDEX"
+                tune_runtime_for_selected_gpu() {
+                  RUNTIME_MODEL="$MODEL"
+                  RUNTIME_QUANTIZATION=""
+                  RUNTIME_MAX_MODEL_LEN="$MAX_MODEL_LEN"
+                  RUNTIME_GPU_UTIL=0.94
+                  RUNTIME_MAX_BATCHED_TOKENS=2048
+
+                  if [[ "$BEST_GPU_RAM_MB" -lt 30000 ]]; then
+                    RUNTIME_MODEL="$MODEL_24GB"
+                    RUNTIME_QUANTIZATION="compressed-tensors"
+                    RUNTIME_MAX_MODEL_LEN=49152
+                    RUNTIME_GPU_UTIL=0.90
+                    RUNTIME_MAX_BATCHED_TOKENS=1024
+                  elif [[ "$BEST_GPU_RAM_MB" -lt 45000 ]]; then
+                    RUNTIME_MODEL="$MODEL_32GB"
+                    RUNTIME_QUANTIZATION=""
+                    RUNTIME_MAX_MODEL_LEN=65536
+                    RUNTIME_GPU_UTIL=0.95
+                    RUNTIME_MAX_BATCHED_TOKENS=3072
+                  elif [[ "$BEST_GPU_RAM_MB" -lt 70000 ]]; then
+                    RUNTIME_MODEL="$MODEL_48GB"
+                    RUNTIME_QUANTIZATION=""
+                    RUNTIME_MAX_MODEL_LEN=73728
+                    RUNTIME_GPU_UTIL=0.95
+                    RUNTIME_MAX_BATCHED_TOKENS=3072
+                  else
+                    RUNTIME_MODEL="$MODEL_80GB"
+                    RUNTIME_QUANTIZATION=""
+                    RUNTIME_MAX_MODEL_LEN=98304
+                    RUNTIME_GPU_UTIL=0.96
+                    RUNTIME_MAX_BATCHED_TOKENS=4096
+                  fi
+
+                  if [[ "$RUNTIME_MAX_MODEL_LEN" -lt 49152 ]]; then
+                    echo "Selected GPU $BEST_GPU cannot guarantee minimum 48k context."
+                    exit 1
+                  fi
+                }
+
+
+                tune_runtime_for_selected_gpu
                 print_selected_candidate
 
                 if [[ "$EXISTING_INSTANCE_NEEDS_FORCE_DECISION" = "1" ]]; then
@@ -1417,40 +1501,6 @@ EOF
                 fi
 
                 
-                tune_runtime_for_selected_gpu() {
-                  case "$BEST_GPU" in
-                    *H100*|*H200*)
-                      RUNTIME_MAX_MODEL_LEN=98304
-                      RUNTIME_GPU_UTIL=0.96
-                      RUNTIME_MAX_BATCHED_TOKENS=4096
-                      ;;
-                    *L40*|*A6000*)
-                      RUNTIME_MAX_MODEL_LEN=73728
-                      RUNTIME_GPU_UTIL=0.95
-                      RUNTIME_MAX_BATCHED_TOKENS=3072
-                      ;;
-                    *5090*)
-                      RUNTIME_MAX_MODEL_LEN=65536
-                      RUNTIME_GPU_UTIL=0.95
-                      RUNTIME_MAX_BATCHED_TOKENS=3072
-                      ;;
-                    *4090*)
-                      RUNTIME_MAX_MODEL_LEN=49152
-                      RUNTIME_GPU_UTIL=0.94
-                      RUNTIME_MAX_BATCHED_TOKENS=2048
-                      ;;
-                    *)
-                      RUNTIME_MAX_MODEL_LEN="$MAX_MODEL_LEN"
-                      RUNTIME_GPU_UTIL=0.94
-                      RUNTIME_MAX_BATCHED_TOKENS=2048
-                      ;;
-                  esac
-
-                  if [[ "$RUNTIME_MAX_MODEL_LEN" -lt 49152 ]]; then
-                    echo "Selected GPU $BEST_GPU cannot guarantee minimum 48k context."
-                    exit 1
-                  fi
-                }
 
                 tune_runtime_for_selected_gpu
 
@@ -1459,6 +1509,9 @@ set -euxo pipefail
 
 echo "=== vLLM launch configuration ==="
 echo "GPU: ''${BEST_GPU}"
+echo "GPU_RAM_MB: ''${BEST_GPU_RAM_MB}"
+echo "MODEL: ''${RUNTIME_MODEL}"
+echo "QUANTIZATION: ''${RUNTIME_QUANTIZATION:-auto}"
 echo "CONTEXT: ''${RUNTIME_MAX_MODEL_LEN}"
 echo "GPU_UTIL: ''${RUNTIME_GPU_UTIL}"
 echo "MAX_BATCHED_TOKENS: ''${RUNTIME_MAX_BATCHED_TOKENS}"
@@ -1469,12 +1522,18 @@ export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
 
-echo "=== Starting vLLM (FP8 model everywhere) ==="
-vllm serve ''${MODEL} \
+echo "=== Starting vLLM ==="
+QUANTIZATION_ARGS=""
+if [[ -n "''${RUNTIME_QUANTIZATION}" ]]; then
+  QUANTIZATION_ARGS="--quantization ''${RUNTIME_QUANTIZATION}"
+fi
+
+vllm serve ''${RUNTIME_MODEL} \
   --host 0.0.0.0 \
   --port 8000 \
   --trust-remote-code \
   --dtype auto \
+  ''${QUANTIZATION_ARGS} \
   --tensor-parallel-size 1 \
   --max-model-len ''${RUNTIME_MAX_MODEL_LEN} \
   --gpu-memory-utilization ''${RUNTIME_GPU_UTIL} \
@@ -1505,6 +1564,7 @@ EOF
                     echo
                     echo "Retrying with next candidate ($((attempt_idx + 1))/$ATTEMPT_LIMIT)..."
                     load_candidate "$attempt_idx"
+                    tune_runtime_for_selected_gpu
                     print_selected_candidate
                   fi
 
@@ -1907,6 +1967,32 @@ CREATE_VOLUME_LABEL="$VOLUME_LABEL"'_'"$BEST_ASK_ID"
 test "$CREATE_VOLUME_LABEL" = "qwen36vol_35475257"
 EOF
             bash check.sh
+            touch $out
+          '';
+
+                    offer-search-uses-local-vram-filter = pkgs.runCommand "vast-qwen-launch-offer-search-uses-local-vram-filter" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            if grep -Fq 'gpu_ram>=' "$launcher"; then
+              echo "Do not use gpu_ram in Vast search query; local filter only." >&2
+              exit 1
+            fi
+            grep -Fq 'gpu_ram_mb' "$launcher"
+            grep -Fq 'RTX_3090' "$launcher"
+            touch $out
+          '';
+
+          gpu-model-selection-24gb-awq = pkgs.runCommand "vast-qwen-launch-gpu-model-selection-24gb-awq" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'MODEL_24GB=' "$launcher"
+            grep -Fq 'cyankiwi/Qwen3.6-27B-AWQ-INT4' "$launcher"
+            grep -Fq 'RUNTIME_QUANTIZATION="compressed-tensors"' "$launcher"
+            grep -Fq 'MIN_GPU_RAM_MB="''${MIN_GPU_RAM_MB:-22000}"' "$launcher"
             touch $out
           '';
 
