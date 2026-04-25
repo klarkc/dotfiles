@@ -257,8 +257,21 @@ EOF
                     ;;
                 esac
 
+                shell_quote() {
+                  printf '%q' "$1"
+                }
+
                 suggest_command() {
-                  printf '  %s\n' "$*"
+                  local rendered=""
+                  local arg
+                  for arg in "$@"; do
+                    if [[ -z "$rendered" ]]; then
+                      rendered="$(shell_quote "$arg")"
+                    else
+                      rendered="$rendered $(shell_quote "$arg")"
+                    fi
+                  done
+                  printf '  %s\n' "$rendered"
                 }
 
                 run_watch_loop() {
@@ -1641,7 +1654,7 @@ export OMP_NUM_THREADS=4
 
 echo "=== Starting vLLM ==="
 QUANTIZATION_ARGS=""
-if [[ -n "''${RUNTIME_QUANTIZATION}" ]]; then
+if [[ -n "''${RUNTIME_QUANTIZATION:-}" ]]; then
   QUANTIZATION_ARGS="--quantization ''${RUNTIME_QUANTIZATION}"
 fi
 
@@ -1650,7 +1663,7 @@ vllm serve ''${RUNTIME_MODEL} \
   --port 8000 \
   --trust-remote-code \
   --dtype auto \
-  ''${QUANTIZATION_ARGS} \
+  ''${QUANTIZATION_ARGS:-} \
   --tensor-parallel-size 1 \
   --max-model-len ''${RUNTIME_MAX_MODEL_LEN} \
   --gpu-memory-utilization ''${RUNTIME_GPU_UTIL} \
@@ -2248,7 +2261,41 @@ EOF
             touch $out
           '';
 
-                    replace-and-rebid-recommendations = pkgs.runCommand "vast-qwen-launch-replace-and-rebid-recommendations" {
+                    quote-suggestions-with-spaces = pkgs.runCommand "vast-qwen-launch-quote-suggestions-with-spaces" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'shell_quote()' "$launcher"
+            grep -Fq "printf '%q'" "$launcher"
+            touch $out
+          '';
+
+          quantization-args-safe-under-set-u = pkgs.runCommand "vast-qwen-launch-quantization-args-safe-under-set-u" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq "RUNTIME_QUANTIZATION:-" "$launcher"
+            grep -Fq "QUANTIZATION_ARGS:-" "$launcher"
+            touch $out
+          '';
+
+          local-vram-filter-keeps-24gb-floor = pkgs.runCommand "vast-qwen-launch-local-vram-filter-keeps-24gb-floor" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'MIN_GPU_RAM_MB=' "$launcher"
+            grep -Fq 'gpu_ram_mb' "$launcher"
+            if grep -Fq 'gpu_ram>=' "$launcher"; then
+              echo "server-side gpu_ram search filter should not be used" >&2
+              exit 1
+            fi
+            touch $out
+          '';
+
+          replace-and-rebid-recommendations = pkgs.runCommand "vast-qwen-launch-replace-and-rebid-recommendations" {
             nativeBuildInputs = [ pkgs.gnugrep ];
           } ''
             set -euo pipefail
