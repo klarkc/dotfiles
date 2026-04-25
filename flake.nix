@@ -22,6 +22,7 @@
             gnugrep
             gnused
             gawk
+            curl
             jq
             uv
           ];
@@ -184,7 +185,7 @@ EOF
                   printf '  location      : %s\n' "$BEST_LOC"
                   printf '  image         : %s\n' "$IMAGE"
                   printf '  model         : %s\n' "$MODEL"
-                  printf '  max context   : %s\n' "$MAX_MODEL_LEN"
+                  printf '  max context   : %s\n' "$(expected_context_for_gpu "$BEST_GPU")"
                   printf '  disk          : %s GB\n' "$DISK_GB"
                   if [[ "$USE_VOLUME" = "1" ]]; then
                     printf '  volume        : %s GB at %s\n' "$VOLUME_SIZE_GB" "$MOUNT_PATH"
@@ -228,6 +229,127 @@ EOF
                     sleep 2
                   done
                   return 1
+                }
+
+                expected_context_for_gpu() {
+                  local gpu_name="$1"
+                  case "$gpu_name" in
+                    *H100*|*H200*) echo 98304 ;;
+                    *L40*|*A6000*) echo 73728 ;;
+                    *5090*) echo 65536 ;;
+                    *4090*) echo 49152 ;;
+                    *) echo "$MAX_MODEL_LEN" ;;
+                  esac
+                }
+
+                get_instance_snapshot() {
+                  local instance_id="$1"
+                  vast show instances --raw | jq -c --argjson id "$instance_id" '
+                    def rows:
+                      if type == "array" then .
+                      elif has("instances") then .instances
+                      else [] end;
+                    rows
+                    | map(select((.id // .instance_id // .contract_id // .ask_contract_id // -1) == $id))
+                    | .[0] // {}
+                  '
+                }
+
+                get_instance_ip() {
+                  jq -r '(.public_ipaddr // .public_ip // .ssh_host // .host // empty)'
+                }
+
+                get_instance_status() {
+                  jq -r '(.actual_status // .cur_state // .status // .intended_status // empty)'
+                }
+
+                status_is_terminal_or_bad() {
+                  case "$1" in
+                    outbid|exited|stopped|destroyed|error|failed|cancelled|canceled|unreachable)
+                      return 0
+                      ;;
+                    *)
+                      return 1
+                      ;;
+                  esac
+                }
+
+                print_logs_context_if_available() {
+                  local instance_id="$1"
+                  local log_file="$TMPDIR/instance-ready.log"
+                  if vast logs "$instance_id" > "$log_file" 2>/dev/null; then
+                    local context gpu vram
+                    context="$(grep -E '^(CONTEXT:|Selected MAX_MODEL_LEN=)' "$log_file" | tail -n1 | sed -E 's/^CONTEXT:[[:space:]]*//; s/^Selected MAX_MODEL_LEN=//' || true)"
+                    gpu="$(grep -E '^GPU:' "$log_file" | tail -n1 | cut -d: -f2- | sed 's/^ *//' || true)"
+                    vram="$(grep -E '^VRAM_GB:' "$log_file" | tail -n1 | awk '{print $2}' || true)"
+                    if [[ -n "$context" ]]; then
+                      printf 'CONTEXT: %s\n' "$context"
+                    fi
+                    if [[ -n "$gpu" ]]; then
+                      printf 'GPU: %s\n' "$gpu"
+                    fi
+                    if [[ -n "$vram" ]]; then
+                      printf 'VRAM_GB: %s\n' "$vram"
+                    fi
+                    [[ -n "$context" ]]
+                    return
+                  fi
+                  return 1
+                }
+
+                wait_for_local_api_ready() {
+                  local instance_id="$1"
+                  local expected_context="$2"
+                  local attempt=0
+                  local ip=""
+                  local status=""
+                  local snapshot=""
+                  echo
+                  echo "Waiting for instance API readiness..."
+                  while true; do
+                    attempt=$((attempt + 1))
+                    snapshot="$(get_instance_snapshot "$instance_id" || echo '{}')"
+
+                    if [[ "$snapshot" = "{}" || -z "$snapshot" ]]; then
+                      echo "Local readiness attempt $attempt: instance $instance_id not visible yet."
+                      sleep 5
+                      continue
+                    fi
+
+                    status="$(printf '%s\n' "$snapshot" | get_instance_status)"
+                    ip="$(printf '%s\n' "$snapshot" | get_instance_ip)"
+                    STATUS_DISPLAY="$status"
+                    if [[ -z "$STATUS_DISPLAY" || "$STATUS_DISPLAY" = "null" ]]; then
+                      STATUS_DISPLAY="unknown"
+                    fi
+
+                    if status_is_terminal_or_bad "$status"; then
+                      echo "Instance $instance_id entered terminal/bad status while waiting: $STATUS_DISPLAY"
+                      echo "Aborting readiness wait."
+                      return 1
+                    fi
+
+                    if [[ -z "$ip" || "$ip" = "null" ]]; then
+                      echo "Local readiness attempt $attempt: status=$STATUS_DISPLAY; public IP not available yet."
+                    elif curl -fsS --connect-timeout 3 --max-time 5 "http://$ip:8000/v1/models" >/dev/null 2>&1; then
+                      echo
+                      echo "======================================"
+                      echo "READY"
+                      printf 'IP: %s\n' "$ip"
+                      echo "PORT: 8000"
+                      printf 'STATUS: %s\n' "$STATUS_DISPLAY"
+                      if ! print_logs_context_if_available "$instance_id"; then
+                        printf 'CONTEXT: %s (expected from selected GPU)\n' "$expected_context"
+                        printf 'GPU: %s\n' "$BEST_GPU"
+                      fi
+                      echo "======================================"
+                      echo
+                      return 0
+                    else
+                      echo "Local readiness attempt $attempt: status=$STATUS_DISPLAY; API not ready at http://$ip:8000/v1/models yet."
+                    fi
+                    sleep 5
+                  done
                 }
 
                 TMPDIR="$(mktemp -d)"
@@ -607,7 +729,19 @@ EOF
                 OLD_VOLUME_ID_TO_DELETE=""
                 if [[ -n "$EXISTING_INSTANCE_ID" ]]; then
                   echo "Replacing existing instance $EXISTING_INSTANCE_ID..."
-                  if [[ "$BEST_VOLUME_MODE" = "reuse" ]]; then
+
+                  if [[ "$USE_VOLUME" != "1" ]]; then
+                    if ! vast destroy instance "$EXISTING_INSTANCE_ID" >/dev/null; then
+                      echo "Failed to destroy existing instance $EXISTING_INSTANCE_ID."
+                      exit 1
+                    fi
+                    echo "Waiting for old instance to disappear before launching replacement..."
+                    if ! wait_for_instance_gone "$EXISTING_INSTANCE_ID"; then
+                      echo "Timed out waiting for instance $EXISTING_INSTANCE_ID to disappear."
+                      echo "Refusing to create a second instance while the old one may still exist."
+                      exit 1
+                    fi
+                  elif [[ "$BEST_VOLUME_MODE" = "reuse" ]]; then
                     if ! vast destroy instance "$EXISTING_INSTANCE_ID" >/dev/null; then
                       echo "Failed to destroy existing instance $EXISTING_INSTANCE_ID."
                       exit 1
@@ -635,7 +769,8 @@ EOF
                         ;;
                     esac
                   fi
-                  if [[ -n "$EXISTING_VOLUME_ID" && "$BEST_VOLUME_MODE" != "reuse" ]]; then
+
+                  if [[ "$USE_VOLUME" = "1" && -n "$EXISTING_VOLUME_ID" && "$BEST_VOLUME_MODE" != "reuse" ]]; then
                     OLD_VOLUME_ID_TO_DELETE="$EXISTING_VOLUME_ID"
                   fi
                 fi
@@ -666,23 +801,70 @@ EOF
                   esac
                 fi
 
-                ONSTART_SCRIPT="$(cat <<EOF
+                
+                tune_runtime_for_selected_gpu() {
+                  case "$BEST_GPU" in
+                    *H100*|*H200*)
+                      RUNTIME_MAX_MODEL_LEN=98304
+                      RUNTIME_GPU_UTIL=0.96
+                      RUNTIME_MAX_BATCHED_TOKENS=4096
+                      ;;
+                    *L40*|*A6000*)
+                      RUNTIME_MAX_MODEL_LEN=73728
+                      RUNTIME_GPU_UTIL=0.95
+                      RUNTIME_MAX_BATCHED_TOKENS=3072
+                      ;;
+                    *5090*)
+                      RUNTIME_MAX_MODEL_LEN=65536
+                      RUNTIME_GPU_UTIL=0.95
+                      RUNTIME_MAX_BATCHED_TOKENS=3072
+                      ;;
+                    *4090*)
+                      RUNTIME_MAX_MODEL_LEN=49152
+                      RUNTIME_GPU_UTIL=0.94
+                      RUNTIME_MAX_BATCHED_TOKENS=2048
+                      ;;
+                    *)
+                      RUNTIME_MAX_MODEL_LEN="$MAX_MODEL_LEN"
+                      RUNTIME_GPU_UTIL=0.94
+                      RUNTIME_MAX_BATCHED_TOKENS=2048
+                      ;;
+                  esac
+
+                  if [[ "$RUNTIME_MAX_MODEL_LEN" -lt 49152 ]]; then
+                    echo "Selected GPU $BEST_GPU cannot guarantee minimum 48k context."
+                    exit 1
+                  fi
+                }
+
+                tune_runtime_for_selected_gpu
+
+ONSTART_SCRIPT="$(cat <<EOF
 set -euxo pipefail
+
+echo "=== vLLM launch configuration ==="
+echo "GPU: ''${BEST_GPU}"
+echo "CONTEXT: ''${RUNTIME_MAX_MODEL_LEN}"
+echo "GPU_UTIL: ''${RUNTIME_GPU_UTIL}"
+echo "MAX_BATCHED_TOKENS: ''${RUNTIME_MAX_BATCHED_TOKENS}"
+
 mkdir -p ''${MOUNT_PATH}/hf
 export HF_HOME=''${MOUNT_PATH}/hf
 export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
+
+echo "=== Starting vLLM (FP8 model everywhere) ==="
 vllm serve ''${MODEL} \
   --host 0.0.0.0 \
   --port 8000 \
   --trust-remote-code \
   --dtype auto \
   --tensor-parallel-size 1 \
-  --max-model-len ''${MAX_MODEL_LEN} \
-  --gpu-memory-utilization 0.94 \
+  --max-model-len ''${RUNTIME_MAX_MODEL_LEN} \
+  --gpu-memory-utilization ''${RUNTIME_GPU_UTIL} \
   --max-num-seqs 1 \
-  --max-num-batched-tokens 2048 \
+  --max-num-batched-tokens ''${RUNTIME_MAX_BATCHED_TOKENS} \
   --block-size 16 \
   --language-model-only \
   --enable-prefix-caching \
@@ -697,6 +879,7 @@ EOF
                 fi
 
                 CREATE_SUCCESS=0
+                NEW_CONTRACT_ID=""
                 ATTEMPT_LIMIT="$MAX_CREATE_ATTEMPTS"
                 if [[ "$count" -lt "$ATTEMPT_LIMIT" ]]; then
                   ATTEMPT_LIMIT="$count"
@@ -754,6 +937,7 @@ EOF
                   set -e
                   if [[ "$CREATE_STATUS" -eq 0 ]] && create_response_says_success "$CREATE_OUTPUT_FILE"; then
                     cat "$CREATE_OUTPUT_FILE"
+                    NEW_CONTRACT_ID="$(grep -Eo "new_contract['\"]?[[:space:]]*:[[:space:]]*[0-9]+" "$CREATE_OUTPUT_FILE" | grep -Eo '[0-9]+' | head -n1 || true)"
                     CREATE_SUCCESS=1
                     break
                   fi
@@ -791,6 +975,12 @@ EOF
                     echo "Warning: old volume $OLD_VOLUME_ID_TO_DELETE was not deleted automatically."
                     echo "Delete it later after the old instance fully disappears."
                   fi
+                fi
+
+                if [[ -n "$NEW_CONTRACT_ID" ]]; then
+                  wait_for_local_api_ready "$NEW_CONTRACT_ID" "$(expected_context_for_gpu "$BEST_GPU")"
+                else
+                  echo "Warning: could not parse new contract id; skipping local API readiness wait."
                 fi
 
                 echo
