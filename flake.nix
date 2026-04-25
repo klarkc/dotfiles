@@ -391,6 +391,8 @@ EOF
                         avail_vol_size: ((.avail_vol_size // 0) | tonumber),
                         gpu_name: (.gpu_name // .gpu_name_display // $gpu),
                         dph: ((.dph_total // .dph_base // .dph // .discounted_dph_total // 999999) | tonumber),
+                        storage_cost: ((.storage_cost // 0) | tonumber),
+                        storage_total_cost: ((.storage_total_cost // 0) | tonumber),
                         reliability: ((.reliability2 // .reliability // 0) | tonumber),
                         dlperf: ((.dlperf // .dlperf_per_dphtotal // 0) | tonumber),
                         inet_up: ((.inet_up // 0) | tonumber),
@@ -458,6 +460,7 @@ EOF
                         host_id: (.host_id // null),
                         geolocation: (.geolocation // ""),
                         reliability: ((.reliability2 // .reliability // 0) | tonumber),
+                        storage_cost: ((.storage_cost // 0) | tonumber),
                         storage_total_cost: ((.storage_total_cost // 0) | tonumber),
                         disk_space: ((.disk_space // 0) | tonumber)
                     })
@@ -475,24 +478,22 @@ EOF
                 EXISTING_VOLUME_ID_JSON="null"
                 EXISTING_VOLUME_MACHINE_ID_JSON="null"
                 EXISTING_VOLUME_COST_JSON="0"
-                FALLBACK_VOLUME_COST_JSON="0"
                 if [[ -n "$EXISTING_VOLUME_ID" ]]; then
                   EXISTING_VOLUME_ID_JSON="$EXISTING_VOLUME_ID"
                   EXISTING_VOLUME_MACHINE_ID_JSON="$EXISTING_VOLUME_MACHINE_ID"
                   EXISTING_VOLUME_COST_JSON="$EXISTING_VOLUME_COST"
-                  FALLBACK_VOLUME_COST_JSON="$EXISTING_VOLUME_COST"
                 fi
 
                 jq -n \
                   --slurpfile offers "$TMPDIR/offers.json" \
                   --slurpfile volume_offers "$TMPDIR/volume-offers.json" \
                   --argjson max_price "$MAX_PRICE" \
+                  --argjson requested_volume_size "$VOLUME_SIZE_GB" \
                   --argjson preferred_reliability "$PREFERRED_RELIABILITY" \
                   --argjson require_volume "$USE_VOLUME" \
                   --argjson existing_volume_id "$EXISTING_VOLUME_ID_JSON" \
                   --argjson existing_volume_machine_id "$EXISTING_VOLUME_MACHINE_ID_JSON" \
-                  --argjson existing_volume_cost "$EXISTING_VOLUME_COST_JSON" \
-                  --argjson fallback_volume_cost "$FALLBACK_VOLUME_COST_JSON" '
+                  --argjson existing_volume_cost "$EXISTING_VOLUME_COST_JSON" '
                   def loc_tier:
                     (.geolocation | ascii_downcase) as $loc
                     | if ($loc | test("brazil|brasil|sao paulo|rio de janeiro|curitiba|porto alegre|belo horizonte|br$")) then 0
@@ -505,6 +506,14 @@ EOF
 
                   def rel_tier($preferred):
                     if .reliability >= $preferred then 0 else 1 end;
+
+                  def offered_volume_hourly($offer; $volume_offer; $requested_size):
+                    if (($volume_offer.storage_total_cost // 0) > 0) then ($volume_offer.storage_total_cost // 0)
+                    elif (($offer.storage_total_cost // 0) > 0) then ($offer.storage_total_cost // 0)
+                    elif (($volume_offer.storage_cost // 0) > 0) then (($volume_offer.storage_cost // 0) * $requested_size)
+                    elif (($offer.storage_cost // 0) > 0) then (($offer.storage_cost // 0) * $requested_size)
+                    else 0
+                    end;
 
                   ($offers[0]) as $offer_list
                   | ($volume_offers[0]) as $volume_offer_list
@@ -532,8 +541,7 @@ EOF
                              end),
                           volume_cost:
                             (if $can_reuse_volume then $existing_volume_cost
-                             elif (($volume_offer.storage_total_cost // 0) > 0) then ($volume_offer.storage_total_cost // 0)
-                             else $fallback_volume_cost
+                             else offered_volume_hourly($offer; $volume_offer; $requested_volume_size)
                              end),
                           volume_reliability:
                             (if $can_reuse_volume then null
@@ -541,8 +549,7 @@ EOF
                              end),
                           total_hourly_cost:
                             (.dph + (if $can_reuse_volume then $existing_volume_cost
-                                     elif (($volume_offer.storage_total_cost // 0) > 0) then ($volume_offer.storage_total_cost // 0)
-                                     else $fallback_volume_cost
+                                     else offered_volume_hourly($offer; $volume_offer; $requested_volume_size)
                                      end)),
                           volume_churn_tier: (if $can_reuse_volume then 0 else 1 end)
                         }
@@ -645,7 +652,7 @@ EOF
                       )
                       ;;
                     create)
-                      CREATE_VOLUME_LABEL="''${VOLUME_LABEL}-''${BEST_ASK_ID}"
+                      CREATE_VOLUME_LABEL="''${VOLUME_LABEL}_''${BEST_ASK_ID}"
                       VOLUME_ARGS=(
                         --create-volume "$BEST_CREATE_VOLUME_OFFER_ID"
                         --volume-size "$VOLUME_SIZE_GB"
@@ -705,6 +712,7 @@ EOF
                   fi
 
                   VOLUME_ARGS=()
+                  CREATE_VOLUME_LABEL="$VOLUME_LABEL"
                   if [[ "$USE_VOLUME" = "1" ]]; then
                     case "$BEST_VOLUME_MODE" in
                       reuse)
@@ -714,11 +722,12 @@ EOF
                         )
                         ;;
                       create)
+                        CREATE_VOLUME_LABEL="''${VOLUME_LABEL}-''${BEST_ASK_ID}"
                         VOLUME_ARGS=(
                           --create-volume "$BEST_CREATE_VOLUME_OFFER_ID"
                           --volume-size "$VOLUME_SIZE_GB"
                           --mount-path "$MOUNT_PATH"
-                          --volume-label "$VOLUME_LABEL"
+                          --volume-label "$CREATE_VOLUME_LABEL"
                         )
                         ;;
                       *)
@@ -890,28 +899,33 @@ EOF
             touch $out
           '';
 
-          volume-estimate-fallback = pkgs.runCommand "vast-qwen-launch-volume-estimate-fallback" {
+          volume-estimate-live-pricing = pkgs.runCommand "vast-qwen-launch-volume-estimate-live-pricing" {
             nativeBuildInputs = [ pkgs.jq ];
           } ''
             set -euo pipefail
 
             jq_filter='
+              def offered_volume_hourly:
+                if (.volume_offer_total_cost > 0) then .volume_offer_total_cost
+                elif (.offer_total_cost > 0) then .offer_total_cost
+                elif (.volume_offer_cost > 0) then (.volume_offer_cost * .requested_volume_size)
+                elif (.offer_cost > 0) then (.offer_cost * .requested_volume_size)
+                else 0
+                end;
               {
                 volume_cost:
                   (if .can_reuse_volume then .existing_volume_cost
-                   elif (.volume_offer_cost > 0) then .volume_offer_cost
-                   else .fallback_volume_cost
+                   else offered_volume_hourly
                    end),
                 total_hourly_cost:
                   (.dph + (if .can_reuse_volume then .existing_volume_cost
-                           elif (.volume_offer_cost > 0) then .volume_offer_cost
-                           else .fallback_volume_cost
+                           else offered_volume_hourly
                            end))
               }
             '
 
             cat > input.json <<'EOF'
-{"can_reuse_volume":false,"existing_volume_cost":0.037037,"fallback_volume_cost":0.037037,"volume_offer_cost":0,"dph":0.295648}
+{"can_reuse_volume":false,"existing_volume_cost":0.037037,"volume_offer_total_cost":0,"offer_total_cost":0,"volume_offer_cost":0.00037037,"offer_cost":0,"requested_volume_size":100,"dph":0.295648}
 EOF
 
             test "$(jq -r "$jq_filter | .volume_cost" input.json)" = "0.037037"
@@ -1043,8 +1057,8 @@ EOF
 set -euo pipefail
 VOLUME_LABEL=qwen36vol
 BEST_ASK_ID=35475257
-CREATE_VOLUME_LABEL="$VOLUME_LABEL-$BEST_ASK_ID"
-test "$CREATE_VOLUME_LABEL" = "qwen36vol-35475257"
+CREATE_VOLUME_LABEL="$VOLUME_LABEL"'_'"$BEST_ASK_ID"
+test "$CREATE_VOLUME_LABEL" = "qwen36vol_35475257"
 EOF
             bash check.sh
             touch $out
