@@ -37,7 +37,8 @@
                 VASTAI_VERSION="''${VASTAI_VERSION:-1.0.3}"
                 VASTAI_BIN="''${VASTAI_BIN:-vastai}"
                 DEFAULT_IMAGE="''${DEFAULT_IMAGE:-vllm/vllm-openai:v0.19.1}"
-                BLACKWELL_IMAGE="''${BLACKWELL_IMAGE:-vllm/vllm-openai:cu130-nightly}"
+                CUDA13_IMAGE="''${CUDA13_IMAGE:-vllm/vllm-openai:v0.19.1-x86_64-cu130}"
+                BLACKWELL_IMAGE="''${BLACKWELL_IMAGE:-$CUDA13_IMAGE}"
                 IMAGE="''${IMAGE:-$DEFAULT_IMAGE}"
                 IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
@@ -66,8 +67,9 @@ Version pins:
   --vastai-version X.Y.Z       Vast CLI PyPI version (default: $VASTAI_VERSION)
   --image IMAGE:TAG            Docker image tag override (default: auto-selected)
   --default-image IMAGE:TAG    Stable default image (default: $DEFAULT_IMAGE)
-  --blackwell-image IMAGE:TAG  Image used for RTX 5090 hosts when auto-select is enabled (default: $BLACKWELL_IMAGE)
-  --image-auto-select 0|1      Auto-pick a pinned Blackwell image for RTX 5090 hosts (default: $IMAGE_AUTO_SELECT)
+  --cuda13-image IMAGE:TAG     Fixed CUDA 13 image for hosts with cuda_max_good>=13.0 (default: $CUDA13_IMAGE)
+  --blackwell-image IMAGE:TAG  Alias/default for CUDA 13 image (default: $BLACKWELL_IMAGE)
+  --image-auto-select 0|1      Auto-pick fixed image by Vast cuda_max_good (default: $IMAGE_AUTO_SELECT)
 
 Model/runtime:
   --model HF_MODEL             Hugging Face model (default: $MODEL)
@@ -100,7 +102,8 @@ EOF
                     --vastai-version) VASTAI_VERSION="$2"; shift 2 ;;
                     --image) IMAGE="$2"; IMAGE_AUTO_SELECT=0; shift 2 ;;
                     --default-image) DEFAULT_IMAGE="$2"; if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then IMAGE="$2"; fi; shift 2 ;;
-                    --blackwell-image) BLACKWELL_IMAGE="$2"; shift 2 ;;
+                    --cuda13-image) CUDA13_IMAGE="$2"; BLACKWELL_IMAGE="$2"; shift 2 ;;
+                    --blackwell-image) BLACKWELL_IMAGE="$2"; CUDA13_IMAGE="$2"; shift 2 ;;
                     --image-auto-select) IMAGE_AUTO_SELECT="$2"; shift 2 ;;
                     --model) MODEL="$2"; shift 2 ;;
                     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
@@ -144,6 +147,7 @@ EOF
                   BEST_ASK_ID="$(jq -r ".[$idx].ask_id" "$TMPDIR/candidates.json")"
                   BEST_MACHINE_ID="$(jq -r ".[$idx].machine_id" "$TMPDIR/candidates.json")"
                   BEST_GPU="$(jq -r ".[$idx].gpu_name" "$TMPDIR/candidates.json")"
+                  BEST_CUDA_MAX_GOOD="$(jq -r ".[$idx].cuda_max_good // 0" "$TMPDIR/candidates.json")"
                   BEST_DPH="$(jq -r ".[$idx].dph" "$TMPDIR/candidates.json")"
                   BEST_REL="$(jq -r ".[$idx].reliability" "$TMPDIR/candidates.json")"
                   BEST_LOC="$(jq -r ".[$idx].geolocation" "$TMPDIR/candidates.json")"
@@ -155,8 +159,8 @@ EOF
 
                   if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then
                     IMAGE="$DEFAULT_IMAGE"
-                    if [[ "$BEST_GPU" = "RTX 5090" ]]; then
-                      IMAGE="$BLACKWELL_IMAGE"
+                    if awk -v cuda="$BEST_CUDA_MAX_GOOD" 'BEGIN { exit !(cuda >= 13.0) }'; then
+                      IMAGE="$CUDA13_IMAGE"
                     fi
                   fi
                 }
@@ -166,6 +170,7 @@ EOF
                   printf '  ask_id        : %s\n' "$BEST_ASK_ID"
                   printf '  machine_id    : %s\n' "$BEST_MACHINE_ID"
                   printf '  gpu           : %s\n' "$BEST_GPU"
+                  printf '  cuda max good : %s\n' "$BEST_CUDA_MAX_GOOD"
                   printf '  instance $/h  : %.6f\n' "$BEST_DPH"
                   if [[ "$USE_VOLUME" = "1" ]]; then
                     printf '  volume mode   : %s\n' "$BEST_VOLUME_MODE"
@@ -220,7 +225,7 @@ EOF
                   local instance_id="$1"
                   local probe_file="$TMPDIR/wait-instance.json"
                   for _ in $(seq 1 60); do
-                    if ! vast show instance "$instance_id" --raw > "$probe_file" 2>/dev/null; then
+                    if ! timeout 10s "$VASTAI_BIN" show instance "$instance_id" --raw > "$probe_file" 2>/dev/null; then
                       return 0
                     fi
                     if [[ -z "$(jq -r '(.instances.id // .id // empty)' "$probe_file" 2>/dev/null)" ]]; then
@@ -522,7 +527,8 @@ EOF
                         direct_port_count: ((.direct_port_count // 0) | tonumber),
                         geolocation: (.geolocation // .location // .city // ""),
                         num_gpus: ((.num_gpus // 1) | tonumber),
-                        gpu_ram: ((.gpu_ram // .gpu_mem // 0) | tonumber)
+                        gpu_ram: ((.gpu_ram // .gpu_mem // 0) | tonumber),
+                        cuda_max_good: ((.cuda_max_good // 0) | tonumber)
                     })
                     | map(select(.ask_id != null and .machine_id != null))
                   '
@@ -542,7 +548,7 @@ EOF
                 : > "$TMPDIR/all.jsonl"
 
                 for gpu in "''${GPUS[@]}"; do
-                  query="gpu_name=$gpu num_gpus=1 rentable=true verified=true reliability>=$MIN_RELIABILITY direct_port_count>2 disk_space>=$DISK_GB"
+                  query="gpu_name=$gpu num_gpus=1 rentable=true verified=true reliability>=$MIN_RELIABILITY cuda_max_good>=12.9 direct_port_count>2 disk_space>=$DISK_GB"
                   if ! vast search offers --raw "$query" > "$TMPDIR/$gpu.raw.json" 2>/dev/null; then
                     continue
                   fi
@@ -702,6 +708,7 @@ EOF
                     (.create_volume_offer_id // "-"),
                     (.volume_mode // "-"),
                     .gpu_name,
+                    .cuda_max_good,
                     .dph,
                     .volume_cost,
                     .total_hourly_cost,
@@ -710,9 +717,9 @@ EOF
                     .dlperf,
                     .geolocation
                   ] | @tsv
-                ' "$TMPDIR/candidates.json" | while IFS=$'\t' read -r ask_id reusable_volume_id create_volume_offer_id volume_mode gpu_name dph volume_cost total_hourly_cost reliability loc_tier dlperf geolocation; do
-                  printf '  ask_id=%s  reuse_vol=%s  create_vol=%s  vol-mode=%s  gpu=%s  inst=$/h:%.6f  vol-est=$/h:%.6f  total-est=$/h:%.6f  rel=%s  loc-tier=%s  dlperf=%s  loc=%s\n' \
-                    "$ask_id" "$reusable_volume_id" "$create_volume_offer_id" "$volume_mode" "$gpu_name" "$dph" "$volume_cost" "$total_hourly_cost" "$reliability" "$loc_tier" "$dlperf" "$geolocation"
+                ' "$TMPDIR/candidates.json" | while IFS=$'\t' read -r ask_id reusable_volume_id create_volume_offer_id volume_mode gpu_name cuda_max_good dph volume_cost total_hourly_cost reliability loc_tier dlperf geolocation; do
+                  printf '  ask_id=%s  reuse_vol=%s  create_vol=%s  vol-mode=%s  gpu=%s  cuda=%s  inst=$/h:%.6f  vol-est=$/h:%.6f  total-est=$/h:%.6f  rel=%s  loc-tier=%s  dlperf=%s  loc=%s\n' \
+                    "$ask_id" "$reusable_volume_id" "$create_volume_offer_id" "$volume_mode" "$gpu_name" "$cuda_max_good" "$dph" "$volume_cost" "$total_hourly_cost" "$reliability" "$loc_tier" "$dlperf" "$geolocation"
                 done
                 echo
 
@@ -731,10 +738,25 @@ EOF
                   echo "Replacing existing instance $EXISTING_INSTANCE_ID..."
 
                   if [[ "$USE_VOLUME" != "1" ]]; then
-                    if ! vast destroy instance "$EXISTING_INSTANCE_ID" >/dev/null; then
-                      echo "Failed to destroy existing instance $EXISTING_INSTANCE_ID."
-                      exit 1
-                    fi
+                    set +e
+                    timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" destroy instance "$EXISTING_INSTANCE_ID" -y >/dev/null
+                    DESTROY_STATUS=$?
+                    set -e
+                    case "$DESTROY_STATUS" in
+                      0)
+                        echo "Old instance destroy requested."
+                        ;;
+                      124)
+                        echo "Destroy request timed out after ''${DESTROY_TIMEOUT_SECS}s."
+                        echo "Refusing to create a second instance while the old one may still exist."
+                        exit 1
+                        ;;
+                      *)
+                        echo "Failed to request destroy for existing instance $EXISTING_INSTANCE_ID."
+                        exit 1
+                        ;;
+                    esac
+
                     echo "Waiting for old instance to disappear before launching replacement..."
                     if ! wait_for_instance_gone "$EXISTING_INSTANCE_ID"; then
                       echo "Timed out waiting for instance $EXISTING_INSTANCE_ID to disappear."
@@ -742,7 +764,7 @@ EOF
                       exit 1
                     fi
                   elif [[ "$BEST_VOLUME_MODE" = "reuse" ]]; then
-                    if ! vast destroy instance "$EXISTING_INSTANCE_ID" >/dev/null; then
+                    if ! vast destroy instance "$EXISTING_INSTANCE_ID" -y >/dev/null; then
                       echo "Failed to destroy existing instance $EXISTING_INSTANCE_ID."
                       exit 1
                     fi
@@ -753,7 +775,7 @@ EOF
                     fi
                   else
                     set +e
-                    timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" destroy instance "$EXISTING_INSTANCE_ID" >/dev/null
+                    timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" destroy instance "$EXISTING_INSTANCE_ID" -y >/dev/null
                     DESTROY_STATUS=$?
                     set -e
                     case "$DESTROY_STATUS" in
@@ -968,7 +990,7 @@ EOF
                 if [[ -n "$OLD_VOLUME_ID_TO_DELETE" ]]; then
                   echo "Deleting replaced volume $OLD_VOLUME_ID_TO_DELETE..."
                   set +e
-                  timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" delete volume "$OLD_VOLUME_ID_TO_DELETE" >/dev/null
+                  timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" delete volume "$OLD_VOLUME_ID_TO_DELETE" -y >/dev/null
                   DELETE_STATUS=$?
                   set -e
                   if [[ "$DELETE_STATUS" -ne 0 ]]; then
