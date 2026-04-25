@@ -58,6 +58,9 @@
                 FORCE_REPLACE_ACTIVE="''${FORCE_REPLACE_ACTIVE:-0}"
                 MAX_CREATE_ATTEMPTS="''${MAX_CREATE_ATTEMPTS:-3}"
                 DESTROY_TIMEOUT_SECS="''${DESTROY_TIMEOUT_SECS:-20}"
+                READINESS_RETRY_ATTEMPTS="''${READINESS_RETRY_ATTEMPTS:-2}"
+                READINESS_RETRY_BID_MARGIN="''${READINESS_RETRY_BID_MARGIN:-1.08}"
+                MAX_BID_PRICE="''${MAX_BID_PRICE:-0.45}"
 
                 usage() {
                   cat <<EOF
@@ -93,6 +96,9 @@ Misc:
   --force-replace-active 0|1   Replace an existing loading/running instance instead of staying put (default: $FORCE_REPLACE_ACTIVE)
   --max-create-attempts N      Retry the next candidate when an ask goes stale (default: $MAX_CREATE_ATTEMPTS)
   --destroy-timeout-secs N     Timeout for non-blocking destroy requests during fresh-volume replacement (default: $DESTROY_TIMEOUT_SECS)
+  --readiness-retry-attempts N Retry launch when instance dies/outbids before API readiness (default: $READINESS_RETRY_ATTEMPTS)
+  --readiness-retry-bid-margin FLOAT  Bid multiplier after readiness failure (default: $READINESS_RETRY_BID_MARGIN)
+  --max-bid-price FLOAT        Max bid after automatic readiness retry bumps (default: $MAX_BID_PRICE)
   -h, --help                   Show this help
 EOF
                 }
@@ -120,6 +126,9 @@ EOF
                     --force-replace-active) FORCE_REPLACE_ACTIVE="$2"; shift 2 ;;
                     --max-create-attempts) MAX_CREATE_ATTEMPTS="$2"; shift 2 ;;
                     --destroy-timeout-secs) DESTROY_TIMEOUT_SECS="$2"; shift 2 ;;
+                    --readiness-retry-attempts) READINESS_RETRY_ATTEMPTS="$2"; shift 2 ;;
+                    --readiness-retry-bid-margin) READINESS_RETRY_BID_MARGIN="$2"; shift 2 ;;
+                    --max-bid-price) MAX_BID_PRICE="$2"; shift 2 ;;
                     -h|--help) usage; exit 0 ;;
                     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
                   esac
@@ -355,6 +364,45 @@ EOF
                     fi
                     sleep 5
                   done
+                }
+
+                bump_bid_after_readiness_failure() {
+                  local candidate_price="$1"
+                  local current_bid="$2"
+                  awk \
+                    -v candidate="$candidate_price" \
+                    -v current="$current_bid" \
+                    -v margin="$READINESS_RETRY_BID_MARGIN" \
+                    -v max_bid="$MAX_BID_PRICE" '
+                      BEGIN {
+                        bumped = candidate * margin
+                        if (bumped < current * margin) bumped = current * margin
+                        if (bumped > max_bid) bumped = max_bid
+                        printf "%.6f", bumped
+                      }
+                    '
+                }
+
+                destroy_failed_readiness_instance() {
+                  local instance_id="$1"
+                  if [[ -z "$instance_id" ]]; then
+                    return 0
+                  fi
+                  echo "Destroying failed readiness instance $instance_id..."
+                  set +e
+                  timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" destroy instance "$instance_id" -y >/dev/null
+                  local status=$?
+                  set -e
+                  if [[ "$status" -eq 124 ]]; then
+                    echo "Warning: destroy timed out for failed readiness instance $instance_id."
+                    echo "Check manually with: vastai show instances -v"
+                    return 1
+                  elif [[ "$status" -ne 0 ]]; then
+                    echo "Warning: destroy failed for failed readiness instance $instance_id."
+                    echo "Check manually with: vastai show instances -v"
+                    return 1
+                  fi
+                  return 0
                 }
 
                 TMPDIR="$(mktemp -d)"
@@ -1000,7 +1048,46 @@ EOF
                 fi
 
                 if [[ -n "$NEW_CONTRACT_ID" ]]; then
-                  wait_for_local_api_ready "$NEW_CONTRACT_ID" "$(expected_context_for_gpu "$BEST_GPU")"
+                  if ! wait_for_local_api_ready "$NEW_CONTRACT_ID" "$(expected_context_for_gpu "$BEST_GPU")"; then
+                    echo "Instance failed before API readiness. This can happen if the bid is outcompeted or the host exits early."
+                    destroy_failed_readiness_instance "$NEW_CONTRACT_ID" || true
+
+                    for ((readiness_retry=1; readiness_retry<=READINESS_RETRY_ATTEMPTS; readiness_retry++)); do
+                      OLD_BID_PRICE="$BID_PRICE"
+                      BID_PRICE="$(bump_bid_after_readiness_failure "$BEST_DPH" "$BID_PRICE")"
+                      echo
+                      echo "Retrying launch after readiness failure ($readiness_retry/$READINESS_RETRY_ATTEMPTS)."
+                      echo "Increasing bid margin to reduce early outbid risk: $OLD_BID_PRICE -> $BID_PRICE"
+                      echo "Refreshing market and re-running launcher..."
+                      "$0" \
+                        --vastai-version "$VASTAI_VERSION" \
+                        --default-image "$DEFAULT_IMAGE" \
+                        --cuda13-image "$CUDA13_IMAGE" \
+                        --image-auto-select "$IMAGE_AUTO_SELECT" \
+                        --model "$MODEL" \
+                        --max-model-len "$MAX_MODEL_LEN" \
+                        --disk "$DISK_GB" \
+                        --use-volume "$USE_VOLUME" \
+                        --volume-size "$VOLUME_SIZE_GB" \
+                        --mount-path "$MOUNT_PATH" \
+                        --volume-label "$VOLUME_LABEL" \
+                        --max-price "$MAX_PRICE" \
+                        --bid-price "$BID_PRICE" \
+                        --min-reliability "$MIN_RELIABILITY" \
+                        --preferred-reliability "$PREFERRED_RELIABILITY" \
+                        --label "$LABEL" \
+                        --force-replace-active 1 \
+                        --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
+                        --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
+                        --readiness-retry-attempts "$((READINESS_RETRY_ATTEMPTS - readiness_retry))" \
+                        --readiness-retry-bid-margin "$READINESS_RETRY_BID_MARGIN" \
+                        --max-bid-price "$MAX_BID_PRICE"
+                      exit $?
+                    done
+
+                    echo "Readiness retry attempts exhausted."
+                    exit 1
+                  fi
                 else
                   echo "Warning: could not parse new contract id; skipping local API readiness wait."
                 fi
