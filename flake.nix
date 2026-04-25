@@ -518,8 +518,7 @@ EOF
                   ($offers[0]) as $offer_list
                   | ($volume_offers[0]) as $volume_offer_list
                   | $offer_list
-                  | map(select(.dph <= $max_price))
-                  | map(
+                                    | map(
                       . as $offer
                       | ($volume_offer_list
                           | map(select(.machine_id == $offer.machine_id))
@@ -555,8 +554,8 @@ EOF
                         }
                     )
                   | if ($require_volume == 1 or $require_volume == "1")
-                    then map(select(.volume_mode != null))
-                    else .
+                    then map(select(.volume_mode != null and .total_hourly_cost <= $max_price))
+                    else map(select(.dph <= $max_price))
                     end
                   | sort_by(.rank, .rel_tier, .loc_tier, .volume_churn_tier, .total_hourly_cost, -.dlperf, -.reliability)
                 ' > "$TMPDIR/candidates.json"
