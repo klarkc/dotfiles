@@ -42,7 +42,7 @@
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
 
                 DISK_GB="''${DISK_GB:-40}"
-                USE_VOLUME="''${USE_VOLUME:-1}"
+                USE_VOLUME="''${USE_VOLUME:-0}"
                 VOLUME_SIZE_GB="''${VOLUME_SIZE_GB:-100}"
                 MOUNT_PATH="''${MOUNT_PATH:-/workspace}"
 
