@@ -42,7 +42,8 @@
                 IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
                 MODEL_24GB="''${MODEL_24GB:-cyankiwi/Qwen3.6-27B-AWQ-INT4}"
-                MODEL_32GB="''${MODEL_32GB:-Qwen/Qwen3.6-27B-FP8}"
+                MODEL_32GB="''${MODEL_32GB:-cyankiwi/Qwen3.6-27B-AWQ-INT4}"
+                ALLOW_32GB_FP8="''${ALLOW_32GB_FP8:-0}"
                 MODEL_48GB="''${MODEL_48GB:-Qwen/Qwen3.6-27B-FP8}"
                 MODEL_80GB="''${MODEL_80GB:-Qwen/Qwen3.6-27B-FP8}"
 
@@ -61,6 +62,7 @@
                 MIN_GPU_RAM_MB="''${MIN_GPU_RAM_MB:-22000}"
                 MAX_CREATE_ATTEMPTS="''${MAX_CREATE_ATTEMPTS:-3}"
                 DESTROY_TIMEOUT_SECS="''${DESTROY_TIMEOUT_SECS:-20}"
+                DESTROY_GRACE_SECS="''${DESTROY_GRACE_SECS:-120}"
                 READINESS_RETRY_ATTEMPTS="''${READINESS_RETRY_ATTEMPTS:-2}"
                 REPLACE_READY_TIMEOUT_SECS="''${REPLACE_READY_TIMEOUT_SECS:-900}"
                 CHECK_READY_TIMEOUT_SECS="''${CHECK_READY_TIMEOUT_SECS:-900}"
@@ -210,6 +212,7 @@ EOF
                     --model) MODEL="$2"; shift 2 ;;
                     --model-24gb) MODEL_24GB="$2"; shift 2 ;;
                     --model-32gb) MODEL_32GB="$2"; shift 2 ;;
+                    --allow-32gb-fp8) ALLOW_32GB_FP8="$2"; shift 2 ;;
                     --model-48gb) MODEL_48GB="$2"; shift 2 ;;
                     --model-80gb) MODEL_80GB="$2"; shift 2 ;;
                     --max-model-len) MAX_MODEL_LEN="$2"; shift 2 ;;
@@ -231,6 +234,7 @@ EOF
                     --label) LABEL="$2"; shift 2 ;;
                     --max-create-attempts) MAX_CREATE_ATTEMPTS="$2"; shift 2 ;;
                     --destroy-timeout-secs) DESTROY_TIMEOUT_SECS="$2"; shift 2 ;;
+                    --destroy-grace-secs) DESTROY_GRACE_SECS="$2"; shift 2 ;;
                     --readiness-retry-attempts) READINESS_RETRY_ATTEMPTS="$2"; shift 2 ;;
                     --replace-ready-timeout-secs) REPLACE_READY_TIMEOUT_SECS="$2"; shift 2 ;;
                     --check-ready-timeout-secs) CHECK_READY_TIMEOUT_SECS="$2"; shift 2 ;;
@@ -386,6 +390,8 @@ EOF
                           --label "$LABEL" \
                           --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
                           --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
+                        --destroy-grace-secs "$DESTROY_GRACE_SECS" \
+                        --destroy-grace-secs "$DESTROY_GRACE_SECS" \
                           --readiness-retry-attempts "$READINESS_RETRY_ATTEMPTS" \
                         --replace-ready-timeout-secs "$REPLACE_READY_TIMEOUT_SECS" \
                         --check-ready-timeout-secs "$CHECK_READY_TIMEOUT_SECS" \
@@ -440,6 +446,11 @@ EOF
                   BEST_MACHINE_ID="$(jq -r ".[$idx].machine_id" "$TMPDIR/candidates.json")"
                   BEST_GPU="$(jq -r ".[$idx].gpu_name" "$TMPDIR/candidates.json")"
                   BEST_GPU_RAM_MB="$(jq -r ".[$idx].gpu_ram_mb // .[$idx].gpu_ram // 0" "$TMPDIR/candidates.json")"
+                  if ! awk -v observed="$BEST_GPU_RAM_MB" -v min="$MIN_GPU_RAM_MB" 'BEGIN { exit !(observed >= min) }'; then
+                    printf 'Refusing candidate %s: GPU RAM %s MB is below floor %s MB.
+' "$BEST_ASK_ID" "$BEST_GPU_RAM_MB" "$MIN_GPU_RAM_MB"
+                    return 1
+                  fi
                   BEST_CUDA_MAX_GOOD="$(jq -r ".[$idx].cuda_max_good // 0" "$TMPDIR/candidates.json")"
                   BEST_DPH="$(jq -r ".[$idx].dph" "$TMPDIR/candidates.json")"
                   BEST_REL="$(jq -r ".[$idx].reliability" "$TMPDIR/candidates.json")"
@@ -489,7 +500,7 @@ EOF
                       printf '  quantization  : %s\n' "$RUNTIME_QUANTIZATION"
                     fi
                   else
-                    printf '  model         : %s\n' "$MODEL"
+                    printf '  model         : %s\n' "''${RUNTIME_MODEL:-$MODEL}"
                   fi
                   printf '  max context   : %s\n' "$RUNTIME_MAX_MODEL_LEN"
                   printf '  disk          : %s GB\n' "$DISK_GB"
@@ -830,11 +841,27 @@ EOF
                   return 0
                 }
 
+                grace_before_destroy() {
+                  local instance_id="$1"
+                  local reason="$2"
+                  if awk -v secs="''${DESTROY_GRACE_SECS:-0}" 'BEGIN { exit !(secs > 0) }'; then
+                    echo
+                    printf 'Grace delay before destroying instance %s: %s seconds.\n' "$instance_id" "$DESTROY_GRACE_SECS"
+                    printf 'Reason: %s\n' "$reason"
+                    echo "Use this window to inspect logs, for example:"
+                    printf '  vastai logs %s\n' "$instance_id"
+                    printf '  vastai ssh-url %s\n' "$instance_id"
+                    echo "Set --destroy-grace-secs 0 to skip this delay."
+                    sleep "$DESTROY_GRACE_SECS"
+                  fi
+                }
+
                 destroy_failed_readiness_instance() {
                   local instance_id="$1"
                   if [[ -z "$instance_id" ]]; then
                     return 0
                   fi
+                  grace_before_destroy "$instance_id" "readiness retry after failed boot"
                   echo "Destroying failed readiness instance $instance_id..."
                   set +e
                   timeout "''${DESTROY_TIMEOUT_SECS}s" "$VASTAI_BIN" destroy instance "$instance_id" -y >/dev/null
@@ -1638,6 +1665,25 @@ EOF
                   exit 1
                 fi
 
+                echo "Hard-filtering candidates below VRAM floor: ''${MIN_GPU_RAM_MB} MB"
+                jq --argjson min_gpu_ram_mb "$MIN_GPU_RAM_MB" '
+                  map(. + {
+                    gpu_ram_mb: (
+                      if ((.gpu_ram_mb // .gpu_ram // 0) < 1000)
+                      then ((.gpu_ram_mb // .gpu_ram // 0) * 1024)
+                      else (.gpu_ram_mb // .gpu_ram // 0)
+                      end
+                    )
+                  })
+                  | map(select((.gpu_ram_mb // 0) >= $min_gpu_ram_mb))
+                ' "$TMPDIR/candidates.json" > "$TMPDIR/candidates.vram-filtered.json"
+                mv "$TMPDIR/candidates.vram-filtered.json" "$TMPDIR/candidates.json"
+
+                if [[ "$(jq 'length' "$TMPDIR/candidates.json")" -eq 0 ]]; then
+                  echo "No offers remain after enforcing VRAM floor ''${MIN_GPU_RAM_MB} MB."
+                  exit 1
+                fi
+
                 echo
                 echo "Top candidates:"
                 jq -r '
@@ -1680,10 +1726,19 @@ EOF
                     RUNTIME_GPU_UTIL=0.88
                     RUNTIME_MAX_BATCHED_TOKENS=1024
                   elif [[ "$BEST_GPU_RAM_MB" -lt 45000 ]]; then
-                    RUNTIME_MODEL="$MODEL_32GB"
-                    RUNTIME_QUANTIZATION=""
+                    # 32GB-class cards, including RTX 5090: FP8 repeatedly
+                    # dies during weight load / GDN warmup on Vast hosts.
+                    # Use INT4 AWQ for stable 48k startup unless explicitly overridden.
+                    if [[ "''${ALLOW_32GB_FP8:-0}" = "1" ]]; then
+                      RUNTIME_MODEL="$MODEL"
+                      RUNTIME_QUANTIZATION=""
+                      RUNTIME_GPU_UTIL=0.90
+                    else
+                      RUNTIME_MODEL="$MODEL_32GB"
+                      RUNTIME_QUANTIZATION="compressed-tensors"
+                      RUNTIME_GPU_UTIL=0.88
+                    fi
                     RUNTIME_MAX_MODEL_LEN=49152
-                    RUNTIME_GPU_UTIL=0.90
                     RUNTIME_MAX_BATCHED_TOKENS=1024
                   elif [[ "$BEST_GPU_RAM_MB" -lt 70000 ]]; then
                     RUNTIME_MODEL="$MODEL_48GB"
@@ -1929,6 +1984,7 @@ EOF
                       exit 1
                     fi
                   elif [[ "$BEST_VOLUME_MODE" = "reuse" ]]; then
+                    grace_before_destroy "$EXISTING_INSTANCE_ID" "replacement requested"
                     if ! vast destroy instance "$EXISTING_INSTANCE_ID" -y >/dev/null; then
                       echo "Failed to destroy existing instance $EXISTING_INSTANCE_ID."
                       exit 1
@@ -2538,6 +2594,17 @@ EOF
             launcher=${launcher}/bin/vast-qwen-launch
             grep -Fq 'MIN_BID_MARGIN' "$launcher"
             grep -Fq 'MIN_BID_MARGIN:-1.02' "$launcher"
+            touch $out
+          '';
+
+          vram-floor-hard-filter = pkgs.runCommand "vast-qwen-launch-vram-floor-hard-filter" {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          } ''
+            set -euo pipefail
+            launcher=${launcher}/bin/vast-qwen-launch
+            grep -Fq 'Hard-filtering candidates below VRAM floor' "$launcher"
+            grep -Fq 'Refusing candidate' "$launcher"
+            grep -Fq 'MIN_GPU_RAM_MB:-22000' "$launcher"
             touch $out
           '';
 
