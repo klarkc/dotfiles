@@ -2010,6 +2010,9 @@ export HF_HOME=''${MOUNT_PATH}/hf
 export HUGGINGFACE_HUB_CACHE=''${MOUNT_PATH}/hf
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4
+export VLLM_LOGGING_LEVEL=DEBUG
+export VLLM_LOGGING_STREAM=ext://sys.stdout
+export VLLM_LOG_STATS_INTERVAL=5
 
 echo "=== Starting vLLM ==="
 QUANTIZATION_ARGS=""
