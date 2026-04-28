@@ -26,7 +26,6 @@ network_access = true
 
 [features]
 streamable_shell = true
-web_search_request = true
 apply_patch_freeform = true
 experimental_sandbox_command_assessment = true
 ghost_commit = true
@@ -59,3 +58,9 @@ enabled = true
 
 [plugins."github@openai-curated"]
 enabled = true
+
+[projects."/home/klarkc"]
+trust_level = "trusted"
+
+[tui.model_availability_nux]
+"gpt-5.5" = 2
