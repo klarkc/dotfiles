@@ -15,6 +15,7 @@ sandbox_mode = "danger-full-access"
 [profiles.solosig]
 model = "gpt-5.2-codex"
 model_reasoning_effort = "medium"
+personality = "pragmatic"
 
 [profiles.solosig.mcp_servers.devenv]
 command = "devenv"
@@ -22,10 +23,6 @@ args = ["mcp"]
 
 [profiles.solosig.sandbox_workspace_write]
 network_access = true
-
-[model_providers.ollama]
-name = "Ollama"
-base_url = "http://localhost:11434/v1"
 
 [features]
 streamable_shell = true
@@ -56,3 +53,9 @@ hide_rate_limit_model_nudge = true
 [notice.model_migrations]
 "gpt-5.1-codex-max" = "gpt-5.2-codex"
 "gpt-5.1-codex-mini" = "gpt-5.2-codex"
+
+[plugins."gmail@openai-curated"]
+enabled = true
+
+[plugins."github@openai-curated"]
+enabled = true
