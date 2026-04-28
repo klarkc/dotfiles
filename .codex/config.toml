@@ -13,7 +13,7 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
 [profiles.solosig]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 personality = "pragmatic"
 
@@ -63,4 +63,4 @@ enabled = true
 trust_level = "trusted"
 
 [tui.model_availability_nux]
-"gpt-5.5" = 2
+"gpt-5.5" = 3
