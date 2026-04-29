@@ -75,3 +75,6 @@
 !/.codex
 /.codex/*
 !/.codex/config.toml
+
+# fusion
+!.local/bin/patch-fusion-empty-command
