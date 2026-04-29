@@ -1,0 +1,37 @@
+{
+  "themeMode": "dark",
+  "colorTheme": "nord",
+  "defaultProvider": "local-vllm",
+  "defaultModelId": "qwen35-9b-awq",
+  "ntfyEnabled": false,
+  "ntfyTopic": "fusion",
+  "ntfyEvents": [
+    "in-review",
+    "merged",
+    "failed",
+    "awaiting-approval",
+    "awaiting-user-review",
+    "planning-awaiting-input"
+  ],
+  "openrouterModelSync": true,
+  "updateCheckEnabled": true,
+  "updateCheckFrequency": "daily",
+  "showGitHubStarButton": true,
+  "modelOnboardingComplete": true,
+  "planningGlobalProvider": "openai-codex",
+  "planningGlobalModelId": "gpt-5.5",
+  "validatorGlobalProvider": "openai-codex",
+  "validatorGlobalModelId": "gpt-5.5",
+  "daemonToken": "fn_f2d3098400a647ca16426c66b943ea9c",
+  "daemonPort": 4040,
+  "daemonHost": "0.0.0.0",
+  "settingsSyncEnabled": true,
+  "settingsSyncAuth": true,
+  "settingsSyncInterval": 900000,
+  "settingsSyncConflictResolution": "last-write-wins",
+  "dashboardCurrentProjectIdByNode": {
+    "local": "proj_ee194246676b4383"
+  },
+  "vitestAutoKillEnabled": true,
+  "vitestKillThresholdPct": 90
+}

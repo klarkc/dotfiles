@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN="${FUSION_BIN:-$HOME/.npm-packages/lib/node_modules/@runfusion/fusion/dist/bin.js}"
+
+if [ ! -f "$BIN" ]; then
+  echo "Fusion bin not found: $BIN" >&2
+  exit 1
+fi
+
+if grep -q "incomingSteps = updates.steps" "$BIN"; then
+  echo "Patch already applied"
+  exit 0
+fi
+
+BACKUP="$BIN.bak-empty-command-$(date +%Y%m%d-%H%M%S)"
+cp "$BIN" "$BACKUP"
+
+perl -0pi -e 's/if \(updates\.command !== void 0\) \{\s*if \(!updates\.command\.trim\(\)\) throw new Error\("Command cannot be empty"\);\s*schedule\.command = updates\.command\.trim\(\);\s*\}/if (updates.command !== void 0) {\n            const incomingSteps = updates.steps ?? schedule.steps;\n            const hasSteps = incomingSteps && incomingSteps.length > 0;\n            if (!updates.command.trim() && !hasSteps) throw new Error("Command cannot be empty");\n            schedule.command = updates.command.trim();\n          }/s' "$BIN"
+
+if grep -q "incomingSteps = updates.steps" "$BIN"; then
+  echo "Patch applied"
+  echo "Backup: $BACKUP"
+else
+  echo "Patch failed; restoring backup" >&2
+  cp "$BACKUP" "$BIN"
+  exit 1
+fi
