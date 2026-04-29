@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "local-vllm": {
+      "baseUrl": "http://localhost:8000/v1",
+      "api": "openai-completions",
+      "apiKey": "local-vllm",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "qwen35-9b-awq",
+          "name": "Qwen3.5 9B",
+          "contextWindow": 130048,
+          "maxTokens": 4096
+        }
+      ]
+    }
+  }
+}

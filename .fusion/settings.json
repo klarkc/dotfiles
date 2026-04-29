@@ -3,6 +3,8 @@
   "colorTheme": "nord",
   "defaultProvider": "local-vllm",
   "defaultModelId": "qwen35-9b-awq",
+  "fallbackProvider": "local-vllm",
+  "fallbackModelId": "qwen35-9b-awq",
   "ntfyEnabled": false,
   "ntfyTopic": "fusion",
   "ntfyEvents": [
