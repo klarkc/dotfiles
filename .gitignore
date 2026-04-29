@@ -82,3 +82,8 @@
 /.fusion/*
 !/.fusion/config.json
 !/.fusion/settings.json
+!/.pi
+/.pi/*
+!/.pi/agent
+/.pi/agent/*
+!/.pi/agent/models.json
