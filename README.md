@@ -45,6 +45,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
 - AI Agents with [crush](https://github.com/charmbracelet/crush), [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+- [Fusion](https://github.com/Runfusion/Fusion)
 
 ## Supported setups
 
@@ -85,6 +86,13 @@ yay --asdeps fzf mdcat
 ```bash
 yay -Syu yazi
 yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
+```
+
+> Fusion
+
+```bash
+npm i -g @runfusion/fusion node-pty @tobilu/qmd
+patch-fusion-empty-command
 ```
 
 #### Build
