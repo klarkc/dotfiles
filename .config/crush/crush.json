@@ -11,7 +11,7 @@
        "models": [
          {
            "name": "Qwen3.5 9B",
-           "id": "cyankiwi/Qwen3.5-9B-AWQ-4bit",
+           "id": "qwen35-9b-awq",
            "context_window": 130048,
            "default_max_tokens": 4096,
            "cost_per_1m_in": 0,
