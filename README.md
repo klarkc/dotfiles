@@ -72,7 +72,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin brave-bin crush btdu docker
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin brave-bin crush btdu
 ```
 
 > Lumen
@@ -90,23 +90,19 @@ yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 
 > Fusion
 
-Fusion runs from Docker as a user service. It uses host networking, mounts all Fusion projects from `~/Sources/Fusion`, and reads provider keys from the user service environment.
+Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service runs the web dashboard natively with systemd sandboxing.
+
+To use the interactive Fusion TUI when needed, run it manually from a terminal:
 
 ```bash
-systemctl --user import-environment ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GITHUB_TOKEN FUSION_DASHBOARD_TOKEN
-systemctl --user enable --now fusion.service
-```
-
-#### Build
-
-```bash
-make
+fusion dashboard --host 0.0.0.0 --port 4040
 ```
 
 #### Installation
 
 ```bash
 nix profile install .
+make
 systemctl --user daemon-reload
 ```
 
