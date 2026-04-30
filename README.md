@@ -92,7 +92,6 @@ yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 
 ```bash
 npm i -g @runfusion/fusion node-pty @tobilu/qmd
-patch-fusion-empty-command
 ```
 
 #### Build
