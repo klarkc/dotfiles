@@ -68,3 +68,6 @@
 /.config/crush/*
 !/.config/crush/crush.json
 
+# fusion
+.fusion
+.pi
