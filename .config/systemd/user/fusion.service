@@ -1,5 +1,5 @@
 [Unit]
-Description=Fusion dashboard
+Description=Fusion headless node
 Documentation=https://github.com/Runfusion/Fusion
 After=network-online.target
 Wants=network-online.target
@@ -15,7 +15,12 @@ ExecStart=/usr/bin/docker run --rm \
   --env OPENROUTER_API_KEY \
   --env GITHUB_TOKEN \
   --env FUSION_DASHBOARD_TOKEN \
-  localhost/fusion:latest dashboard --host 0.0.0.0 --port 4040
+  --env HUGGINGFACE_API_KEY \
+  --env HUGGING_FACE_HUB_TOKEN \
+  --env HF_TOKEN \
+  --env GEMINI_API_KEY \
+  --env GOOGLE_API_KEY \
+  localhost/fusion:latest serve --daemon --host 0.0.0.0 --port 4040
 ExecStop=/usr/bin/docker stop fusion
 Restart=on-failure
 RestartSec=5s
