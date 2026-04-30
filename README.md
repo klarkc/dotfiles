@@ -90,12 +90,18 @@ yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 
 > Fusion
 
-Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service runs the web dashboard natively with systemd sandboxing.
+Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
 
-To use the interactive Fusion TUI when needed, run it manually from a terminal:
+Attach to the running Fusion TUI:
 
 ```bash
-fusion dashboard --host 0.0.0.0 --port 4040
+fusion-attach
+```
+
+Detach without stopping Fusion with `Ctrl-b d`. Service logs are also available with:
+
+```bash
+journalctl --user -u fusion.service -f
 ```
 
 #### Installation
