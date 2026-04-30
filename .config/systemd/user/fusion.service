@@ -1,27 +1,12 @@
 [Unit]
-Description=Fusion headless node
+Description=Fusion dashboard
 Documentation=https://github.com/Runfusion/Fusion
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStartPre=-/usr/bin/docker rm -f fusion
-ExecStart=/usr/bin/docker run --rm \
-  --name fusion \
-  --network host \
-  --volume %h/Sources/Fusion:/project \
-  --env ANTHROPIC_API_KEY \
-  --env OPENAI_API_KEY \
-  --env OPENROUTER_API_KEY \
-  --env GITHUB_TOKEN \
-  --env FUSION_DASHBOARD_TOKEN \
-  --env HUGGINGFACE_API_KEY \
-  --env HUGGING_FACE_HUB_TOKEN \
-  --env HF_TOKEN \
-  --env GEMINI_API_KEY \
-  --env GOOGLE_API_KEY \
-  localhost/fusion:latest serve --daemon --host 0.0.0.0 --port 4040
-ExecStop=/usr/bin/docker stop fusion
+WorkingDirectory=%h/Sources/Fusion
+ExecStart=%h/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040
 Restart=on-failure
 RestartSec=5s
 
