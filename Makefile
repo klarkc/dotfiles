@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config nix.Profile
+all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config fusion.Install
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -57,10 +57,13 @@ git.Config:
 	git config --global mergetool.keepBackup false
 	git config --global init.defaultBranch main
 
-
 .PHONY: npm.Config
 npm.Config:
 	npm config set prefix "${HOME}/.npm-packages"
+
+.PHONY: fusion.Install
+fusion.Install: npm.Config
+	npm install -g @runfusion/fusion node-pty @tobilu/qmd
 
 .local/share/applications/xmonad.desktop:
 	ln -s /usr/share/xsessions/xmonad.desktop $@
