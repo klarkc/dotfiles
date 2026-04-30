@@ -9,6 +9,16 @@ WorkingDirectory=%h/Sources/Fusion
 ExecStart=%h/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040
 Restart=on-failure
 RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.npm %h/.npm-packages %h/.cache %h/.local/share
 
 [Install]
 WantedBy=default.target
