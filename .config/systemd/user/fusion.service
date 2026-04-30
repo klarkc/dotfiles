@@ -13,13 +13,14 @@ RestartSec=5s
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 CapabilityBoundingSet=
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.npm %h/.npm-packages %h/.cache %h/.local/share
+ReadWritePaths=%h/Sources/Fusion %h/.fusion
 
 [Install]
 WantedBy=default.target
