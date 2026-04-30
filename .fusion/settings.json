@@ -1,5 +1,5 @@
 {
-  "themeMode": "dark",
+  "themeMode": "system",
   "colorTheme": "nord",
   "defaultProvider": "local-vllm",
   "defaultModelId": "qwen35-9b-awq",
@@ -15,15 +15,28 @@
     "awaiting-user-review",
     "planning-awaiting-input"
   ],
+  "webhookEnabled": false,
+  "webhookFormat": "generic",
+  "webhookEvents": [],
+  "notificationProviders": [],
+  "customProviders": [],
+  "favoriteProviders": [],
+  "favoriteModels": [
+    "local-vllm/qwen35-9b-awq"
+  ],
   "openrouterModelSync": true,
   "updateCheckEnabled": true,
-  "updateCheckFrequency": "daily",
+  "updateCheckFrequency": "weekly",
   "showGitHubStarButton": true,
   "modelOnboardingComplete": true,
-  "planningGlobalProvider": "openai-codex",
-  "planningGlobalModelId": "gpt-5.5",
-  "validatorGlobalProvider": "openai-codex",
-  "validatorGlobalModelId": "gpt-5.5",
+  "executionGlobalProvider": "local-vllm",
+  "executionGlobalModelId": "qwen35-9b-awq",
+  "planningGlobalProvider": "local-vllm",
+  "planningGlobalModelId": "qwen35-9b-awq",
+  "validatorGlobalProvider": "local-vllm",
+  "validatorGlobalModelId": "qwen35-9b-awq",
+  "titleSummarizerGlobalProvider": "local-vllm",
+  "titleSummarizerGlobalModelId": "qwen35-9b-awq",
   "daemonToken": "fn_f2d3098400a647ca16426c66b943ea9c",
   "daemonPort": 4040,
   "daemonHost": "0.0.0.0",
@@ -35,5 +48,16 @@
     "local": "proj_ee194246676b4383"
   },
   "vitestAutoKillEnabled": true,
-  "vitestKillThresholdPct": 90
+  "vitestKillThresholdPct": 90,
+  "researchGlobalEnabled": true,
+  "researchGlobalMaxConcurrentRuns": 3,
+  "researchGlobalDefaultTimeout": 300000,
+  "researchGlobalMaxSourcesPerRun": 20,
+  "researchGlobalMaxSynthesisRounds": 2,
+  "researchWebSearchProvider": "none",
+  "researchGitHubEnabled": false,
+  "researchLocalDocsEnabled": true,
+  "researchMaxSearchResults": 10,
+  "researchFetchTimeoutMs": 30000,
+  "researchUserAgent": "FusionResearchBot/1.0"
 }
