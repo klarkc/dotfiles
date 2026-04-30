@@ -72,7 +72,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin brave-bin crush btdu
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin brave-bin crush btdu docker
 ```
 
 > Lumen
@@ -90,8 +90,11 @@ yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 
 > Fusion
 
+Fusion runs from Docker as a user service. It uses host networking, mounts all Fusion projects from `~/Sources/Fusion`, and reads provider keys from the user service environment.
+
 ```bash
-npm i -g @runfusion/fusion node-pty @tobilu/qmd
+systemctl --user import-environment ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GITHUB_TOKEN FUSION_DASHBOARD_TOKEN
+systemctl --user enable --now fusion.service
 ```
 
 #### Build
@@ -114,6 +117,7 @@ systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
+systemctl --user enable --now fusion.service
 ```
 
 ## Customization
