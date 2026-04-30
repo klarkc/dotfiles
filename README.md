@@ -88,22 +88,6 @@ yay -Syu yazi
 yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 ```
 
-> Fusion
-
-Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
-
-Attach to the running Fusion TUI:
-
-```bash
-fusion-attach
-```
-
-Detach without stopping Fusion with `Ctrl-b d`. Service logs are also available with:
-
-```bash
-journalctl --user -u fusion.service -f
-```
-
 #### Installation
 
 ```bash
@@ -120,6 +104,22 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
 systemctl --user enable --now fusion.service
+```
+
+#### Fusion
+
+Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
+
+Attach to the running Fusion TUI:
+
+```bash
+fusion-attach
+```
+
+Detach without stopping Fusion with `Ctrl-a d`. Service logs are also available with:
+
+```bash
+journalctl --user -u fusion.service -f
 ```
 
 ## Customization
