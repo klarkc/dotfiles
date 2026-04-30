@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+session="fusion"
+
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  echo "Fusion tmux session '$session' is not running." >&2
+  echo "Start it with: systemctl --user start fusion.service" >&2
+  exit 1
+fi
+
+exec tmux attach-session -t "$session"
