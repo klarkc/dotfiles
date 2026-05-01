@@ -1,0 +1,17 @@
+[Unit]
+Description=Mirror Fusion project backups
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fusion-backup
+CPUAccounting=true
+CPUSchedulingPolicy=batch
+CPUWeight=12
+CPUQuota=50%
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+IOWeight=10
+MemoryAccounting=true
+Nice=19
+StartupCPUWeight=25
+StartupIOWeight=25
