@@ -5,6 +5,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 PassEnvironment=ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN HUGGINGFACE_API_KEY HUGGING_FACE_HUB_TOKEN HF_TOKEN GEMINI_API_KEY GOOGLE_API_KEY
 WorkingDirectory=%h/Sources/Fusion
 ExecStartPre=-/usr/bin/tmux kill-session -t fusion
@@ -22,7 +23,7 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %t/fusion
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion
 
 [Install]
 WantedBy=default.target
