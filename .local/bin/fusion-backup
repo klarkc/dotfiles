@@ -4,6 +4,8 @@ set -euo pipefail
 src_root="${HOME}/Sources/Fusion"
 backup_root="${HOME}/.fusion-backup"
 snapshots_root="$backup_root/snapshots"
+mirrors_root="$backup_root/mirrors"
+retention_days=7
 timestamp="$(date +%Y%m%d-%H%M%S)"
 snapshot_dir="$snapshots_root/$timestamp"
 latest_link="$backup_root/latest"
@@ -13,19 +15,18 @@ if [ ! -d "$src_root" ]; then
   exit 0
 fi
 
-mkdir -p "$snapshot_dir/projects"
+mkdir -p "$snapshot_dir/projects" "$mirrors_root/projects"
 
 previous_snapshot=""
 if [ -L "$latest_link" ]; then
   previous_snapshot="$(readlink -f "$latest_link" || true)"
 fi
 
-copied_any=false
-
 find "$src_root" -mindepth 2 -maxdepth 2 -type d -print0 |
 while IFS= read -r -d '' project_dir; do
   project_name="${project_dir#"$src_root"/}"
   target_dir="$snapshot_dir/projects/$project_name"
+  mirror_dir="$mirrors_root/projects/$project_name"
   previous_project_dir=""
 
   if [ -n "$previous_snapshot" ] && [ -d "$previous_snapshot/projects/$project_name" ]; then
@@ -33,11 +34,16 @@ while IFS= read -r -d '' project_dir; do
   fi
 
   copied=false
-  mkdir -p "$target_dir"
+  mkdir -p "$target_dir" "$mirror_dir"
+
+  if [ -d "$project_dir/.fusion/backups" ]; then
+    mkdir -p "$mirror_dir/.fusion/backups"
+    rsync -a --ignore-existing "$project_dir/.fusion/backups/" "$mirror_dir/.fusion/backups/"
+  fi
 
   if [ -d "$project_dir/.fusion" ]; then
     mkdir -p "$target_dir/.fusion"
-    rsync_args=(-a)
+    rsync_args=(-a --exclude=/backups/)
     if [ -n "$previous_project_dir" ] && [ -d "$previous_project_dir/.fusion" ]; then
       rsync_args+=(--link-dest="$previous_project_dir/.fusion")
     fi
@@ -56,9 +62,7 @@ while IFS= read -r -d '' project_dir; do
   fi
 
   if [ "$copied" = false ]; then
-    rmdir "$target_dir" 2>/dev/null || true
-  else
-    copied_any=true
+    rmdir "$target_dir" "$mirror_dir" 2>/dev/null || true
   fi
 done
 
@@ -67,5 +71,13 @@ if find "$snapshot_dir/projects" -mindepth 1 -print -quit | grep -q .; then
   echo "Fusion backup snapshot created: $snapshot_dir"
 else
   rm -rf "$snapshot_dir"
-  echo "No Fusion project state or worktrees found to back up."
+  echo "No Fusion project state or worktrees found to snapshot."
 fi
+
+find "$snapshots_root" -mindepth 1 -maxdepth 1 -type d -mtime +$((retention_days - 1)) -print0 |
+while IFS= read -r -d '' old_snapshot; do
+  if [ "$(readlink -f "$latest_link" || true)" = "$old_snapshot" ]; then
+    continue
+  fi
+  rm -rf "$old_snapshot"
+done
