@@ -23,7 +23,7 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache %h/.npm-packages/lib/node_modules/node-pty/build/Release
 
 [Install]
 WantedBy=default.target
