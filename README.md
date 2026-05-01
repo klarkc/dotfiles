@@ -96,6 +96,14 @@ make
 systemctl --user daemon-reload
 ```
 
+Fusion's systemd service uses `~/.fusion/ssh_config` for Git SSH operations. `make` generates this file by resolving `/etc/ssh/ssh_config.d` symlinks to their real targets, which avoids OpenSSH permission checks failing inside the sandboxed user service.
+
+Install the pacman hook so this generated SSH config is refreshed after `openssh` or `systemd` package updates:
+
+```bash
+sudo install -Dm644 .local/share/pacman/hooks/fusion-ssh-config.hook /etc/pacman.d/hooks/fusion-ssh-config.hook
+```
+
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
