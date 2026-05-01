@@ -123,7 +123,9 @@ Detach without stopping Fusion with `Ctrl-a d`. Service logs are also available 
 journalctl --user -u fusion.service -f
 ```
 
-Fusion project state from `~/Sources/Fusion/*/*/.fusion` and git worktrees from `~/Sources/Fusion/*/*/.worktrees` are snapshotted daily at 06:00 to `~/.fusion-backup/snapshots/<timestamp>/projects`. `~/.fusion-backup/latest` points to the newest snapshot. Snapshots use hardlinks to the previous snapshot when possible, so deleted worktrees remain recoverable from older snapshots without duplicating unchanged files.
+Fusion project state from `~/Sources/Fusion/*/*/.fusion` except `.fusion/backups`, and git worktrees from `~/Sources/Fusion/*/*/.worktrees`, are snapshotted daily at 06:00 to `~/.fusion-backup/snapshots/<timestamp>/projects`. `~/.fusion-backup/latest` points to the newest snapshot. Snapshots use hardlinks to the previous snapshot when possible, so deleted worktrees remain recoverable from older snapshots without duplicating unchanged files. Snapshots are rotated after 7 days.
+
+Fusion-generated `.fusion/backups` directories are kept outside snapshots and mirrored separately to `~/.fusion-backup/mirrors/projects` with `rsync --ignore-existing`, so backup files are not overwritten or removed by later runs.
 
 ## Customization
 
