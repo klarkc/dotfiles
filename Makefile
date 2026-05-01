@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config fusion.Install fusion.AttachHelper fusion.BackupHelper
+all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config fusion.Install fusion.AttachHelper fusion.BackupHelper fusion.SshConfig
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -72,6 +72,11 @@ fusion.AttachHelper:
 .PHONY: fusion.BackupHelper
 fusion.BackupHelper:
 	chmod +x .local/bin/fusion-backup
+
+.PHONY: fusion.SshConfig
+fusion.SshConfig:
+	chmod +x .local/bin/fusion-ssh-config
+	.local/bin/fusion-ssh-config
 
 .local/share/applications/xmonad.desktop:
 	ln -s /usr/share/xsessions/xmonad.desktop $@
