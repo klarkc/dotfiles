@@ -3,23 +3,26 @@ set -euo pipefail
 
 session="fusion"
 service="fusion.service"
+socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/fusion/tmux.sock"
 
-if ! tmux has-session -t "$session" 2>/dev/null; then
+tmux_cmd=(tmux -S "$socket")
+
+if ! "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
   echo "Fusion tmux session '$session' is not running; starting $service..." >&2
   systemctl --user start "$service"
 
   for _ in {1..20}; do
-    if tmux has-session -t "$session" 2>/dev/null; then
+    if "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
       break
     fi
     sleep 0.25
   done
 fi
 
-if ! tmux has-session -t "$session" 2>/dev/null; then
+if ! "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
   echo "Fusion tmux session '$session' was not created." >&2
   systemctl --user status "$service" --no-pager -l >&2 || true
   exit 1
 fi
 
-exec tmux attach-session -t "$session"
+exec "${tmux_cmd[@]}" attach-session -t "$session"
