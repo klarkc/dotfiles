@@ -13,6 +13,9 @@ ExecStart=/bin/sh -lc 'rm -f "$XDG_RUNTIME_DIR/fusion/tmux.out"; mkfifo "$XDG_RU
 ExecStop=/usr/bin/tmux kill-session -t fusion
 Restart=on-failure
 RestartSec=5s
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=default.target
