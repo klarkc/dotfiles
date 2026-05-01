@@ -2,10 +2,23 @@
 set -euo pipefail
 
 session="fusion"
+service="fusion.service"
 
 if ! tmux has-session -t "$session" 2>/dev/null; then
-  echo "Fusion tmux session '$session' is not running." >&2
-  echo "Start it with: systemctl --user start fusion.service" >&2
+  echo "Fusion tmux session '$session' is not running; starting $service..." >&2
+  systemctl --user start "$service"
+
+  for _ in {1..20}; do
+    if tmux has-session -t "$session" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+fi
+
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  echo "Fusion tmux session '$session' was not created." >&2
+  systemctl --user status "$service" --no-pager -l >&2 || true
   exit 1
 fi
 
