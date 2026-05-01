@@ -16,6 +16,13 @@ RestartSec=5s
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %t/fusion
 
 [Install]
 WantedBy=default.target
