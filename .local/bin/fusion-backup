@@ -2,36 +2,70 @@
 set -euo pipefail
 
 src_root="${HOME}/Sources/Fusion"
-dst_root="${HOME}/.fusion-backup/projects"
+backup_root="${HOME}/.fusion-backup"
+snapshots_root="$backup_root/snapshots"
+timestamp="$(date +%Y%m%d-%H%M%S)"
+snapshot_dir="$snapshots_root/$timestamp"
+latest_link="$backup_root/latest"
 
 if [ ! -d "$src_root" ]; then
   echo "Fusion source root not found: $src_root" >&2
   exit 0
 fi
 
-mkdir -p "$dst_root"
+mkdir -p "$snapshot_dir/projects"
+
+previous_snapshot=""
+if [ -L "$latest_link" ]; then
+  previous_snapshot="$(readlink -f "$latest_link" || true)"
+fi
+
+copied_any=false
 
 find "$src_root" -mindepth 2 -maxdepth 2 -type d -print0 |
 while IFS= read -r -d '' project_dir; do
   project_name="${project_dir#"$src_root"/}"
-  target_dir="$dst_root/$project_name"
+  target_dir="$snapshot_dir/projects/$project_name"
+  previous_project_dir=""
+
+  if [ -n "$previous_snapshot" ] && [ -d "$previous_snapshot/projects/$project_name" ]; then
+    previous_project_dir="$previous_snapshot/projects/$project_name"
+  fi
 
   copied=false
   mkdir -p "$target_dir"
 
   if [ -d "$project_dir/.fusion" ]; then
     mkdir -p "$target_dir/.fusion"
-    rsync -a "$project_dir/.fusion/" "$target_dir/.fusion/"
+    rsync_args=(-a)
+    if [ -n "$previous_project_dir" ] && [ -d "$previous_project_dir/.fusion" ]; then
+      rsync_args+=(--link-dest="$previous_project_dir/.fusion")
+    fi
+    rsync "${rsync_args[@]}" "$project_dir/.fusion/" "$target_dir/.fusion/"
     copied=true
   fi
 
   if [ -d "$project_dir/.worktrees" ]; then
     mkdir -p "$target_dir/.worktrees"
-    rsync -a --delete "$project_dir/.worktrees/" "$target_dir/.worktrees/"
+    rsync_args=(-a)
+    if [ -n "$previous_project_dir" ] && [ -d "$previous_project_dir/.worktrees" ]; then
+      rsync_args+=(--link-dest="$previous_project_dir/.worktrees")
+    fi
+    rsync "${rsync_args[@]}" "$project_dir/.worktrees/" "$target_dir/.worktrees/"
     copied=true
   fi
 
   if [ "$copied" = false ]; then
     rmdir "$target_dir" 2>/dev/null || true
+  else
+    copied_any=true
   fi
 done
+
+if find "$snapshot_dir/projects" -mindepth 1 -print -quit | grep -q .; then
+  ln -sfn "$snapshot_dir" "$latest_link"
+  echo "Fusion backup snapshot created: $snapshot_dir"
+else
+  rm -rf "$snapshot_dir"
+  echo "No Fusion project state or worktrees found to back up."
+fi
