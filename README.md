@@ -104,6 +104,7 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
 systemctl --user enable --now fusion.service
+systemctl --user enable --now fusion-backup.timer
 ```
 
 #### Fusion
@@ -121,6 +122,8 @@ Detach without stopping Fusion with `Ctrl-a d`. Service logs are also available 
 ```bash
 journalctl --user -u fusion.service -f
 ```
+
+Fusion project backups from `~/Sources/Fusion/*/.fusion/backups` are mirrored daily at 06:00 to `~/.fusion/backups-mirror` by `fusion-backup.timer`.
 
 ## Customization
 
