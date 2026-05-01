@@ -123,7 +123,7 @@ Detach without stopping Fusion with `Ctrl-a d`. Service logs are also available 
 journalctl --user -u fusion.service -f
 ```
 
-Fusion project backups from `~/Sources/Fusion/*/.fusion/backups` are mirrored daily at 06:00 to `~/.fusion/backups-mirror` by `fusion-backup.timer`.
+Fusion project backups from `~/Sources/Fusion/*/.fusion/backups` are mirrored daily at 06:00 to `~/.fusion-backup/backups-mirror` by `fusion-backup.timer`.
 
 ## Customization
 
