@@ -2,7 +2,7 @@
 set -euo pipefail
 
 src_root="${HOME}/Sources/Fusion"
-dst_root="${HOME}/.fusion/backups-mirror"
+dst_root="${HOME}/.fusion-backup/backups-mirror"
 
 if [ ! -d "$src_root" ]; then
   echo "Fusion source root not found: $src_root" >&2
