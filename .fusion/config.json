@@ -35,7 +35,7 @@
     "verificationFixRetries": 3,
     "buildTimeoutMs": 300000,
     "requirePlanApproval": false,
-    "specStalenessEnabled": false,
+    "specStalenessEnabled": true,
     "specStalenessMaxAgeMs": 21600000,
     "aiSessionTtlMs": 604800000,
     "aiSessionCleanupIntervalMs": 3600000,
@@ -53,11 +53,11 @@
     "autoUpdatePrStatus": false,
     "autoCreatePr": false,
     "githubCommentOnDone": false,
-    "autoBackupEnabled": false,
+    "autoBackupEnabled": true,
     "autoBackupSchedule": "0 2 * * *",
     "autoBackupRetention": 7,
     "autoBackupDir": ".fusion/backups",
-    "autoSummarizeTitles": false,
+    "autoSummarizeTitles": true,
     "insightExtractionEnabled": false,
     "insightExtractionSchedule": "0 2 * * *",
     "insightExtractionMinIntervalMs": 86400000,
@@ -74,7 +74,6 @@
     "missionMaxTaskRetries": 3,
     "missionHealthCheckIntervalMs": 300000,
     "remoteAccess": {
-      "activeProvider": null,
       "providers": {
         "tailscale": {
           "enabled": false,
@@ -86,14 +85,12 @@
           "enabled": false,
           "quickTunnel": false,
           "tunnelName": "",
-          "tunnelToken": null,
           "ingressUrl": ""
         }
       },
       "tokenStrategy": {
         "persistent": {
-          "enabled": true,
-          "token": null
+          "enabled": true
         },
         "shortLived": {
           "enabled": false,
@@ -103,8 +100,7 @@
       },
       "lifecycle": {
         "rememberLastRunning": false,
-        "wasRunningOnShutdown": false,
-        "lastRunningProvider": null
+        "wasRunningOnShutdown": false
       }
     },
     "reflectionEnabled": false,
@@ -112,6 +108,25 @@
     "reflectionAfterTask": true,
     "reviewHandoffPolicy": "disabled",
     "showQuickChatFAB": false,
-    "experimentalFeatures": {}
+    "experimentalFeatures": {
+      "devServerView": true,
+      "insights": true,
+      "memoryView": true,
+      "nodesView": true,
+      "remoteAccess": true,
+      "roadmap": true,
+      "skillsView": true,
+      "todoView": true
+    },
+    "requirePrApproval": false,
+    "worktreeRebaseLocalBase": true,
+    "mergeConflictStrategy": "smart-prefer-main",
+    "workflowStepTimeoutMs": 360000,
+    "useAiMergeCommitSummary": true,
+    "researchEnabled": true,
+    "researchMaxConcurrentRuns": 3,
+    "researchDefaultTimeout": 300000,
+    "researchMaxSourcesPerRun": 20,
+    "researchMaxSynthesisRounds": 2
   }
 }
