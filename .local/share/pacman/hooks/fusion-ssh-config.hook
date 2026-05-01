@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = openssh
+Target = systemd
+
+[Action]
+Description = Regenerating Fusion SSH config
+When = PostTransaction
+Exec = /home/klarkc/.local/bin/fusion-ssh-config
