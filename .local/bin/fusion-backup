@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+src_root="${HOME}/Sources/Fusion"
+dst_root="${HOME}/.fusion/backups-mirror"
+
+if [ ! -d "$src_root" ]; then
+  echo "Fusion source root not found: $src_root" >&2
+  exit 0
+fi
+
+mkdir -p "$dst_root"
+
+find "$src_root" -path '*/.fusion/backups' -type d -print0 |
+while IFS= read -r -d '' backup_dir; do
+  project_dir="${backup_dir%/.fusion/backups}"
+  project_name="${project_dir#"$src_root"/}"
+  target_dir="$dst_root/$project_name"
+
+  mkdir -p "$target_dir"
+  rsync -a --ignore-existing "$backup_dir/" "$target_dir/"
+done
