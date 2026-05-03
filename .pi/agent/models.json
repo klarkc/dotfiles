@@ -12,7 +12,7 @@
         {
           "id": "qwen35-9b-awq",
           "name": "Qwen3.5 9B",
-          "contextWindow": 130048,
+          "contextWindow": 126976,
           "maxTokens": 4096
         }
       ]
