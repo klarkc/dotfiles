@@ -1,6 +1,7 @@
 {
   "themeMode": "system",
   "colorTheme": "nord",
+  "dashboardFontScalePct": 100,
   "defaultProvider": "local-vllm",
   "defaultModelId": "qwen35-9b-awq",
   "fallbackProvider": "local-vllm",
@@ -26,7 +27,9 @@
   ],
   "openrouterModelSync": true,
   "updateCheckEnabled": true,
+  "fnBinaryCheckEnabled": true,
   "updateCheckFrequency": "weekly",
+  "autoReloadOnVersionChange": true,
   "showGitHubStarButton": true,
   "modelOnboardingComplete": true,
   "executionGlobalProvider": "local-vllm",
@@ -49,6 +52,18 @@
   },
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
+  "persistAgentToolOutput": true,
+  "researchGlobalDefaults": {
+    "enabledSources": {
+      "webSearch": true,
+      "pageFetch": true,
+      "github": false,
+      "localDocs": true,
+      "llmSynthesis": true
+    },
+    "maxSourcesPerRun": 20,
+    "defaultExportFormat": "markdown"
+  },
   "researchGlobalEnabled": true,
   "researchGlobalMaxConcurrentRuns": 3,
   "researchGlobalDefaultTimeout": 300000,
@@ -59,5 +74,40 @@
   "researchLocalDocsEnabled": true,
   "researchMaxSearchResults": 10,
   "researchFetchTimeoutMs": 30000,
-  "researchUserAgent": "FusionResearchBot/1.0"
+  "researchUserAgent": "FusionResearchBot/1.0",
+  "remoteAccess": {
+    "activeProvider": null,
+    "providers": {
+      "tailscale": {
+        "enabled": false,
+        "hostname": "",
+        "targetPort": 0,
+        "acceptRoutes": false
+      },
+      "cloudflare": {
+        "enabled": false,
+        "quickTunnel": true,
+        "tunnelName": "",
+        "tunnelToken": null,
+        "ingressUrl": ""
+      }
+    },
+    "tokenStrategy": {
+      "persistent": {
+        "enabled": true,
+        "token": null
+      },
+      "shortLived": {
+        "enabled": false,
+        "ttlMs": 900000,
+        "maxTtlMs": 86400000
+      }
+    },
+    "lifecycle": {
+      "rememberLastRunning": false,
+      "wasRunningOnShutdown": false,
+      "lastRunningProvider": null
+    }
+  },
+  "experimentalFeatures": {}
 }
