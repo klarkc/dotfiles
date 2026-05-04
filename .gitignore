@@ -77,7 +77,6 @@
 !/.codex/config.toml
 
 # fusion
-!.local/bin/patch-fusion-empty-command
 !/.fusion
 /.fusion/*
 !/.fusion/config.json

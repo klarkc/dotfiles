@@ -63,8 +63,7 @@ npm.Config:
 
 .PHONY: fusion.Install
 fusion.Install: npm.Config
-	npm install -g @runfusion/fusion node-pty @tobilu/qmd
-	patch-fusion-empty-command
+	npm install -g @runfusion/fusion node-pty @tobilu/qmd dockerode send
 
 .PHONY: fusion.AttachHelper
 fusion.AttachHelper:
