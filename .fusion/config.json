@@ -11,14 +11,14 @@
     "heartbeatMultiplier": 1,
     "groupOverlappingFiles": true,
     "overlapIgnorePaths": [],
-    "autoMerge": true,
+    "autoMerge": false,
     "mergeStrategy": "direct",
     "pushAfterMerge": false,
     "pushRemote": "origin",
     "unavailableNodePolicy": "block",
     "recycleWorktrees": false,
     "worktreeNaming": "random",
-    "taskPrefix": "DT",
+    "taskPrefix": "SL",
     "includeTaskIdInCommit": true,
     "commitAuthorEnabled": true,
     "commitAuthorName": "Fusion",
@@ -34,7 +34,7 @@
     "buildRetryCount": 0,
     "verificationFixRetries": 3,
     "buildTimeoutMs": 300000,
-    "requirePlanApproval": false,
+    "requirePlanApproval": true,
     "specStalenessEnabled": true,
     "specStalenessMaxAgeMs": 21600000,
     "aiSessionTtlMs": 604800000,
@@ -61,7 +61,7 @@
     "insightExtractionEnabled": false,
     "insightExtractionSchedule": "0 2 * * *",
     "insightExtractionMinIntervalMs": 86400000,
-    "memoryEnabled": true,
+    "memoryEnabled": false,
     "memoryBackendType": "qmd",
     "memoryAutoSummarizeEnabled": false,
     "memoryAutoSummarizeThresholdChars": 50000,
@@ -127,6 +127,42 @@
     "researchMaxConcurrentRuns": 3,
     "researchDefaultTimeout": 300000,
     "researchMaxSourcesPerRun": 20,
-    "researchMaxSynthesisRounds": 2
+    "researchMaxSynthesisRounds": 2,
+    "completionDocumentationMode": "off",
+    "mergerAutostashMaxAgeHours": 24,
+    "preserveProgressOnStuckRequeue": true,
+    "githubTrackingEnabledByDefault": false,
+    "githubAuthMode": "gh-cli",
+    "memoryBackupEnabled": true,
+    "memoryBackupSchedule": "0 3 * * *",
+    "memoryBackupRetention": 14,
+    "memoryBackupDir": ".fusion/backups/memory",
+    "memoryBackupScope": "all",
+    "taskEvaluationEnabled": false,
+    "taskEvaluationSchedule": "0 5 * * *",
+    "taskEvaluationFollowUpPolicy": "off",
+    "researchSettings": {
+      "enabled": true,
+      "enabledSources": {
+        "webSearch": true,
+        "pageFetch": true,
+        "github": true,
+        "localDocs": true,
+        "llmSynthesis": true
+      },
+      "limits": {
+        "maxConcurrentRuns": 3,
+        "maxSourcesPerRun": 20,
+        "maxDurationMs": 300000,
+        "requestTimeoutMs": 30000
+      }
+    },
+    "evalSettings": {
+      "enabled": false,
+      "intervalMs": 86400000,
+      "followUpPolicy": "suggest-only",
+      "retentionDays": 30
+    },
+    "tokenCap": 26624
   }
 }
