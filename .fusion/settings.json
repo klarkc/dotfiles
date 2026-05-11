@@ -63,21 +63,21 @@
       "llmSynthesis": true
     },
     "maxSourcesPerRun": 20,
-    "defaultExportFormat": "markdown"
+    "defaultExportFormat": "markdown",
+    "searchProvider": "builtin"
   },
   "researchGlobalEnabled": true,
   "researchGlobalMaxConcurrentRuns": 3,
   "researchGlobalDefaultTimeout": 300000,
   "researchGlobalMaxSourcesPerRun": 20,
   "researchGlobalMaxSynthesisRounds": 2,
-  "researchGlobalWebSearchProvider": "none",
+  "researchGlobalWebSearchProvider": "builtin",
   "researchGlobalGitHubEnabled": false,
   "researchGlobalLocalDocsEnabled": true,
   "researchGlobalMaxSearchResults": 10,
   "researchGlobalFetchTimeoutMs": 30000,
   "researchGlobalUserAgent": "FusionResearchBot/1.0",
   "remoteAccess": {
-    "activeProvider": null,
     "providers": {
       "tailscale": {
         "enabled": false,
@@ -89,14 +89,12 @@
         "enabled": false,
         "quickTunnel": true,
         "tunnelName": "",
-        "tunnelToken": null,
         "ingressUrl": ""
       }
     },
     "tokenStrategy": {
       "persistent": {
-        "enabled": true,
-        "token": null
+        "enabled": true
       },
       "shortLived": {
         "enabled": false,
@@ -106,8 +104,7 @@
     },
     "lifecycle": {
       "rememberLastRunning": false,
-      "wasRunningOnShutdown": false,
-      "lastRunningProvider": null
+      "wasRunningOnShutdown": false
     }
   },
   "experimentalFeatures": {
@@ -116,11 +113,13 @@
     "memoryView": true,
     "nodesView": true,
     "remoteAccess": false,
-    "roadmap": false,
+    "roadmap": true,
     "skillsView": true,
-    "todoView": false,
+    "todoView": true,
     "agentOnboarding": true,
-    "researchView": true
+    "researchView": true,
+    "chatRooms": true,
+    "evalsView": true
   },
   "researchWebSearchProvider": "none",
   "researchGitHubEnabled": false,
