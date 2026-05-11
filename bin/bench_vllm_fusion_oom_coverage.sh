@@ -20,11 +20,7 @@ redact() {
 }
 
 json_error() {
-  local name="$1"
-  local prompt="$2"
-  local max_tokens="$3"
-  local rc="$4"
-  local err_path="$5"
+  local name="$1" prompt="$2" max_tokens="$3" rc="$4" err_path="$5"
   python3 - "$name" "$prompt" "$max_tokens" "$rc" "$err_path" <<'PY'
 import json, sys, pathlib
 name, prompt, max_tokens, rc, err_path = sys.argv[1:]
@@ -40,11 +36,8 @@ PY
 }
 
 run_case() {
-  local name="$1"
-  local prompt="$2"
-  local max_tokens="$3"
+  local name="$1" prompt="$2" max_tokens="$3"
   local outfile="$OUT_DIR/${name}.json"
-
   echo "[bench] $name prompt=$prompt max_tokens=$max_tokens"
   set +e
   python3 "$BENCH_PY" \
@@ -56,46 +49,25 @@ run_case() {
     > "$outfile" 2>"$OUT_DIR/${name}.stderr"
   local rc=$?
   set -e
-
   if [ "$rc" -ne 0 ]; then
     echo "[bench] $name exited rc=$rc"
     json_error "$name" "$prompt" "$max_tokens" "$rc" "$OUT_DIR/${name}.stderr" > "$outfile"
   fi
-
   cat "$outfile" | redact
   echo
 }
 
 run_parallel2() {
-  local name="$1"
-  local prompt="$2"
-  local max_tokens="$3"
-
+  local name="$1" prompt="$2" max_tokens="$3"
   echo "[bench] $name parallel=2 prompt=$prompt max_tokens=$max_tokens"
-
   set +e
-  python3 "$BENCH_PY" \
-    --base-url "$BASE_URL" \
-    --model "$MODEL" \
-    --api-key "$API_KEY" \
-    --prompt-tokens "$prompt" \
-    --max-tokens "$max_tokens" \
-    > "$OUT_DIR/${name}-a.json" 2>"$OUT_DIR/${name}-a.stderr" &
+  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" > "$OUT_DIR/${name}-a.json" 2>"$OUT_DIR/${name}-a.stderr" &
   local p1=$!
-
-  python3 "$BENCH_PY" \
-    --base-url "$BASE_URL" \
-    --model "$MODEL" \
-    --api-key "$API_KEY" \
-    --prompt-tokens "$prompt" \
-    --max-tokens "$max_tokens" \
-    > "$OUT_DIR/${name}-b.json" 2>"$OUT_DIR/${name}-b.stderr" &
+  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" > "$OUT_DIR/${name}-b.json" 2>"$OUT_DIR/${name}-b.stderr" &
   local p2=$!
-
   wait "$p1"; local rc1=$?
   wait "$p2"; local rc2=$?
   set -e
-
   for suffix in a b; do
     local rc="$rc1"
     [ "$suffix" = "b" ] && rc="$rc2"
@@ -109,22 +81,20 @@ run_parallel2() {
 }
 
 capture_logs() {
-  local active_raw active_iso now_epoch active_epoch since_expr
-
+  local active_raw
   systemctl --user status vllm.service --no-pager -l 2>&1 | redact > "$OUT_DIR/systemctl-status-vllm.txt" || true
   systemctl --user show vllm.service 2>&1 | redact > "$OUT_DIR/systemctl-show-vllm.txt" || true
 
   active_raw="$(systemctl --user show vllm.service -p ActiveEnterTimestamp --value 2>/dev/null || true)"
-  active_iso="$(systemctl --user show vllm.service -p ActiveEnterTimestampMonotonic --value 2>/dev/null || true)"
-
-  # journalctl --since is locale-sensitive for some systemd timestamp strings,
-  # so use a robust fallback: last 4000 service lines plus the raw status/show files.
   if [ -n "$active_raw" ]; then
     journalctl --user -u vllm.service --since "$active_raw" --no-pager 2>/dev/null | redact > "$OUT_DIR/vllm-session-since-restart.log" || true
   fi
 
+  # Always save a robust fallback because journalctl --since can be locale-sensitive.
+  journalctl --user -u vllm.service -n 4000 --no-pager 2>/dev/null | redact > "$OUT_DIR/vllm-last-4000.log" || true
+
   if [ ! -s "$OUT_DIR/vllm-session-since-restart.log" ] || grep -q -- "-- No entries --" "$OUT_DIR/vllm-session-since-restart.log"; then
-    journalctl --user -u vllm.service -n 4000 --no-pager 2>/dev/null | redact > "$OUT_DIR/vllm-session-since-restart.log" || true
+    cp "$OUT_DIR/vllm-last-4000.log" "$OUT_DIR/vllm-session-since-restart.log" || true
   fi
 
   {
