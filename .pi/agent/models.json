@@ -1,19 +1,28 @@
 {
   "providers": {
     "local-vllm": {
-      "baseUrl": "http://localhost:8000/v1",
+      "baseUrl": "http://127.0.0.1:8000/v1",
       "api": "openai-completions",
-      "apiKey": "local-vllm",
+      "apiKey": "VLLM_API_KEY",
       "compat": {
         "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens"
       },
       "models": [
         {
-          "id": "qwen35-9b-awq",
-          "name": "Qwen3.5 9B",
-          "contextWindow": 126976,
-          "maxTokens": 4096
+          "id": "qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B INT4 local",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 28672,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         }
       ]
     }

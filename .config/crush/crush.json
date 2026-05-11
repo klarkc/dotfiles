@@ -4,15 +4,31 @@
     "debug": true
   },
   "providers": {
-     "vllm": {
-       "name": "vLLM",
-       "base_url": "http://localhost:8000/v1/",
+     "llama-cpp": {
+       "name": "llama.cpp",
+       "base_url": "http://localhost:9090/v1/",
        "type": "openai-compat",
        "models": [
          {
-           "name": "Qwen3.5 9B",
-           "id": "qwen35-9b-awq",
-           "context_window": 130048,
+           "name": "Qwen3.6 35B A3B",
+           "id": "qwen36-35b-a3b",
+           "context_window": 122880,
+           "default_max_tokens": 4096,
+           "cost_per_1m_in": 0,
+           "cost_per_1m_out": 0
+         }
+       ]
+     },
+     "vllm": {
+       "name": "vLLM",
+       "base_url": "http://localhost:8000/v1/",
+       "api_key": "$VLLM_API_KEY",
+       "type": "openai-compat",
+       "models": [
+         {
+           "name": "Qwen3.5 35B A3B",
+           "id": "qwen3.6-35b-a3b",
+           "context_window": 28672,
            "default_max_tokens": 4096,
            "cost_per_1m_in": 0,
            "cost_per_1m_out": 0
