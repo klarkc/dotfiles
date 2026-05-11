@@ -48,9 +48,7 @@
   "settingsSyncAuth": false,
   "settingsSyncInterval": 900000,
   "settingsSyncConflictResolution": "last-write-wins",
-  "dashboardCurrentProjectIdByNode": {
-    "local": "proj_9bccc77a80f64323"
-  },
+  "dashboardCurrentProjectIdByNode": {},
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
   "persistAgentToolOutput": true,

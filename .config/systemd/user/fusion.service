@@ -11,7 +11,7 @@ Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=PATH=%h/.npm-packages/bin:%h/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
 InaccessiblePaths=%h/.codex
-WorkingDirectory=%h/Sources/Fusion
+WorkingDirectory=%h
 
 RuntimeDirectory=fusion
 RuntimeDirectoryMode=0700
