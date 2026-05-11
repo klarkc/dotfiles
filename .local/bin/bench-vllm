@@ -81,17 +81,24 @@ run_parallel2() {
 }
 
 capture_logs() {
-  local active_raw
-  systemctl --user status vllm.service --no-pager -l 2>&1 | redact > "$OUT_DIR/systemctl-status-vllm.txt" || true
-  systemctl --user show vllm.service 2>&1 | redact > "$OUT_DIR/systemctl-show-vllm.txt" || true
+  local since_usec since_epoch
 
-  active_raw="$(systemctl --user show vllm.service -p ActiveEnterTimestamp --value 2>/dev/null || true)"
-  if [ -n "$active_raw" ]; then
-    journalctl --user -u vllm.service --since "$active_raw" --no-pager 2>/dev/null | redact > "$OUT_DIR/vllm-session-since-restart.log" || true
+  systemctl --user status vllm.service --no-pager -l -n 1000 2>&1 \
+    | redact > "$OUT_DIR/systemctl-status-vllm.txt" || true
+
+  systemctl --user show vllm.service 2>&1 \
+    | redact > "$OUT_DIR/systemctl-show-vllm.txt" || true
+
+  since_usec="$(systemctl --user show vllm.service -p ActiveEnterTimestampUSec --value 2>/dev/null || true)"
+  if [[ "$since_usec" =~ ^[0-9]+$ ]] && [ "$since_usec" -gt 0 ]; then
+    since_epoch="$(( since_usec / 1000000 ))"
+    journalctl --user-unit vllm.service --since "@$since_epoch" --no-pager 2>/dev/null \
+      | redact > "$OUT_DIR/vllm-session-since-restart.log" || true
   fi
 
-  # Always save a robust fallback because journalctl --since can be locale-sensitive.
-  journalctl --user -u vllm.service -n 4000 --no-pager 2>/dev/null | redact > "$OUT_DIR/vllm-last-4000.log" || true
+  # Always save a robust fallback. This system exposes the vLLM user service through --user-unit.
+  journalctl --user-unit vllm.service -n 4000 --no-pager 2>/dev/null \
+    | redact > "$OUT_DIR/vllm-last-4000.log" || true
 
   if [ ! -s "$OUT_DIR/vllm-session-since-restart.log" ] || grep -q -- "-- No entries --" "$OUT_DIR/vllm-session-since-restart.log"; then
     cp "$OUT_DIR/vllm-last-4000.log" "$OUT_DIR/vllm-session-since-restart.log" || true
