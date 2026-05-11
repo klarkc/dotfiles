@@ -12,12 +12,17 @@ Environment=PATH=%h/.npm-packages/bin:%h/.nix-profile/bin:/usr/local/bin:/usr/bi
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
 InaccessiblePaths=%h/.codex
 WorkingDirectory=%h/Sources/Fusion
+
+RuntimeDirectory=fusion
+RuntimeDirectoryMode=0700
+
 ExecStartPre=-/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
-ExecStartPre=/usr/bin/mkdir -p %t/fusion
 ExecStart=/bin/sh -lc 'rm -f "$XDG_RUNTIME_DIR/fusion/tmux.sock"; /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" new-session -d -s fusion -c "$HOME/Sources/Fusion" "$HOME/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; while /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" has-session -t fusion 2>/dev/null; do sleep 5; done'
-ExecStop=/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
+ExecStop=-/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
+
 Restart=on-failure
 RestartSec=5s
+
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
@@ -27,6 +32,7 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+
 ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache %h/.npm-packages %h/.config/qmd
 
 [Install]
