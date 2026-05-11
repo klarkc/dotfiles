@@ -13,8 +13,8 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
 [profiles.solosig]
-model = "gpt-5.3-codex"
-model_reasoning_effort = "medium"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
 personality = "pragmatic"
 
 [profiles.solosig.mcp_servers.devenv]
@@ -23,6 +23,12 @@ args = ["mcp"]
 
 [profiles.solosig.sandbox_workspace_write]
 network_access = true
+
+[profiles.solosig.features]
+js_repl = false
+memories = false
+external_migration = false
+prevent_idle_sleep = false
 
 [features]
 streamable_shell = true
@@ -52,6 +58,7 @@ hide_rate_limit_model_nudge = true
 [notice.model_migrations]
 "gpt-5.1-codex-max" = "gpt-5.2-codex"
 "gpt-5.1-codex-mini" = "gpt-5.2-codex"
+"gpt-5.3-codex" = "gpt-5.4"
 
 [plugins."gmail@openai-curated"]
 enabled = true
@@ -62,5 +69,11 @@ enabled = true
 [projects."/home/klarkc"]
 trust_level = "trusted"
 
+[projects."/home/klarkc/Sources/Solo/SoloSIG2"]
+trust_level = "trusted"
+
+[projects."/home/klarkc/Sources/Solo/SoloSIG"]
+trust_level = "trusted"
+
 [tui.model_availability_nux]
-"gpt-5.5" = 3
+"gpt-5.5" = 4

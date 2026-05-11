@@ -5,14 +5,16 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=PATH=%h/.npm-packages/bin:%h/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin
-PassEnvironment=ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN HUGGINGFACE_API_KEY HUGGING_FACE_HUB_TOKEN HF_TOKEN GEMINI_API_KEY GOOGLE_API_KEY VAST_API_KEY
+PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
+InaccessiblePaths=%h/.codex
 WorkingDirectory=%h/Sources/Fusion
 ExecStartPre=-/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
 ExecStartPre=/usr/bin/mkdir -p %t/fusion
-ExecStart=/bin/sh -lc 'rm -f "$XDG_RUNTIME_DIR/fusion/tmux.out" "$XDG_RUNTIME_DIR/fusion/tmux.sock"; mkfifo "$XDG_RUNTIME_DIR/fusion/tmux.out"; /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" new-session -d -s fusion -c "$HOME/Sources/Fusion" "$HOME/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" pipe-pane -o -t fusion:0.0 "cat > $XDG_RUNTIME_DIR/fusion/tmux.out"; cat "$XDG_RUNTIME_DIR/fusion/tmux.out"'
+ExecStart=/bin/sh -lc 'rm -f "$XDG_RUNTIME_DIR/fusion/tmux.sock"; /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" new-session -d -s fusion -c "$HOME/Sources/Fusion" "$HOME/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; while /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" has-session -t fusion 2>/dev/null; do sleep 5; done'
 ExecStop=/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
 Restart=on-failure
 RestartSec=5s
@@ -25,7 +27,7 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache %h/.npm-packages/lib/node_modules/node-pty/build/Release %h/.config/qmd
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache %h/.npm-packages %h/.config/qmd
 
 [Install]
 WantedBy=default.target

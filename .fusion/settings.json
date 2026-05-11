@@ -3,9 +3,9 @@
   "colorTheme": "nord",
   "dashboardFontScalePct": 100,
   "defaultProvider": "local-vllm",
-  "defaultModelId": "qwen35-9b-awq",
+  "defaultModelId": "qwen3.6-35b-a3b",
   "fallbackProvider": "local-vllm",
-  "fallbackModelId": "qwen35-9b-awq",
+  "fallbackModelId": "qwen3.6-35b-a3b",
   "ntfyEnabled": false,
   "ntfyTopic": "fusion",
   "ntfyEvents": [
@@ -23,28 +23,29 @@
   "customProviders": [],
   "favoriteProviders": [],
   "favoriteModels": [
-    "local-vllm/qwen35-9b-awq"
+    "qwen3.6-35b-a3b"
   ],
   "openrouterModelSync": true,
+  "opencodeGoModelSync": true,
   "updateCheckEnabled": true,
   "fnBinaryCheckEnabled": true,
   "updateCheckFrequency": "weekly",
   "autoReloadOnVersionChange": true,
-  "showGitHubStarButton": true,
+  "showGitHubStarButton": false,
   "modelOnboardingComplete": true,
   "executionGlobalProvider": "local-vllm",
-  "executionGlobalModelId": "qwen35-9b-awq",
+  "executionGlobalModelId": "qwen3.6-35b-a3b",
   "planningGlobalProvider": "local-vllm",
-  "planningGlobalModelId": "qwen35-9b-awq",
+  "planningGlobalModelId": "qwen3.6-35b-a3b",
   "validatorGlobalProvider": "local-vllm",
-  "validatorGlobalModelId": "qwen35-9b-awq",
+  "validatorGlobalModelId": "qwen3.6-35b-a3b",
   "titleSummarizerGlobalProvider": "local-vllm",
-  "titleSummarizerGlobalModelId": "qwen35-9b-awq",
+  "titleSummarizerGlobalModelId": "qwen3.6-35b-a3b",
   "daemonToken": "fn_f2d3098400a647ca16426c66b943ea9c",
   "daemonPort": 4040,
   "daemonHost": "0.0.0.0",
-  "settingsSyncEnabled": true,
-  "settingsSyncAuth": true,
+  "settingsSyncEnabled": false,
+  "settingsSyncAuth": false,
   "settingsSyncInterval": 900000,
   "settingsSyncConflictResolution": "last-write-wins",
   "dashboardCurrentProjectIdByNode": {
@@ -69,12 +70,12 @@
   "researchGlobalDefaultTimeout": 300000,
   "researchGlobalMaxSourcesPerRun": 20,
   "researchGlobalMaxSynthesisRounds": 2,
-  "researchWebSearchProvider": "none",
-  "researchGitHubEnabled": false,
-  "researchLocalDocsEnabled": true,
-  "researchMaxSearchResults": 10,
-  "researchFetchTimeoutMs": 30000,
-  "researchUserAgent": "FusionResearchBot/1.0",
+  "researchGlobalWebSearchProvider": "none",
+  "researchGlobalGitHubEnabled": false,
+  "researchGlobalLocalDocsEnabled": true,
+  "researchGlobalMaxSearchResults": 10,
+  "researchGlobalFetchTimeoutMs": 30000,
+  "researchGlobalUserAgent": "FusionResearchBot/1.0",
   "remoteAccess": {
     "activeProvider": null,
     "providers": {
@@ -109,5 +110,22 @@
       "lastRunningProvider": null
     }
   },
-  "experimentalFeatures": {}
+  "experimentalFeatures": {
+    "devServerView": false,
+    "insights": true,
+    "memoryView": true,
+    "nodesView": true,
+    "remoteAccess": false,
+    "roadmap": false,
+    "skillsView": true,
+    "todoView": false,
+    "agentOnboarding": true,
+    "researchView": true
+  },
+  "researchWebSearchProvider": "none",
+  "researchGitHubEnabled": false,
+  "researchLocalDocsEnabled": true,
+  "researchMaxSearchResults": 10,
+  "researchFetchTimeoutMs": 30000,
+  "researchUserAgent": "FusionResearchBot/1.0"
 }

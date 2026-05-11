@@ -1,0 +1,79 @@
+[Unit]
+Description=vLLM server
+After=default.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+TimeoutStopSec=30
+PassEnvironment=HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VLLM_API_KEY
+Environment=NIXPKGS_REV=68a8af93ff4297686cb68880845e61e5e2e41d92
+Environment=NIXPKGS_REF=github:NixOS/nixpkgs/68a8af93ff4297686cb68880845e61e5e2e41d92
+Environment=MODEL=Intel/Qwen3.6-35B-A3B-int4-mixed-AutoRound
+Environment=MODEL_REVISION=65f69c73f17488236c85c85211f6ba28d7106157
+Environment=SERVED_MODEL_NAME=qwen3.6-35b-a3b
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+Environment=MAX_MODEL_LEN=32768
+Environment=MAX_NUM_SEQS=2
+Environment=MAX_NUM_BATCHED_TOKENS=4096
+Environment=MAX_NUM_PARTIAL_PREFILLS=1
+Environment=GPU_MEMORY_UTILIZATION=0.9567
+Environment=CPU_OFFLOAD_GB=12
+Environment=KV_OFFLOADING_SIZE_GB=0
+Environment=RENDERER_NUM_WORKERS=4
+Environment=MM_PROCESSOR_CACHE_GB=0
+Environment=STREAM_INTERVAL=4
+Environment=MAX_CUDAGRAPH_CAPTURE_SIZE=4
+Environment=VLLM_INSTALL_SPEC=vllm==0.20.1
+Environment=UV_TORCH_BACKEND=cu130
+Environment=UV_EXCLUDE_NEWER=2026-05-08T23:59:59Z
+Environment=UV_INSTALL_SPEC=uv==0.11.11
+Environment="PYTHON_BOOTSTRAP_TOOLS_SPEC=pip==26.1.1 wheel==0.47.0 setuptools==82.0.1 packaging==26.2"
+Environment="PYTORCH_INSTALL_SPEC=torch==2.11.0+cu130 torchvision==0.26.0+cu130 torchaudio==2.11.0+cu130"
+Environment=SPECULATIVE_METHOD=mtp
+Environment=NUM_SPECULATIVE_TOKENS=2
+Environment=SPECULATIVE_CONFIG=
+Environment=SPECULATIVE_CONFIG_B64=eyJtZXRob2QiOiJtdHAiLCJudW1fc3BlY3VsYXRpdmVfdG9rZW5zIjoyfQ==
+Environment=VLLM_EXTRA_ARGS=
+Environment=OMP_NUM_THREADS=8
+Environment=MKL_NUM_THREADS=8
+Environment=OPENBLAS_NUM_THREADS=8
+Environment=NUMEXPR_NUM_THREADS=8
+Environment=RAYON_NUM_THREADS=8
+Environment=MALLOC_ARENA_MAX=2
+Environment=VLLM_MARLIN_USE_ATOMIC_ADD=1
+Environment=HF_TOKEN_FILE=
+Environment=HF_HUB_TOKEN=
+Environment=HF_HUB_ETAG_TIMEOUT=60
+Environment=HF_HUB_DOWNLOAD_TIMEOUT=600
+Environment=HF_HUB_DISABLE_IMPLICIT_TOKEN=0
+Environment=SHOW_HIDDEN_METRICS_FOR_VERSION=
+Environment=ENABLE_LOGGING_ITERATION_DETAILS=0
+Environment=DOWNLOAD_STATUS_AT_START=1
+Environment=BENCHMARK_PROMPTS="1024 4096 12000"
+Environment=BENCHMARK_MAX_TOKENS="96 128"
+
+UnsetEnvironment=LD_LIBRARY_PATH LD_PRELOAD
+
+ExecStart=/nix/var/nix/profiles/default/bin/nix \
+  --extra-experimental-features nix-command \
+  --extra-experimental-features flakes \
+  shell --impure \
+  ${NIXPKGS_REF}#bash \
+  ${NIXPKGS_REF}#coreutils \
+  ${NIXPKGS_REF}#findutils \
+  ${NIXPKGS_REF}#gnugrep \
+  ${NIXPKGS_REF}#git \
+  ${NIXPKGS_REF}#python312 \
+  ${NIXPKGS_REF}#python312Packages.virtualenv \
+  ${NIXPKGS_REF}#gcc \
+  ${NIXPKGS_REF}#cmake \
+  ${NIXPKGS_REF}#pkg-config \
+  --command bash -lc 'set -euo pipefail; CACHE="$${HOME}/.cache/vllm-nix-qwen36"; VENV="$$CACHE/venv"; SPEC_FILE="$$CACHE/install-spec.txt"; UV_BOOTSTRAP_VENV="$$CACHE/uv-bootstrap"; UV_SPEC_FILE="$$CACHE/uv-install-spec.txt"; DRIVER_LINK_DIR="$$CACHE/driver-libs"; mkdir -p "$$CACHE"; if [ -r "$${HOME}/.profile" ]; then set -a; . "$${HOME}/.profile"; . "$${HOME}/.profile_override"; set +a; fi; TOKEN_SOURCE="environment-or-profile"; if [ -n "$${VLLM_API_KEY:-}" ]; then echo "VLLM_API_KEY is set for vLLM API auth"; else echo "WARNING: VLLM_API_KEY is not set after sourcing ~/.profile; vLLM will run without --api-key"; fi; if [ -z "$${HF_TOKEN:-}" ] && [ -n "$${HF_HUB_TOKEN:-}" ]; then export HF_TOKEN="$$HF_HUB_TOKEN"; TOKEN_SOURCE="HF_HUB_TOKEN"; fi; if [ -z "$${HF_TOKEN:-}" ] && [ -n "$${HUGGING_FACE_HUB_TOKEN:-}" ]; then export HF_TOKEN="$$HUGGING_FACE_HUB_TOKEN"; TOKEN_SOURCE="HUGGING_FACE_HUB_TOKEN"; fi; if [ -z "$${HF_TOKEN:-}" ]; then for token_file in "$${HF_TOKEN_FILE:-}" "$${HOME}/.cache/huggingface/token" "$${HOME}/.huggingface/token"; do if [ -n "$$token_file" ] && [ -r "$$token_file" ]; then HF_TOKEN="$$(head -n 1 "$$token_file")"; export HF_TOKEN; TOKEN_SOURCE="file:$$token_file"; break; fi; done; fi; export HF_HUB_TOKEN="$${HF_HUB_TOKEN:-$${HF_TOKEN:-}}"; export HUGGING_FACE_HUB_TOKEN="$${HUGGING_FACE_HUB_TOKEN:-$${HF_TOKEN:-}}"; export HF_TOKEN="$${HF_TOKEN:-$${HF_HUB_TOKEN:-$${HUGGING_FACE_HUB_TOKEN:-}}}"; export HF_HUB_ETAG_TIMEOUT="$${HF_HUB_ETAG_TIMEOUT:-60}"; export HF_HUB_DOWNLOAD_TIMEOUT="$${HF_HUB_DOWNLOAD_TIMEOUT:-600}"; export HF_HUB_DISABLE_IMPLICIT_TOKEN="$${HF_HUB_DISABLE_IMPLICIT_TOKEN:-0}"; if [ -n "$${HF_TOKEN:-}" ]; then echo "HF_TOKEN is set for vLLM/Hugging Face access via $$TOKEN_SOURCE"; else echo "WARNING: HF_TOKEN is not set after profile and token-file checks"; fi; CLEAN_ENV=(env -u LD_LIBRARY_PATH -u LD_PRELOAD); read -r -a BOOTSTRAP_TOOLS <<< "$${PYTHON_BOOTSTRAP_TOOLS_SPEC}"; read -r -a PYTORCH_PKGS <<< "$${PYTORCH_INSTALL_SPEC}"; CUDA_SOURCE_DIR=""; LIBCUDA_SO=""; for d in /run/opengl-driver/lib /run/nvidia-driver/lib /usr/lib/x86_64-linux-gnu/nvidia/current /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /usr/lib/nvidia; do if [ -e "$$d/libcuda.so.1" ]; then CUDA_SOURCE_DIR="$$d"; LIBCUDA_SO="$$d/libcuda.so.1"; break; fi; done; if [ -z "$$LIBCUDA_SO" ]; then LIBCUDA_SO="$$(find /run /usr/lib /usr/lib64 -maxdepth 6 -name libcuda.so.1 2>/dev/null | head -n 1 || true)"; if [ -n "$$LIBCUDA_SO" ]; then CUDA_SOURCE_DIR="$$(dirname "$$LIBCUDA_SO")"; fi; fi; if [ -z "$$LIBCUDA_SO" ] || [ ! -e "$$LIBCUDA_SO" ]; then echo "ERROR: libcuda.so.1 not found in common driver paths"; find /run /usr/lib /usr/lib64 -maxdepth 6 -name libcuda.so.1 2>/dev/null | head -50 || true; exit 1; fi; rm -rf "$$DRIVER_LINK_DIR"; mkdir -p "$$DRIVER_LINK_DIR"; for f in "$$CUDA_SOURCE_DIR"/libcuda.so* "$$CUDA_SOURCE_DIR"/libnvidia-*.so*; do [ -e "$$f" ] || continue; ln -sfn "$$(readlink -f "$$f")" "$$DRIVER_LINK_DIR/$$(basename "$$f")"; done; if [ ! -e "$$DRIVER_LINK_DIR/libcuda.so.1" ]; then ln -sfn "$$(readlink -f "$$LIBCUDA_SO")" "$$DRIVER_LINK_DIR/libcuda.so.1"; fi; if [ ! -e "$$DRIVER_LINK_DIR/libcuda.so" ]; then ln -sfn libcuda.so.1 "$$DRIVER_LINK_DIR/libcuda.so"; fi; CXX_RUNTIME_LIB="$$(g++ -print-file-name=libstdc++.so.6 2>/dev/null || true)"; if [ -z "$$CXX_RUNTIME_LIB" ] || [ ! -e "$$CXX_RUNTIME_LIB" ]; then CXX_RUNTIME_LIB="$$(find /nix/store -maxdepth 5 -path '\''*/lib/libstdc++.so.6'\'' 2>/dev/null | head -n 1 || true)"; fi; if [ -z "$$CXX_RUNTIME_LIB" ] || [ ! -e "$$CXX_RUNTIME_LIB" ]; then echo "ERROR: libstdc++.so.6 not found from pinned Nix gcc runtime"; exit 1; fi; CXX_RUNTIME_DIR="$$(dirname "$$(readlink -f "$$CXX_RUNTIME_LIB")")"; export HF_HOME="$${HF_HOME:-$$HOME/.cache/huggingface}"; export UV_LINK_MODE=copy; export UV_TORCH_BACKEND="$${UV_TORCH_BACKEND:-cu130}"; export UV_EXCLUDE_NEWER="$${UV_EXCLUDE_NEWER:-2026-05-08T23:59:59Z}"; export VLLM_USE_V1=1; export VLLM_SLEEP_WHEN_IDLE=1; export CUDA_MODULE_LOADING="$${CUDA_MODULE_LOADING:-LAZY}"; export VLLM_MARLIN_USE_ATOMIC_ADD="$${VLLM_MARLIN_USE_ATOMIC_ADD:-1}"; export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export OMP_NUM_THREADS="$${OMP_NUM_THREADS:-8}"; export MKL_NUM_THREADS="$${MKL_NUM_THREADS:-8}"; export OPENBLAS_NUM_THREADS="$${OPENBLAS_NUM_THREADS:-8}"; export NUMEXPR_NUM_THREADS="$${NUMEXPR_NUM_THREADS:-8}"; export RAYON_NUM_THREADS="$${RAYON_NUM_THREADS:-8}"; export TOKENIZERS_PARALLELISM="$${TOKENIZERS_PARALLELISM:-true}"; export MALLOC_ARENA_MAX="$${MALLOC_ARENA_MAX:-2}"; UV_BOOTSTRAP_FINGERPRINT="$$UV_INSTALL_SPEC|bootstrap-tools=$$PYTHON_BOOTSTRAP_TOOLS_SPEC|nixpkgs=$$NIXPKGS_REV"; if [ ! -x "$$UV_BOOTSTRAP_VENV/bin/uv" ] || [ ! -f "$$UV_SPEC_FILE" ] || [ "$$(cat "$$UV_SPEC_FILE" 2>/dev/null || true)" != "$$UV_BOOTSTRAP_FINGERPRINT" ]; then echo "Creating/rebuilding pinned uv environment at $$UV_BOOTSTRAP_VENV"; rm -rf "$$UV_BOOTSTRAP_VENV"; "$${CLEAN_ENV[@]}" virtualenv --python python3.12 "$$UV_BOOTSTRAP_VENV"; "$${CLEAN_ENV[@]}" "$$UV_BOOTSTRAP_VENV/bin/python" -m pip install "$${BOOTSTRAP_TOOLS[@]}"; "$${CLEAN_ENV[@]}" "$$UV_BOOTSTRAP_VENV/bin/python" -m pip install "$$UV_INSTALL_SPEC"; echo "$$UV_BOOTSTRAP_FINGERPRINT" > "$$UV_SPEC_FILE"; fi; UV_BIN="$$UV_BOOTSTRAP_VENV/bin/uv"; INSTALL_FINGERPRINT="vllm=$$VLLM_INSTALL_SPEC|pytorch=$$PYTORCH_INSTALL_SPEC|torch-backend=$$UV_TORCH_BACKEND|bootstrap-tools=$$PYTHON_BOOTSTRAP_TOOLS_SPEC|uv=$$UV_INSTALL_SPEC|nixpkgs=$$NIXPKGS_REV|exclude-newer=$${UV_EXCLUDE_NEWER:-none}"; if [ ! -x "$$VENV/bin/vllm" ] || [ ! -f "$$SPEC_FILE" ] || [ "$$(cat "$$SPEC_FILE" 2>/dev/null || true)" != "$$INSTALL_FINGERPRINT" ]; then echo "Creating/rebuilding pinned vLLM environment at $$VENV"; rm -rf "$$VENV"; "$${CLEAN_ENV[@]}" "$$UV_BIN" venv --python python3.12 "$$VENV"; UV_INSTALL_ARGS=(pip install --python "$$VENV/bin/python" --torch-backend="$$UV_TORCH_BACKEND" --exclude-newer "$$UV_EXCLUDE_NEWER"); "$${CLEAN_ENV[@]}" "$$UV_BIN" "$${UV_INSTALL_ARGS[@]}" "$${BOOTSTRAP_TOOLS[@]}"; "$${CLEAN_ENV[@]}" "$$UV_BIN" "$${UV_INSTALL_ARGS[@]}" "$${PYTORCH_PKGS[@]}" "$$VLLM_INSTALL_SPEC"; echo "$$INSTALL_FINGERPRINT" > "$$SPEC_FILE"; "$${CLEAN_ENV[@]}" "$$UV_BIN" pip freeze --python "$$VENV/bin/python" > "$$CACHE/requirements.freeze" || true; fi; if [ "$${DOWNLOAD_STATUS_AT_START:-1}" = "1" ]; then HF_MODEL_CACHE="$${HF_HOME:-$$HOME/.cache/huggingface}/hub/models--Intel--Qwen3.6-35B-A3B-int4-mixed-AutoRound"; echo "HF cache dir: $$HF_MODEL_CACHE"; if [ -d "$$HF_MODEL_CACHE" ]; then du -sh "$$HF_MODEL_CACHE" 2>/dev/null || true; find "$$HF_MODEL_CACHE" -maxdepth 3 -type f -print 2>/dev/null | grep -E "[.]lock[$]|[.]incomplete[$]|[.]tmp[$]" | head -20 || true; else echo "HF cache dir not present yet"; fi; fi; PY_SITE="$$VENV/lib/python3.12/site-packages"; if [ ! -d "$$PY_SITE" ]; then PY_SITE="$$(find "$$VENV/lib" -type d -name site-packages -print 2>/dev/null | head -n 1 || true)"; fi; if [ -z "$$PY_SITE" ] || [ ! -d "$$PY_SITE" ]; then echo "ERROR: Python site-packages directory not found under $$VENV/lib"; find "$$VENV/lib" -maxdepth 4 -type d 2>/dev/null | head -50 || true; exit 1; fi; TORCH_LIB_DIR="$$PY_SITE/torch/lib"; CUDA_PKG_LIB_DIRS=""; if [ -d "$$PY_SITE/nvidia" ]; then CUDA_PKG_LIB_DIRS="$$(find "$$PY_SITE/nvidia" -type d -name lib -print 2>/dev/null | paste -sd: - || true)"; fi; RUNTIME_LD_PATH="$$DRIVER_LINK_DIR:$$CXX_RUNTIME_DIR"; if [ -d "$$TORCH_LIB_DIR" ]; then RUNTIME_LD_PATH="$$TORCH_LIB_DIR:$$RUNTIME_LD_PATH"; fi; if [ -n "$$CUDA_PKG_LIB_DIRS" ]; then RUNTIME_LD_PATH="$$CUDA_PKG_LIB_DIRS:$$RUNTIME_LD_PATH"; fi; export LD_LIBRARY_PATH="$$RUNTIME_LD_PATH:$${LD_LIBRARY_PATH:-}"; RUNTIME_ARGS=(--served-model-name "$$SERVED_MODEL_NAME" --host "$$HOST" --port "$$PORT" --trust-remote-code --dtype half --max-model-len "$$MAX_MODEL_LEN" --max-num-seqs "$$MAX_NUM_SEQS" --gpu-memory-utilization "$$GPU_MEMORY_UTILIZATION" --cpu-offload-gb "$$CPU_OFFLOAD_GB" --max-num-batched-tokens "$$MAX_NUM_BATCHED_TOKENS" --max-num-partial-prefills "$$MAX_NUM_PARTIAL_PREFILLS" --renderer-num-workers "$$RENDERER_NUM_WORKERS" --mm-processor-cache-gb "$$MM_PROCESSOR_CACHE_GB" --stream-interval "$$STREAM_INTERVAL" --max-cudagraph-capture-size "$$MAX_CUDAGRAPH_CAPTURE_SIZE" --enable-chunked-prefill --enable-prefix-caching --async-scheduling --language-model-only --skip-mm-profiling --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --disable-uvicorn-access-log); if [ -n "$${MODEL_REVISION:-}" ]; then RUNTIME_ARGS+=(--revision "$$MODEL_REVISION" --tokenizer-revision "$$MODEL_REVISION" --code-revision "$$MODEL_REVISION"); fi; if [ -n "$${VLLM_API_KEY:-}" ]; then RUNTIME_ARGS+=(--api-key "$$VLLM_API_KEY"); fi; if [ -n "$${KV_OFFLOADING_SIZE_GB:-}" ] && [ "$${KV_OFFLOADING_SIZE_GB:-0}" != "0" ]; then RUNTIME_ARGS+=(--kv-offloading-size "$$KV_OFFLOADING_SIZE_GB"); fi; if [ -n "$${SPECULATIVE_CONFIG:-}" ]; then RUNTIME_ARGS+=(--speculative-config "$$SPECULATIVE_CONFIG"); elif [ -n "$${SPECULATIVE_CONFIG_B64:-}" ]; then SPEC_JSON="$$(printf %%s "$$SPECULATIVE_CONFIG_B64" | base64 -d)"; RUNTIME_ARGS+=(--speculative-config "$$SPEC_JSON"); elif [ -n "$${SPECULATIVE_METHOD:-}" ] && [ "$${NUM_SPECULATIVE_TOKENS:-0}" != "0" ]; then echo "ERROR: SPECULATIVE_CONFIG_B64 is empty; refusing to synthesize JSON through systemd quoting"; exit 1; fi; if [ "$${ENABLE_LOGGING_ITERATION_DETAILS:-0}" = "1" ]; then RUNTIME_ARGS+=(--enable-logging-iteration-details); fi; if [ -n "$${SHOW_HIDDEN_METRICS_FOR_VERSION:-}" ]; then RUNTIME_ARGS+=(--show-hidden-metrics-for-version "$$SHOW_HIDDEN_METRICS_FOR_VERSION"); fi; EXTRA_ARGS=(); if [ -n "$${VLLM_EXTRA_ARGS:-}" ]; then read -r -a EXTRA_ARGS <<< "$$VLLM_EXTRA_ARGS"; RUNTIME_ARGS+=("$${EXTRA_ARGS[@]}"); fi; printf "%%q " "$$VENV/bin/vllm" serve "$$MODEL" "$${RUNTIME_ARGS[@]}" > "$$CACHE/runtime_command.sh"; echo >> "$$CACHE/runtime_command.sh"; chmod +x "$$CACHE/runtime_command.sh"; { echo "BASE_URL=http://127.0.0.1:$$PORT/v1"; echo "MODEL=$$SERVED_MODEL_NAME"; echo "VLLM_API_KEY=$$VLLM_API_KEY"; echo "PROMPTS=$${BENCHMARK_PROMPTS}"; echo "MAX_TOKENS=$${BENCHMARK_MAX_TOKENS}"; echo "CACHE=$$CACHE"; echo "VENV=$$VENV"; } > "$$CACHE/benchmark.env"; echo "Benchmark metadata: $$CACHE/benchmark.env"; echo "Runtime command: $$CACHE/runtime_command.sh"; echo "Using pinned nixpkgs rev: $$NIXPKGS_REV"; echo "Using CUDA driver source: $$LIBCUDA_SO"; echo "Using isolated driver lib dir: $$DRIVER_LINK_DIR"; echo "Using C++ runtime lib: $$CXX_RUNTIME_LIB"; echo "Using Python site-packages: $$PY_SITE"; echo "Using CUDA package lib dirs: $${CUDA_PKG_LIB_DIRS:-none}"; echo "Using torch lib dir: $${TORCH_LIB_DIR:-none}"; echo "Using uv binary: $$UV_BIN"; echo "Using uv install spec: $$UV_INSTALL_SPEC"; echo "Using vLLM install spec: $$VLLM_INSTALL_SPEC"; echo "Using PyTorch install spec: $$PYTORCH_INSTALL_SPEC"; echo "Using uv torch backend: $$UV_TORCH_BACKEND"; echo "Using uv exclude newer: $${UV_EXCLUDE_NEWER:-none}"; echo "Serving model: $$MODEL as $$SERVED_MODEL_NAME"; echo "model_revision=$${MODEL_REVISION:-unPinned}"; echo "host=$$HOST port=$$PORT max_model_len=$$MAX_MODEL_LEN max_num_seqs=$$MAX_NUM_SEQS max_num_batched_tokens=$$MAX_NUM_BATCHED_TOKENS"; echo "gpu_memory_utilization=$$GPU_MEMORY_UTILIZATION cpu_offload_gb=$$CPU_OFFLOAD_GB kv_offloading_size_gb=$$KV_OFFLOADING_SIZE_GB renderer_num_workers=$$RENDERER_NUM_WORKERS mm_processor_cache_gb=$$MM_PROCESSOR_CACHE_GB stream_interval=$$STREAM_INTERVAL marlin_atomic_add=$${VLLM_MARLIN_USE_ATOMIC_ADD:-unset}"; echo "speculative_config: $${SPECULATIVE_CONFIG:-b64:$${SPECULATIVE_CONFIG_B64:+enabled}}"; echo "extra args: $${VLLM_EXTRA_ARGS:-none}"; unset VLLM_INSTALL_SPEC VLLM_EXTRA_ARGS VLLM_SLEEP_WHEN_IDLE VLLM_USE_V1; exec "$$VENV/bin/vllm" serve "$$MODEL" "$${RUNTIME_ARGS[@]}"'
+
+[Install]
+WantedBy=default.target
