@@ -86,3 +86,6 @@
 !/.pi/agent
 /.pi/agent/*
 !/.pi/agent/models.json
+
+# vllm
+!/.local/bin/bench-vllm
