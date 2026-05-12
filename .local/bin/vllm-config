@@ -48,6 +48,7 @@ case "$pick" in
 esac
 
 selected_service="vllm@${pick}.service"
+selected_alias="vllm-selected.service"
 other_services=()
 for item in "${choices[@]}"; do
   key="${item%%:*}"
@@ -56,24 +57,23 @@ for item in "${choices[@]}"; do
   fi
 done
 
-mkdir -p "$HOME/.config/systemd/user/default.target.wants"
-ln -sfn "../${selected_service}" "$HOME/.config/systemd/user/default.target.wants/vllm-selected.service"
+mkdir -p "$HOME/.config/systemd/user"
+ln -sfn "$selected_service" "$HOME/.config/systemd/user/$selected_alias"
 
 printf 'Stopping non-selected vLLM services: %s\n' "${other_services[*]}"
 systemctl --user stop "${other_services[@]}" 2>/dev/null || true
 
-printf 'Switching selected vLLM service to %s\n' "$selected_service"
+printf 'Selected %s -> %s\n' "$selected_alias" "$selected_service"
 systemctl --user daemon-reload
-systemctl --user reset-failed "$selected_service" fusion.service || true
-systemctl --user restart "$selected_service"
-systemctl --user restart fusion.service
+systemctl --user reset-failed "$selected_alias" "$selected_service" fusion.service || true
+systemctl --user restart "$selected_alias" fusion.service
 
 echo
-systemctl --user --no-pager -l status "$selected_service" fusion.service || true
+systemctl --user --no-pager -l status "$selected_alias" fusion.service || true
 cat <<EOF
 
-Systemd is now responsible for readiness and ordering.
+Systemd owns readiness and ordering. Fusion is ordered after $selected_alias.
 Watch progress with:
-  journalctl --user-unit $selected_service -f
+  journalctl --user-unit $selected_alias -f
   journalctl --user-unit fusion.service -f
 EOF
