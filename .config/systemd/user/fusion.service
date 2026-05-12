@@ -1,8 +1,8 @@
 [Unit]
 Description=Fusion dashboard
 Documentation=https://github.com/Runfusion/Fusion
-After=network-online.target
-Wants=network-online.target
+After=network-online.target vllm-selected.service
+Wants=network-online.target vllm-selected.service
 
 [Service]
 Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
