@@ -35,6 +35,7 @@
               nodejs
               codex
               uv
+              gh
             ];
           };
         });
