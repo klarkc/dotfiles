@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+choices=(
+  "qwen3.6-35B-a3b:Qwen3.6 35B A3B"
+  "qwen3.6-27B:Qwen3.6 27B MTP"
+)
+
+usage() {
+  cat <<'EOF'
+Usage: vllm-config [MODEL]
+
+Models:
+  qwen3.6-35B-a3b
+  qwen3.6-27B
+
+Without MODEL, shows an interactive menu.
+EOF
+}
+
+pick="${1:-}"
+if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+if [ -z "$pick" ]; then
+  echo "Select vLLM model to run:"
+  i=1
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    label="${item#*:}"
+    printf '  %s) %s (%s)\n' "$i" "$label" "$key"
+    i=$((i + 1))
+  done
+  printf 'Choice: '
+  read -r answer
+  case "$answer" in
+    1) pick="qwen3.6-35B-a3b" ;;
+    2) pick="qwen3.6-27B" ;;
+    *) echo "Invalid choice: $answer" >&2; exit 2 ;;
+  esac
+fi
+
+case "$pick" in
+  qwen3.6-35B-a3b|qwen3.6-27B) ;;
+  *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
+esac
+
+selected_service="vllm@${pick}.service"
+other_services=()
+for item in "${choices[@]}"; do
+  key="${item%%:*}"
+  if [ "$key" != "$pick" ]; then
+    other_services+=("vllm@${key}.service")
+  fi
+done
+
+mkdir -p "$HOME/.config/systemd/user/default.target.wants"
+ln -sfn "../${selected_service}" "$HOME/.config/systemd/user/default.target.wants/vllm-selected.service"
+
+printf 'Stopping non-selected vLLM services: %s\n' "${other_services[*]}"
+systemctl --user stop "${other_services[@]}" 2>/dev/null || true
+
+printf 'Switching selected vLLM service to %s\n' "$selected_service"
+systemctl --user daemon-reload
+systemctl --user reset-failed "$selected_service" fusion.service || true
+systemctl --user restart "$selected_service"
+systemctl --user restart fusion.service
+
+echo
+systemctl --user --no-pager -l status "$selected_service" fusion.service || true
+cat <<EOF
+
+Systemd is now responsible for readiness and ordering.
+Watch progress with:
+  journalctl --user-unit $selected_service -f
+  journalctl --user-unit fusion.service -f
+EOF
