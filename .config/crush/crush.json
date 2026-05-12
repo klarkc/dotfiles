@@ -4,38 +4,46 @@
     "debug": true
   },
   "providers": {
-     "llama-cpp": {
-       "name": "llama.cpp",
-       "base_url": "http://localhost:9090/v1/",
-       "type": "openai-compat",
-       "models": [
-         {
-           "name": "Qwen3.6 35B A3B",
-           "id": "qwen36-35b-a3b",
-           "context_window": 122880,
-           "default_max_tokens": 4096,
-           "cost_per_1m_in": 0,
-           "cost_per_1m_out": 0
-         }
-       ]
-     },
-     "vllm": {
-       "name": "vLLM",
-       "base_url": "http://localhost:8000/v1/",
-       "api_key": "$VLLM_API_KEY",
-       "type": "openai-compat",
-       "models": [
-         {
-           "name": "Qwen3.5 35B A3B",
-           "id": "qwen3.6-35b-a3b",
-           "context_window": 26624,
-           "default_max_tokens": 4096,
-           "cost_per_1m_in": 0,
-           "cost_per_1m_out": 0
-         }
-       ]
-     },
-     "vllm_cloud": {
+    "llama-cpp": {
+      "name": "llama.cpp",
+      "base_url": "http://localhost:9090/v1/",
+      "type": "openai-compat",
+      "models": [
+        {
+          "name": "Qwen3.6 35B A3B",
+          "id": "qwen36-35b-a3b",
+          "context_window": 122880,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        }
+      ]
+    },
+    "vllm": {
+      "name": "vLLM",
+      "base_url": "http://localhost:8000/v1/",
+      "api_key": "$VLLM_API_KEY",
+      "type": "openai-compat",
+      "models": [
+        {
+          "name": "Qwen3.6 35B A3B",
+          "id": "qwen3.6-35b-a3b",
+          "context_window": 43008,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        },
+        {
+          "name": "Qwen3.6 27B",
+          "id": "qwen3.6-27b",
+          "context_window": 43008,
+          "default_max_tokens": 4096,
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0
+        }
+      ]
+    },
+    "vllm_cloud": {
       "name": "vLLM Cloud",
       "base_url": "http://35.212.158.193:8000/v1/",
       "type": "openai-compat",
@@ -82,13 +90,13 @@
     },
     "openai": {
       "models": [
-        { 
+        {
           "name": "GPT-5.1 Codex Mini",
           "id": "gpt-5.1-codex-mini",
           "context_window": 98304,
           "default_max_tokens": 1024
         },
-        { 
+        {
           "name": "GPT-5.2 Codex",
           "id": "gpt-5.2-codex",
           "context_window": 98304,
@@ -97,36 +105,36 @@
       ]
     }
   },
-	"mcp": {
-		"codex": {
-			"type": "stdio",
-			"command": "codex",
-			"args": [
-				"mcp-server",
+  "mcp": {
+    "codex": {
+      "type": "stdio",
+      "command": "codex",
+      "args": [
+        "mcp-server",
         "-c",
         "sandbox_mode=workspace-write",
         "-c",
         "shell_environment_policy.inherit=all"
-			]
-		}
-	},
-	"permissions": {
-		"allowed_tools": [
+      ]
+    }
+  },
+  "permissions": {
+    "allowed_tools": [
       "agent",
-			"agentic_fetch",
-			"download",
-			"fetch",
-			"glob",
-			"grep",
+      "agentic_fetch",
+      "download",
+      "fetch",
+      "glob",
+      "grep",
       "job_output",
       "list_mcp_resources",
-			"ls",
-			"lsp_diagnostics",
-			"lsp_references",
-			"lsp_restart",
+      "ls",
+      "lsp_diagnostics",
+      "lsp_references",
+      "lsp_restart",
       "read_mcp_resource",
-			"sourcegraph",
-			"view"
-		]
-	}
+      "sourcegraph",
+      "view"
+    ]
+  }
 }
