@@ -36,7 +36,7 @@ with open(path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 if not isinstance(data, dict):
     raise SystemExit(f'{path} must contain a JSON object')
-data['fallbackProvider'] = 'vllm'
+data['fallbackProvider'] = 'local-vllm'
 data['fallbackModelId'] = model_id
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
