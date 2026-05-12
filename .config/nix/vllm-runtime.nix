@@ -37,11 +37,7 @@ let
     pname = "vllm-wheelhouse";
     version = "0.20.1-cu130";
 
-    nativeBuildInputs = with pkgs; [
-      cacert
-      uv
-      python
-    ];
+    nativeBuildInputs = with pkgs; [ cacert python ];
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
@@ -49,15 +45,8 @@ let
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
-      export UV_CACHE_DIR="$TMPDIR/uv-cache"
-      mkdir -p "$HOME" "$UV_CACHE_DIR" "$out"
-
-      uv pip download \
-        --python ${python}/bin/python3.12 \
-        --torch-backend cu130 \
-        --exclude-newer 2026-05-08T23:59:59Z \
-        --dest "$out" \
-        ${pkgs.lib.escapeShellArgs allPythonPackages}
+      mkdir -p "$HOME" "$out"
+      ${python}/bin/python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ${pkgs.lib.escapeShellArgs allPythonPackages}
     '';
   };
 
@@ -76,22 +65,14 @@ pkgs.stdenvNoCC.mkDerivation {
   pname = "vllm-runtime";
   version = "0.20.1-cu130";
 
-  nativeBuildInputs = with pkgs; [
-    makeWrapper
-    python
-  ];
+  nativeBuildInputs = with pkgs; [ makeWrapper python ];
 
   dontUnpack = true;
 
   installPhase = ''
     mkdir -p "$out"
     ${python}/bin/python3.12 -m venv "$out"
-    "$out/bin/python" -m pip install \
-      --no-index \
-      --find-links ${wheelhouse} \
-      ${pkgs.lib.escapeShellArgs allPythonPackages}
-
-    wrapProgram "$out/bin/vllm" \
-      --prefix PATH : ${runtimePath}
+    "$out/bin/python" -m pip install --no-index --find-links ${wheelhouse} ${pkgs.lib.escapeShellArgs allPythonPackages}
+    wrapProgram "$out/bin/vllm" --prefix PATH : ${runtimePath}
   '';
 }
