@@ -13,6 +13,12 @@ let
   };
 
   python = pkgs.python312;
+  pythonWithPip = python.withPackages (ps: with ps; [
+    pip
+    setuptools
+    wheel
+    packaging
+  ]);
 
   pythonBootstrapTools = [
     "pip==26.1.1"
@@ -37,7 +43,7 @@ let
     pname = "vllm-wheelhouse";
     version = "0.20.1-cu130";
 
-    nativeBuildInputs = with pkgs; [ cacert python ];
+    nativeBuildInputs = with pkgs; [ cacert pythonWithPip ];
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
@@ -46,7 +52,7 @@ let
     buildCommand = ''
       export HOME="$TMPDIR/home"
       mkdir -p "$HOME" "$out"
-      ${python}/bin/python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ${pkgs.lib.escapeShellArgs allPythonPackages}
+      ${pythonWithPip}/bin/python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ${pkgs.lib.escapeShellArgs allPythonPackages}
     '';
   };
 
@@ -65,13 +71,13 @@ pkgs.stdenvNoCC.mkDerivation {
   pname = "vllm-runtime";
   version = "0.20.1-cu130";
 
-  nativeBuildInputs = with pkgs; [ makeWrapper python ];
+  nativeBuildInputs = with pkgs; [ makeWrapper pythonWithPip ];
 
   dontUnpack = true;
 
   installPhase = ''
     mkdir -p "$out"
-    ${python}/bin/python3.12 -m venv "$out"
+    ${pythonWithPip}/bin/python3.12 -m venv "$out"
     "$out/bin/python" -m pip install --no-index --find-links ${wheelhouse} ${pkgs.lib.escapeShellArgs allPythonPackages}
     wrapProgram "$out/bin/vllm" --prefix PATH : ${runtimePath}
   '';
