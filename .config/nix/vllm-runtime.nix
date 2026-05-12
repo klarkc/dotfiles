@@ -73,11 +73,12 @@ pkgs.stdenvNoCC.mkDerivation {
   dontUnpack = true;
 
   installPhase = ''
-    mkdir -p "$out"
+    mkdir -p "$out" "$out/nix-support"
     ${pythonWithPip}/bin/python3.12 -m venv "$out"
     "$out/bin/python" -m pip install --no-index --find-links ${wheelhouse} ${pkgs.lib.escapeShellArgs allPythonPackages}
     site_packages="$out/lib/python3.12/site-packages"
-    wheel_library_path="$runtimeLibraryPath:$site_packages:$site_packages/Pillow.libs"
+    wheel_library_path="${runtimeLibraryPath}:$site_packages:$site_packages/Pillow.libs"
+    printf '%s\n' "$wheel_library_path" > "$out/nix-support/ld-library-path"
     wrapProgram "$out/bin/vllm" \
       --prefix PATH : ${runtimePath} \
       --prefix LD_LIBRARY_PATH : "$wheel_library_path"
