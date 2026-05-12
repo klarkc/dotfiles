@@ -1,5 +1,5 @@
 [Unit]
-Description=llama.cpp server via Nix CUDA derivation
+Description=llama.cpp server via pure Nix CUDA derivation
 After=default.target
 
 [Service]
@@ -8,18 +8,27 @@ Type=simple
 Environment=PORT=9090
 Environment=MODEL=YTan2000/Qwen3.6-35B-A3B-TQ3_4S
 Environment=SERVED_MODEL_NAME=qwen3.6-35b-a3b
-Environment=NIXPKGS_ALLOW_UNFREE=1
 Environment=GGML_CUDA_DISABLE_GRAPHS=1
+Environment=LLAMA_NIX_CONFIG=%h/.config/nix/llama-cpp-tq3.nix
+Environment=LLAMA_RUNTIME_DIR=%C/llama-cpp
 
 UnsetEnvironment=LLAMA_ARG_HOST
 UnsetEnvironment=LD_LIBRARY_PATH
 
-ExecStart=/usr/bin/env bash -lc 'set -euo pipefail; NIX=/nix/var/nix/profiles/default/bin/nix; OUT="$($NIX --extra-experimental-features nix-command --extra-experimental-features flakes build --impure --no-link --print-out-paths --expr '\''let pkgs = import <nixpkgs> { config.allowUnfree = true; }; stdenv = if pkgs.cudaPackages ? backendStdenv then pkgs.cudaPackages.backendStdenv else pkgs.stdenv; src = builtins.fetchGit { url = "https://github.com/turbo-tan/llama.cpp-tq3"; }; in stdenv.mkDerivation { pname = "llama-cpp-tq3-cuda-kvunified"; version = "git"; inherit src; nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config pkgs.cudaPackages.cuda_nvcc ]; buildInputs = [ pkgs.cudaPackages.cuda_cudart pkgs.cudaPackages.cuda_cccl pkgs.cudaPackages.libcublas pkgs.curl pkgs.zlib pkgs.openssl pkgs.brotli pkgs.zstd pkgs.nghttp2 pkgs.libssh2 ]; cmakeFlags = [ "-DGGML_CUDA=ON" "-DGGML_CUDA_GRAPHS=OFF" "-DCMAKE_CUDA_ARCHITECTURES=86" "-DCMAKE_BUILD_TYPE=Release" "-DLLAMA_BUILD_TESTS=OFF" ]; meta = { mainProgram = "llama-server"; }; }'\'')"; CUDA_DRIVER_DIR=""; for d in /run/opengl-driver/lib /run/nvidia-driver/lib /usr/lib /usr/lib64 /usr/lib/nvidia /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu/nvidia/current; do if [ -e "$d/libcuda.so.1" ]; then CUDA_DRIVER_DIR="$d"; break; fi; done; if [ -z "$CUDA_DRIVER_DIR" ]; then echo "ERROR: libcuda.so.1 not found in common driver paths"; find /run /usr/lib /usr/lib64 -maxdepth 5 -name "libcuda.so.1" 2>/dev/null | head -50 || true; exit 1; fi; export LD_LIBRARY_PATH="$CUDA_DRIVER_DIR"; export GGML_CUDA_DISABLE_GRAPHS=1; echo "Using llama-server: $OUT/bin/llama-server"; echo "Using CUDA driver lib: $CUDA_DRIVER_DIR/libcuda.so.1"; echo "GGML_CUDA_DISABLE_GRAPHS=$GGML_CUDA_DISABLE_GRAPHS"; exec "$OUT/bin/llama-server" --host 0.0.0.0 --port "$PORT" --alias "$SERVED_MODEL_NAME" -hf "$MODEL" -c 98304 -np 2 -ngl 99 -ncmoe 32 -b 1024 -ub 128 -t 12 -fa on -ctk tq3_0 -ctv tq3_0 --kv-unified --jinja --no-mmproj --cache-ram 2048'
+RuntimeDirectory=llama-cpp
+RuntimeDirectoryMode=0700
+CacheDirectory=llama-cpp
+CacheDirectoryMode=0700
+
+ExecStart=/usr/bin/env bash -lc 'set -euo pipefail; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; runtime="$LLAMA_RUNTIME_DIR"; export XDG_CACHE_HOME="$runtime/xdg-cache"; mkdir -p "$runtime" "$XDG_CACHE_HOME"; OUT="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "$LLAMA_NIX_CONFIG")"; CUDA_DRIVER_DIR=""; for d in /run/opengl-driver/lib /run/nvidia-driver/lib /usr/lib /usr/lib64 /usr/lib/nvidia /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu/nvidia/current; do if [ -e "$d/libcuda.so.1" ]; then CUDA_DRIVER_DIR="$d"; break; fi; done; if [ -z "$CUDA_DRIVER_DIR" ]; then echo "ERROR: libcuda.so.1 not found in common driver paths"; find /run /usr/lib /usr/lib64 -maxdepth 5 -name "libcuda.so.1" 2>/dev/null | head -50 || true; exit 1; fi; export LD_LIBRARY_PATH="$CUDA_DRIVER_DIR"; export GGML_CUDA_DISABLE_GRAPHS=1; echo "Using llama-server: $OUT/bin/llama-server"; echo "Using CUDA driver lib: $CUDA_DRIVER_DIR/libcuda.so.1"; echo "GGML_CUDA_DISABLE_GRAPHS=$GGML_CUDA_DISABLE_GRAPHS"; exec "$OUT/bin/llama-server" --host 0.0.0.0 --port "$PORT" --alias "$SERVED_MODEL_NAME" -hf "$MODEL" -c 98304 -np 2 -ngl 99 -ncmoe 32 -b 1024 -ub 128 -t 12 -fa on -ctk tq3_0 -ctv tq3_0 --kv-unified --jinja --no-mmproj --cache-ram 2048'
 
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=0
 TimeoutStopSec=30
+
+ReadOnlyPaths=%h/.config/nix/llama-cpp-tq3.nix
+ReadWritePaths=%C/llama-cpp %t/llama-cpp
 
 [Install]
 WantedBy=default.target
