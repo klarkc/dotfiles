@@ -74,6 +74,10 @@ import os
 import sys
 
 path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
+context_window = int(context_window)
+max_tokens = int(max_tokens)
+max_num_seqs = int(max_num_seqs)
+
 model_entries = {
     'qwen3.6-35b-a3b': {
         'name': 'Qwen3.6 35B A3B',
@@ -81,12 +85,19 @@ model_entries = {
         'model': 'qwen3.6-35b-a3b',
         'provider': 'vllm',
         'base_url': base_url,
-        'context_window': int(context_window),
-        'max_context_tokens': int(context_window),
-        'default_max_tokens': int(max_tokens),
-        'max_tokens': int(max_tokens),
-        'max_concurrent': int(max_num_seqs),
-        'parallel_requests': int(max_num_seqs),
+        'baseUrl': base_url,
+        'context_window': context_window,
+        'contextWindow': context_window,
+        'max_context_tokens': context_window,
+        'maxContextTokens': context_window,
+        'default_max_tokens': max_tokens,
+        'defaultMaxTokens': max_tokens,
+        'max_tokens': max_tokens,
+        'maxTokens': max_tokens,
+        'max_concurrent': max_num_seqs,
+        'maxConcurrent': max_num_seqs,
+        'parallel_requests': max_num_seqs,
+        'parallelRequests': max_num_seqs,
     },
     'qwen3.6-27b': {
         'name': 'Qwen3.6 27B',
@@ -94,56 +105,76 @@ model_entries = {
         'model': 'qwen3.6-27b',
         'provider': 'vllm',
         'base_url': base_url,
-        'context_window': int(context_window),
-        'max_context_tokens': int(context_window),
-        'default_max_tokens': int(max_tokens),
-        'max_tokens': int(max_tokens),
-        'max_concurrent': int(max_num_seqs),
-        'parallel_requests': int(max_num_seqs),
+        'baseUrl': base_url,
+        'context_window': context_window,
+        'contextWindow': context_window,
+        'max_context_tokens': context_window,
+        'maxContextTokens': context_window,
+        'default_max_tokens': max_tokens,
+        'defaultMaxTokens': max_tokens,
+        'max_tokens': max_tokens,
+        'maxTokens': max_tokens,
+        'max_concurrent': max_num_seqs,
+        'maxConcurrent': max_num_seqs,
+        'parallel_requests': max_num_seqs,
+        'parallelRequests': max_num_seqs,
     },
 }
+
 try:
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 except json.JSONDecodeError:
     data = {}
 
-if isinstance(data, list):
-    by_id = {}
-    for item in data:
-        if isinstance(item, dict):
-            key = item.get('id') or item.get('model') or item.get('name')
-            if key:
-                by_id[key] = item
-    for key, entry in model_entries.items():
-        current = by_id.get(key, {})
-        current.update(entry)
-        by_id[key] = current
-    data = list(by_id.values())
-elif isinstance(data, dict):
-    if isinstance(data.get('models'), list):
-        by_id = {}
-        for item in data['models']:
-            if isinstance(item, dict):
-                key = item.get('id') or item.get('model') or item.get('name')
-                if key:
-                    by_id[key] = item
+
+def key_for(item):
+    if not isinstance(item, dict):
+        return None
+    for field in ('id', 'model', 'modelId', 'name'):
+        value = item.get(field)
+        if value in model_entries:
+            return value
+    return None
+
+
+def patch_existing(obj):
+    changed = False
+    if isinstance(obj, dict):
+        key = key_for(obj)
+        if key:
+            obj.update(model_entries[key])
+            changed = True
+        for value in obj.values():
+            if isinstance(value, (dict, list)):
+                changed = patch_existing(value) or changed
+    elif isinstance(obj, list):
+        for value in obj:
+            if isinstance(value, (dict, list)):
+                changed = patch_existing(value) or changed
+    return changed
+
+patch_existing(data)
+
+if isinstance(data, dict):
+    models = data.setdefault('models', {})
+    if isinstance(models, dict):
         for key, entry in model_entries.items():
-            current = by_id.get(key, {})
+            current = models.get(key, {})
+            if not isinstance(current, dict):
+                current = {}
             current.update(entry)
-            by_id[key] = current
-        data['models'] = list(by_id.values())
-    else:
-        models = data.setdefault('models', {})
-        if isinstance(models, dict):
-            for key, entry in model_entries.items():
-                current = models.get(key, {})
-                if not isinstance(current, dict):
-                    current = {}
-                current.update(entry)
-                models[key] = current
-        else:
-            data['models'] = model_entries
+            models[key] = current
+    elif isinstance(models, list):
+        seen = {key_for(item) for item in models if isinstance(item, dict)}
+        for key, entry in model_entries.items():
+            if key not in seen:
+                models.append(entry)
+elif isinstance(data, list):
+    seen = {key_for(item) for item in data if isinstance(item, dict)}
+    for key, entry in model_entries.items():
+        if key not in seen:
+            data.append(entry)
 else:
     data = {'models': model_entries}
 
