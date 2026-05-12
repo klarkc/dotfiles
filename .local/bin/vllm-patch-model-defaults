@@ -3,23 +3,30 @@ set -euo pipefail
 
 model_id="${SERVED_MODEL_NAME:?SERVED_MODEL_NAME is required}"
 model_name="${DISPLAY_MODEL_NAME:-$model_id}"
-context_window="${MAX_MODEL_LEN:-49152}"
+raw_context_window="${MAX_MODEL_LEN:-49152}"
 max_tokens="${DEFAULT_MAX_TOKENS:-4096}"
+max_num_seqs="${MAX_NUM_SEQS:-2}"
 port="${PORT:-8000}"
 base_url="http://localhost:${port}/v1/"
+client_context_window="$(( (raw_context_window - max_tokens) * 70 / 100 ))"
+if [ "$client_context_window" -lt 1024 ]; then
+  client_context_window=1024
+fi
 
-mkdir -p "$HOME/.fusion"
+mkdir -p "$HOME/.fusion" "$HOME/.pi/agent"
 cat > "$HOME/.fusion/vllm-defaults.env" <<EOF
 VLLM_BASE_URL=$base_url
 VLLM_MODEL=$model_id
 VLLM_MODEL_NAME=$model_name
-VLLM_CONTEXT_WINDOW=$context_window
-VLLM_MAX_NUM_SEQS=${MAX_NUM_SEQS:-2}
+VLLM_RAW_CONTEXT_WINDOW=$raw_context_window
+VLLM_CONTEXT_WINDOW=$client_context_window
+VLLM_MAX_TOKENS=$max_tokens
+VLLM_MAX_NUM_SEQS=$max_num_seqs
 EOF
 
 crush_config="$HOME/.config/crush/crush.json"
 if [ -f "$crush_config" ]; then
-  python3 - "$crush_config" "$context_window" "$max_tokens" "$base_url" <<'PY'
+  python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url" <<'PY'
 import json
 import os
 import sys
@@ -59,48 +66,93 @@ os.replace(tmp, path)
 PY
 fi
 
-pi_config="$HOME/.zeroclaw/config.toml"
-if [ -f "$pi_config" ]; then
-  python3 - "$pi_config" "$model_id" "$base_url" "$context_window" <<'PY'
+pi_models="$HOME/.pi/agent/models.json"
+if [ -f "$pi_models" ]; then
+  python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" <<'PY'
+import json
 import os
-import re
 import sys
 
-path, model_id, base_url, context_window = sys.argv[1:]
-with open(path, 'r', encoding='utf-8') as f:
-    text = f.read()
-updates = {
-    r'^api_url\s*=.*$': f'api_url = "{base_url.rstrip("/")}"',
-    r'^default_provider\s*=.*$': 'default_provider = "vllm"',
-    r'^default_model\s*=.*$': f'default_model = "{model_id}"',
-    r'^max_context_tokens\s*=.*$': f'max_context_tokens = {context_window}',
-    r'^max_concurrent\s*=.*$': 'max_concurrent = 2',
+path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
+model_entries = {
+    'qwen3.6-35b-a3b': {
+        'name': 'Qwen3.6 35B A3B',
+        'id': 'qwen3.6-35b-a3b',
+        'model': 'qwen3.6-35b-a3b',
+        'provider': 'vllm',
+        'base_url': base_url,
+        'context_window': int(context_window),
+        'max_context_tokens': int(context_window),
+        'default_max_tokens': int(max_tokens),
+        'max_tokens': int(max_tokens),
+        'max_concurrent': int(max_num_seqs),
+        'parallel_requests': int(max_num_seqs),
+    },
+    'qwen3.6-27b': {
+        'name': 'Qwen3.6 27B',
+        'id': 'qwen3.6-27b',
+        'model': 'qwen3.6-27b',
+        'provider': 'vllm',
+        'base_url': base_url,
+        'context_window': int(context_window),
+        'max_context_tokens': int(context_window),
+        'default_max_tokens': int(max_tokens),
+        'max_tokens': int(max_tokens),
+        'max_concurrent': int(max_num_seqs),
+        'parallel_requests': int(max_num_seqs),
+    },
 }
-for pattern, replacement in updates.items():
-    text, n = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
-    if n == 0:
-        text += f'\n{replacement}\n'
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except json.JSONDecodeError:
+    data = {}
 
-def ensure_model_entry(text, model_id, model_name):
-    marker = f'[[models]]\nid = "{model_id}"'
-    if marker in text:
-        text = re.sub(
-            rf'(\[\[models\]\]\nid = "{re.escape(model_id)}".*?)(?=\n\[\[models\]\]|\Z)',
-            f'[[models]]\nid = "{model_id}"\nname = "{model_name}"\nprovider = "vllm"\ncontext_window = {context_window}\nmax_concurrent = 2\n',
-            text,
-            flags=re.DOTALL,
-        )
+if isinstance(data, list):
+    by_id = {}
+    for item in data:
+        if isinstance(item, dict):
+            key = item.get('id') or item.get('model') or item.get('name')
+            if key:
+                by_id[key] = item
+    for key, entry in model_entries.items():
+        current = by_id.get(key, {})
+        current.update(entry)
+        by_id[key] = current
+    data = list(by_id.values())
+elif isinstance(data, dict):
+    if isinstance(data.get('models'), list):
+        by_id = {}
+        for item in data['models']:
+            if isinstance(item, dict):
+                key = item.get('id') or item.get('model') or item.get('name')
+                if key:
+                    by_id[key] = item
+        for key, entry in model_entries.items():
+            current = by_id.get(key, {})
+            current.update(entry)
+            by_id[key] = current
+        data['models'] = list(by_id.values())
     else:
-        text += f'\n[[models]]\nid = "{model_id}"\nname = "{model_name}"\nprovider = "vllm"\ncontext_window = {context_window}\nmax_concurrent = 2\n'
-    return text
+        models = data.setdefault('models', {})
+        if isinstance(models, dict):
+            for key, entry in model_entries.items():
+                current = models.get(key, {})
+                if not isinstance(current, dict):
+                    current = {}
+                current.update(entry)
+                models[key] = current
+        else:
+            data['models'] = model_entries
+else:
+    data = {'models': model_entries}
 
-text = ensure_model_entry(text, 'qwen3.6-35b-a3b', 'Qwen3.6 35B A3B')
-text = ensure_model_entry(text, 'qwen3.6-27b', 'Qwen3.6 27B')
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
-    f.write(text)
+    json.dump(data, f, indent=2)
+    f.write('\n')
 os.replace(tmp, path)
 PY
 fi
 
-echo "Selected vLLM model defaults: $model_id, context=$context_window, max_num_seqs=${MAX_NUM_SEQS:-2}"
+echo "Selected vLLM model defaults: $model_id, raw_context=$raw_context_window, client_context=$client_context_window, max_tokens=$max_tokens, max_num_seqs=$max_num_seqs"
