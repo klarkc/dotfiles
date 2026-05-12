@@ -51,17 +51,14 @@ done
 site="$(find "$runtime/lib" -type d -name site-packages -print 2>/dev/null | head -n 1 || true)"
 [ -n "$site" ] || { echo "ERROR: site-packages not found under $runtime" >&2; exit 1; }
 ld="$driver_dir"
+if [ -r "$runtime/nix-support/ld-library-path" ]; then
+  runtime_ld="$(cat "$runtime/nix-support/ld-library-path")"
+  [ -z "$runtime_ld" ] || ld="$runtime_ld:$ld"
+fi
 [ ! -d "$site/torch/lib" ] || ld="$site/torch/lib:$ld"
-[ ! -d "$site/Pillow.libs" ] || ld="$site/Pillow.libs:$ld"
-[ ! -d "$site/PIL" ] || ld="$site/PIL:$ld"
-[ ! -d "$site" ] || ld="$site:$ld"
 if [ -d "$site/nvidia" ]; then
   nvidia_libs="$(find "$site/nvidia" -type d -name lib -print 2>/dev/null | paste -sd: - || true)"
   [ -z "$nvidia_libs" ] || ld="$nvidia_libs:$ld"
-fi
-if [ -d "$runtime/nix-support" ]; then
-  nix_runtime_libs="$(find "$runtime" -path '*/lib/libstdc++.so.6' -printf '%h\n' 2>/dev/null | paste -sd: - || true)"
-  [ -z "$nix_runtime_libs" ] || ld="$nix_runtime_libs:$ld"
 fi
 export LD_LIBRARY_PATH="$ld:${LD_LIBRARY_PATH:-}"
 
