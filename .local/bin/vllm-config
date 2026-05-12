@@ -47,33 +47,30 @@ case "$pick" in
   *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
 esac
 
-selected_service="vllm@${pick}.service"
-selected_alias="vllm-selected.service"
-other_services=()
+selected_target="vllm-${pick}.target"
+all_targets=()
+all_services=()
 for item in "${choices[@]}"; do
   key="${item%%:*}"
-  if [ "$key" != "$pick" ]; then
-    other_services+=("vllm@${key}.service")
-  fi
+  all_targets+=("vllm-${key}.target")
+  all_services+=("vllm@${key}.service")
 done
 
-mkdir -p "$HOME/.config/systemd/user"
-ln -sfn "$selected_service" "$HOME/.config/systemd/user/$selected_alias"
+printf 'Stopping Fusion and vLLM units through systemd...\n'
+systemctl --user stop fusion.service "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
-printf 'Stopping non-selected vLLM services: %s\n' "${other_services[*]}"
-systemctl --user stop "${other_services[@]}" 2>/dev/null || true
-
-printf 'Selected %s -> %s\n' "$selected_alias" "$selected_service"
+printf 'Starting selected target: %s\n' "$selected_target"
 systemctl --user daemon-reload
-systemctl --user reset-failed "$selected_alias" "$selected_service" fusion.service || true
-systemctl --user restart "$selected_alias" fusion.service
+systemctl --user reset-failed fusion.service "$selected_target" "${all_services[@]}" 2>/dev/null || true
+systemctl --user start "$selected_target"
 
 echo
-systemctl --user --no-pager -l status "$selected_alias" fusion.service || true
+systemctl --user --no-pager -l status "$selected_target" fusion.service || true
 cat <<EOF
 
-Systemd owns readiness and ordering. Fusion is ordered after $selected_alias.
+Systemd owns the orchestration. The selected target starts one vLLM service and Fusion.
 Watch progress with:
-  journalctl --user-unit $selected_alias -f
+  journalctl --user-unit $selected_target -f
+  journalctl --user-unit vllm@${pick}.service -f
   journalctl --user-unit fusion.service -f
 EOF
