@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+host="${HOST:-127.0.0.1}"
+port="${PORT:-8000}"
+model="${SERVED_MODEL_NAME:-}"
+api_key="${VLLM_API_KEY:-}"
+deadline_seconds="${VLLM_READY_TIMEOUT_SECONDS:-1800}"
+base_url="http://${host}:${port}/v1"
+
+if [ "$host" = "0.0.0.0" ]; then
+  base_url="http://127.0.0.1:${port}/v1"
+fi
+
+headers=(-H "accept: application/json")
+if [ -n "$api_key" ]; then
+  headers+=(-H "authorization: Bearer $api_key")
+fi
+
+start_ts="$(date +%s)"
+while true; do
+  body="$(curl -fsS "${headers[@]}" "$base_url/models" 2>/dev/null || true)"
+  if [ -n "$body" ]; then
+    if [ -z "$model" ] || printf '%s' "$body" | grep -Fq "$model"; then
+      echo "vLLM is ready at $base_url/models for ${model:-any model}"
+      exit 0
+    fi
+  fi
+
+  now_ts="$(date +%s)"
+  if [ $((now_ts - start_ts)) -ge "$deadline_seconds" ]; then
+    echo "Timed out waiting for vLLM readiness at $base_url/models for ${model:-any model}" >&2
+    exit 1
+  fi
+
+  sleep 2
+done
