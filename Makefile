@@ -1,7 +1,7 @@
 ICONS=.icons
 
 .PHONY: all
-all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config fusion.Install fusion.AttachHelper fusion.BackupHelper fusion.SshConfig
+all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config fusion.AttachHelper fusion.BackupHelper fusion.SshConfig
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -39,7 +39,7 @@ $(ICONS)/Papirus/clean:
 .vim/autoload/plug.vim:
 	curl -fLo .vim/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
 
-.tmux/plugins/tpm: 
+.tmux/plugins/tpm:
 	git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
 
 .PHONY: tmux.TpmInstall
@@ -60,10 +60,6 @@ git.Config:
 .PHONY: npm.Config
 npm.Config:
 	npm config set prefix "${HOME}/.npm-packages"
-
-.PHONY: fusion.Install
-fusion.Install: npm.Config
-	npm install -g @runfusion/fusion node-pty @tobilu/qmd dockerode send
 
 .PHONY: fusion.AttachHelper
 fusion.AttachHelper:
@@ -91,5 +87,5 @@ nix.Profile:
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
-	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm 
+	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm
 	rm .local/share/applications/xmonad.desktop
