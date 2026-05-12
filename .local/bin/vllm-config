@@ -57,6 +57,7 @@ for item in "${choices[@]}"; do
   all_services+=("vllm@${key}.service")
 done
 
+since="$(date --iso-8601=seconds)"
 printf 'Stopping Fusion and vLLM units through systemd...\n'
 systemctl --user stop fusion.service "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
@@ -70,19 +71,12 @@ systemctl --user --no-pager -l status "$selected_target" "$selected_service" fus
 
 cat <<EOF
 
---- Recent logs: $selected_service ---
+--- Current logs since $since: $selected_service + fusion.service ---
 EOF
-journalctl --user-unit "$selected_service" -n 80 --no-pager -o short-iso || true
+journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 40 --no-pager -o short-iso || true
 
 cat <<EOF
 
---- Recent logs: fusion.service ---
+--- Following new logs: $selected_service + fusion.service ---
 EOF
-journalctl --user-unit fusion.service -n 80 --no-pager -o short-iso || true
-
-cat <<EOF
-
---- Following logs: $selected_service + fusion.service ---
-Press Ctrl-C to stop watching logs. Systemd will continue running the selected target.
-EOF
-exec journalctl --user-unit "$selected_service" --user-unit fusion.service -f -o short-iso
+exec journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 0 -f -o short-iso
