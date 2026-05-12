@@ -40,7 +40,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = pkgs.lib.fakeHash;
+    outputHash = "sha256-9NCRzlIrDFaZr6lLz/1KoWzapG2+0ff0TBtRPRPkDos=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
