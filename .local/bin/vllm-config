@@ -63,7 +63,7 @@ systemctl --user stop fusion.service "${all_targets[@]}" "${all_services[@]}" 2>
 printf 'Starting selected target: %s\n' "$selected_target"
 systemctl --user daemon-reload
 systemctl --user reset-failed fusion.service "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
-systemctl --user start "$selected_target"
+systemctl --user start --no-block "$selected_target"
 
 echo
 systemctl --user --no-pager -l status "$selected_target" "$selected_service" fusion.service || true
