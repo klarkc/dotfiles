@@ -20,13 +20,6 @@ let
     packaging
   ]);
 
-  pythonBootstrapTools = [
-    "pip==26.1.1"
-    "wheel==0.47.0"
-    "setuptools==82.0.1"
-    "packaging==26.2"
-  ];
-
   pytorchPackages = [
     "torch==2.11.0+cu130"
     "torchvision==0.26.0+cu130"
@@ -37,7 +30,7 @@ let
     "vllm==0.20.1"
   ];
 
-  allPythonPackages = pythonBootstrapTools ++ pytorchPackages ++ vllmPackages;
+  allPythonPackages = pytorchPackages ++ vllmPackages;
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
     pname = "vllm-wheelhouse";
