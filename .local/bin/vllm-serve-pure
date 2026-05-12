@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+find_nix() {
+  for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do
+    [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+  done
+  echo "nix executable not found" >&2
+  return 127
+}
+
+nix_bin="$(find_nix)"
+cache="${VLLM_RUNTIME_DIR:?VLLM_RUNTIME_DIR is required}"
+export XDG_CACHE_HOME="$cache/xdg-cache"
+mkdir -p "$cache" "$XDG_CACHE_HOME"
+
+runtime="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "${VLLM_NIX_CONFIG:?VLLM_NIX_CONFIG is required}")"
+
+if [ -r "$HOME/.profile" ]; then
+  set -a
+  . "$HOME/.profile"
+  [ ! -r "$HOME/.profile_override" ] || . "$HOME/.profile_override"
+  set +a
+fi
+
+export HF_TOKEN="${HF_TOKEN:-${HF_HUB_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}}"
+export HF_HUB_TOKEN="${HF_HUB_TOKEN:-${HF_TOKEN:-}}"
+export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-LAZY}"
+export VLLM_USE_V1=1
+export VLLM_SLEEP_WHEN_IDLE=1
+export VLLM_MARLIN_USE_ATOMIC_ADD="${VLLM_MARLIN_USE_ATOMIC_ADD:-1}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-true}"
+
+cuda_dir=""
+for d in /run/opengl-driver/lib /run/nvidia-driver/lib /usr/lib/x86_64-linux-gnu/nvidia/current /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /usr/lib/nvidia; do
+  [ -e "$d/libcuda.so.1" ] && { cuda_dir="$d"; break; }
+done
+[ -n "$cuda_dir" ] || { echo "ERROR: libcuda.so.1 not found" >&2; exit 1; }
+
+driver_dir="$cache/driver-libs"
+rm -rf "$driver_dir"
+mkdir -p "$driver_dir"
+for f in "$cuda_dir"/libcuda.so* "$cuda_dir"/libnvidia-*.so*; do
+  [ -e "$f" ] && ln -sfn "$(readlink -f "$f")" "$driver_dir/$(basename "$f")"
+done
+[ -e "$driver_dir/libcuda.so" ] || ln -sfn libcuda.so.1 "$driver_dir/libcuda.so"
+
+site="$(find "$runtime/lib" -type d -name site-packages -print 2>/dev/null | head -n 1 || true)"
+[ -n "$site" ] || { echo "ERROR: site-packages not found under $runtime" >&2; exit 1; }
+ld="$driver_dir"
+[ ! -d "$site/torch/lib" ] || ld="$site/torch/lib:$ld"
+if [ -d "$site/nvidia" ]; then
+  nvidia_libs="$(find "$site/nvidia" -type d -name lib -print 2>/dev/null | paste -sd: - || true)"
+  [ -z "$nvidia_libs" ] || ld="$nvidia_libs:$ld"
+fi
+export LD_LIBRARY_PATH="$ld:${LD_LIBRARY_PATH:-}"
+
+args=(
+  --served-model-name "$SERVED_MODEL_NAME"
+  --host "$HOST"
+  --port "$PORT"
+  --trust-remote-code
+  --dtype half
+  --max-model-len "$MAX_MODEL_LEN"
+  --max-num-seqs "$MAX_NUM_SEQS"
+  --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
+  --cpu-offload-gb "$CPU_OFFLOAD_GB"
+  --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS"
+  --max-num-partial-prefills "$MAX_NUM_PARTIAL_PREFILLS"
+  --renderer-num-workers "$RENDERER_NUM_WORKERS"
+  --mm-processor-cache-gb "$MM_PROCESSOR_CACHE_GB"
+  --stream-interval "$STREAM_INTERVAL"
+  --max-cudagraph-capture-size "$MAX_CUDAGRAPH_CAPTURE_SIZE"
+  --enable-chunked-prefill
+  --enable-prefix-caching
+  --async-scheduling
+  --language-model-only
+  --skip-mm-profiling
+  --reasoning-parser qwen3
+  --enable-auto-tool-choice
+  --tool-call-parser qwen3_coder
+  --disable-uvicorn-access-log
+)
+[ -z "${MODEL_REVISION:-}" ] || args+=(--revision "$MODEL_REVISION" --tokenizer-revision "$MODEL_REVISION" --code-revision "$MODEL_REVISION")
+[ -z "${VLLM_API_KEY:-}" ] || args+=(--api-key "$VLLM_API_KEY")
+[ -z "${SPECULATIVE_CONFIG_B64:-}" ] || args+=(--speculative-config "$(printf %s "$SPECULATIVE_CONFIG_B64" | base64 -d)")
+[ -z "${VLLM_EXTRA_ARGS:-}" ] || { read -r -a extra <<< "$VLLM_EXTRA_ARGS"; args+=("${extra[@]}"); }
+
+printf '%q ' "$runtime/bin/vllm" serve "$MODEL" "${args[@]}" > "$cache/runtime_command.sh"
+echo >> "$cache/runtime_command.sh"
+cat > "$cache/benchmark.env" <<EOF
+BASE_URL=http://127.0.0.1:$PORT/v1
+MODEL=$SERVED_MODEL_NAME
+VLLM_API_KEY=${VLLM_API_KEY:-}
+EOF
+
+echo "Runtime command: $cache/runtime_command.sh"
+echo "Benchmark metadata: $cache/benchmark.env"
+echo "Serving model: $MODEL as $SERVED_MODEL_NAME context=$MAX_MODEL_LEN seqs=$MAX_NUM_SEQS"
+exec "$runtime/bin/vllm" serve "$MODEL" "${args[@]}"
