@@ -96,7 +96,7 @@ make
 systemctl --user daemon-reload
 ```
 
-Fusion's systemd service uses `~/.fusion/ssh_config` for Git SSH operations. `make` generates this file by resolving `/etc/ssh/ssh_config.d` symlinks to their real targets, which avoids OpenSSH permission checks failing inside the sandboxed user service.
+Fusion's systemd service uses `~/.fusion/ssh_config` for Git SSH operations. Keep that file generated when OpenSSH configuration changes so sandboxed Fusion can read a stable SSH config.
 
 Install the pacman hook so this generated SSH config is refreshed after `openssh` or `systemd` package updates:
 
@@ -111,13 +111,68 @@ systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
-systemctl --user enable --now fusion.service
 systemctl --user enable --now fusion-backup.timer
 ```
 
+#### vLLM + Fusion
+
+The vLLM/Fusion workflow is target-based. Only one vLLM model target should run at a time:
+
+- `vllm-qwen3.6-35B-a3b.target` starts `vllm@qwen3.6-35B-a3b.service`
+- `vllm-qwen3.6-27B.target` starts `vllm@qwen3.6-27B.service`
+
+Each target also pulls in `fusion.service`. The selected `vllm@...service` patches local Crush/Fusion/Pi defaults, starts the model, and waits for `GET /v1/models` to respond before Fusion is allowed to start. Fusion is stopped and started during model switches so it rereads changed config files.
+
+Pick the model interactively:
+
+```bash
+vllm-config
+```
+
+Or switch directly:
+
+```bash
+vllm-config qwen3.6-35B-a3b
+vllm-config qwen3.6-27B
+```
+
+Watch startup progress:
+
+```bash
+journalctl --user-unit vllm-qwen3.6-35B-a3b.target -f
+journalctl --user-unit vllm@qwen3.6-35B-a3b.service -f
+journalctl --user-unit fusion.service -f
+```
+
+For the 27B target, replace `35B-a3b` with `27B` in the commands above.
+
+Both model configurations use at least 48k context and 2 parallel sequences. Benchmark commands should exercise both Crush-style short/medium requests and Fusion-style long-context requests:
+
+```bash
+# Short/medium interactive requests
+python -m vllm.benchmarks.benchmark_serving \
+  --backend openai-chat \
+  --base-url http://127.0.0.1:8000 \
+  --model qwen3.6-35b-a3b \
+  --num-prompts 32 \
+  --random-input-len 1024 \
+  --random-output-len 128
+
+# Long-context Fusion-style requests
+python -m vllm.benchmarks.benchmark_serving \
+  --backend openai-chat \
+  --base-url http://127.0.0.1:8000 \
+  --model qwen3.6-35b-a3b \
+  --num-prompts 8 \
+  --random-input-len 48000 \
+  --random-output-len 512
+```
+
+Use `--model qwen3.6-27b` after selecting the 27B target.
+
 #### Fusion
 
-Fusion is installed by `make` after the Nix profile provides Node.js and npm. The user service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
+Fusion is packaged by `.config/nix/fusion-npm.nix` and launched by the sandboxed user service. The service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
 
 Attach to the running Fusion TUI:
 
