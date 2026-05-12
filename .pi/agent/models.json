@@ -15,7 +15,7 @@
           "name": "Qwen3.6 35B A3B INT4 local",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 28672,
+          "contextWindow": 26624,
           "maxTokens": 4096,
           "cost": {
             "input": 0,
