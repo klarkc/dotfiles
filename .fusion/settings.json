@@ -52,6 +52,7 @@
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
   "persistAgentToolOutput": true,
+  "persistAgentThinkingLog": false,
   "researchGlobalDefaults": {
     "enabledSources": {
       "webSearch": true,
