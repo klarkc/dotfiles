@@ -3,7 +3,7 @@ set -euo pipefail
 
 choices=(
   "qwen3.6-35B-a3b:Qwen3.6 35B A3B"
-  "qwen3.6-27B:Qwen3.6 27B MTP"
+  "qwen3.6-27B:Qwen3.6 27B"
 )
 
 usage() {
@@ -48,6 +48,7 @@ case "$pick" in
 esac
 
 selected_target="vllm-${pick}.target"
+selected_service="vllm@${pick}.service"
 all_targets=()
 all_services=()
 for item in "${choices[@]}"; do
@@ -61,16 +62,27 @@ systemctl --user stop fusion.service "${all_targets[@]}" "${all_services[@]}" 2>
 
 printf 'Starting selected target: %s\n' "$selected_target"
 systemctl --user daemon-reload
-systemctl --user reset-failed fusion.service "$selected_target" "${all_services[@]}" 2>/dev/null || true
+systemctl --user reset-failed fusion.service "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
 systemctl --user start "$selected_target"
 
 echo
-systemctl --user --no-pager -l status "$selected_target" fusion.service || true
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" fusion.service || true
+
 cat <<EOF
 
-Systemd owns the orchestration. The selected target starts one vLLM service and Fusion.
-Watch progress with:
-  journalctl --user-unit $selected_target -f
-  journalctl --user-unit vllm@${pick}.service -f
-  journalctl --user-unit fusion.service -f
+--- Recent logs: $selected_service ---
 EOF
+journalctl --user-unit "$selected_service" -n 80 --no-pager -o short-iso || true
+
+cat <<EOF
+
+--- Recent logs: fusion.service ---
+EOF
+journalctl --user-unit fusion.service -n 80 --no-pager -o short-iso || true
+
+cat <<EOF
+
+--- Following logs: $selected_service + fusion.service ---
+Press Ctrl-C to stop watching logs. Systemd will continue running the selected target.
+EOF
+exec journalctl --user-unit "$selected_service" --user-unit fusion.service -f -o short-iso
