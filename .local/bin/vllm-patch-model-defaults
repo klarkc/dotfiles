@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+model_id="${SERVED_MODEL_NAME:?SERVED_MODEL_NAME is required}"
+model_name="${DISPLAY_MODEL_NAME:-$model_id}"
+context_window="${MAX_MODEL_LEN:-49152}"
+max_tokens="${DEFAULT_MAX_TOKENS:-4096}"
+port="${PORT:-8000}"
+base_url="http://localhost:${port}/v1/"
+
+mkdir -p "$HOME/.fusion"
+cat > "$HOME/.fusion/vllm-defaults.env" <<EOF
+VLLM_BASE_URL=$base_url
+VLLM_MODEL=$model_id
+VLLM_MODEL_NAME=$model_name
+VLLM_CONTEXT_WINDOW=$context_window
+VLLM_MAX_NUM_SEQS=${MAX_NUM_SEQS:-2}
+EOF
+
+crush_config="$HOME/.config/crush/crush.json"
+if [ -f "$crush_config" ]; then
+  python3 - "$crush_config" "$model_id" "$model_name" "$context_window" "$max_tokens" "$base_url" <<'PY'
+import json
+import os
+import sys
+
+path, model_id, model_name, context_window, max_tokens, base_url = sys.argv[1:]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+vllm = data.setdefault('providers', {}).setdefault('vllm', {})
+vllm['name'] = 'vLLM'
+vllm['base_url'] = base_url
+vllm['api_key'] = '$VLLM_API_KEY'
+vllm['type'] = 'openai-compat'
+vllm['models'] = [{
+    'name': model_name,
+    'id': model_id,
+    'context_window': int(context_window),
+    'default_max_tokens': int(max_tokens),
+    'cost_per_1m_in': 0,
+    'cost_per_1m_out': 0,
+}]
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+os.replace(tmp, path)
+PY
+fi
+
+pi_config="$HOME/.zeroclaw/config.toml"
+if [ -f "$pi_config" ]; then
+  python3 - "$pi_config" "$model_id" "$base_url" "$context_window" <<'PY'
+import os
+import re
+import sys
+
+path, model_id, base_url, context_window = sys.argv[1:]
+with open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+updates = {
+    r'^api_url\s*=.*$': f'api_url = "{base_url.rstrip("/")}"',
+    r'^default_provider\s*=.*$': 'default_provider = "vllm"',
+    r'^default_model\s*=.*$': f'default_model = "{model_id}"',
+    r'^max_context_tokens\s*=.*$': f'max_context_tokens = {context_window}',
+    r'^max_concurrent\s*=.*$': 'max_concurrent = 2',
+}
+for pattern, replacement in updates.items():
+    text, n = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+    if n == 0 and pattern.startswith('^max_context_tokens'):
+        text += f'\n[agent]\nmax_context_tokens = {context_window}\n'
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    f.write(text)
+os.replace(tmp, path)
+PY
+fi
+
+echo "Selected vLLM model defaults: $model_id, context=$context_window, max_num_seqs=${MAX_NUM_SEQS:-2}"
