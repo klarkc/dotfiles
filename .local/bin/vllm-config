@@ -79,4 +79,33 @@ cat <<EOF
 
 --- Following new logs: $selected_service + fusion.service ---
 EOF
-exec journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 0 -f -o short-iso
+journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 0 -f -o short-iso &
+journal_pid=$!
+
+while kill -0 "$journal_pid" 2>/dev/null; do
+  service_state="$(systemctl --user show "$selected_service" --property=ActiveState --value 2>/dev/null || true)"
+  service_result="$(systemctl --user show "$selected_service" --property=Result --value 2>/dev/null || true)"
+  target_state="$(systemctl --user show "$selected_target" --property=ActiveState --value 2>/dev/null || true)"
+  target_result="$(systemctl --user show "$selected_target" --property=Result --value 2>/dev/null || true)"
+
+  if [ "$service_state" = failed ] || { [ -n "$service_result" ] && [ "$service_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_service" fusion.service >&2 || true
+    exit 1
+  fi
+
+  if [ "$target_state" = failed ] || { [ -n "$target_result" ] && [ "$target_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" fusion.service >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
+wait "$journal_pid"
