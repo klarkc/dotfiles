@@ -59,6 +59,10 @@ let
     cmake
     pkg-config
   ]);
+
+  runtimeLibraryPath = pkgs.lib.makeLibraryPath [
+    pkgs.stdenv.cc.cc.lib
+  ];
 in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "vllm-runtime";
@@ -72,6 +76,8 @@ pkgs.stdenvNoCC.mkDerivation {
     mkdir -p "$out"
     ${pythonWithPip}/bin/python3.12 -m venv "$out"
     "$out/bin/python" -m pip install --no-index --find-links ${wheelhouse} ${pkgs.lib.escapeShellArgs allPythonPackages}
-    wrapProgram "$out/bin/vllm" --prefix PATH : ${runtimePath}
+    wrapProgram "$out/bin/vllm" \
+      --prefix PATH : ${runtimePath} \
+      --prefix LD_LIBRARY_PATH : ${runtimeLibraryPath}
   '';
 }
