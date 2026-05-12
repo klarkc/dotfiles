@@ -17,10 +17,16 @@ if [ -n "$api_key" ]; then
   headers+=(-H "authorization: Bearer $api_key")
 fi
 
+echo "Waiting for vLLM readiness at $base_url/models for ${model:-any model}"
 start_ts="$(date +%s)"
+last_log_ts=0
 while true; do
-  body="$(curl -fsS "${headers[@]}" "$base_url/models" 2>/dev/null || true)"
-  if [ -n "$body" ]; then
+  tmp_body="$(mktemp)"
+  http_code="$(curl -sS -o "$tmp_body" -w '%{http_code}' "${headers[@]}" "$base_url/models" 2>/dev/null || true)"
+  body="$(cat "$tmp_body" 2>/dev/null || true)"
+  rm -f "$tmp_body"
+
+  if [ "$http_code" = "200" ] && [ -n "$body" ]; then
     if [ -z "$model" ] || printf '%s' "$body" | grep -Fq "$model"; then
       echo "vLLM is ready at $base_url/models for ${model:-any model}"
       exit 0
@@ -28,6 +34,16 @@ while true; do
   fi
 
   now_ts="$(date +%s)"
+  if [ $((now_ts - last_log_ts)) -ge 15 ]; then
+    elapsed=$((now_ts - start_ts))
+    echo "Still waiting for vLLM readiness after ${elapsed}s: http=${http_code:-none}, expected_model=${model:-any}"
+    if [ -n "$body" ]; then
+      printf '%s\n' "$body" | head -c 500
+      printf '\n'
+    fi
+    last_log_ts="$now_ts"
+  fi
+
   if [ $((now_ts - start_ts)) -ge "$deadline_seconds" ]; then
     echo "Timed out waiting for vLLM readiness at $base_url/models for ${model:-any model}" >&2
     exit 1
