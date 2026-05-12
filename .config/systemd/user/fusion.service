@@ -9,8 +9,8 @@ Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=FUSION_NIXPKGS_REV=68a8af93ff4297686cb68880845e61e5e2e41d92
-Environment=FUSION_NPM_PACKAGE=@runfusion/fusion@0.27.0
 Environment=FUSION_RUNTIME_DIR=%C/fusion-systemd
+Environment=FUSION_NIX_CONFIG=%h/.config/nix/fusion-npm.nix
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
 WorkingDirectory=%h
 
@@ -19,8 +19,8 @@ RuntimeDirectoryMode=0700
 CacheDirectory=fusion-systemd
 CacheDirectoryMode=0700
 
-ExecStart=/bin/sh -lc 'set -eu; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; runtime="$FUSION_RUNTIME_DIR"; npm_prefix="$runtime/npm"; export npm_config_cache="$runtime/npm-cache"; export npm_config_prefix="$npm_prefix"; mkdir -p "$runtime" "$npm_config_cache" "$npm_prefix"; exec "$nix_bin" --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#bashInteractive" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#cacert" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#coreutils" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#curl" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#docker-client" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#findutils" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gawk" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gh" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#git" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gnugrep" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gnused" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#nodejs" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#openssh" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#python3" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#tmux" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#uv" --command bash -lc '\''set -euo pipefail; runtime="$FUSION_RUNTIME_DIR"; npm_prefix="$runtime/npm"; export npm_config_cache="$runtime/npm-cache"; export npm_config_prefix="$npm_prefix"; socket="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/fusion/tmux.sock"; session="fusion"; mkdir -p "$npm_prefix" "$npm_config_cache"; if [ ! -x "$npm_prefix/bin/fusion" ]; then npm install --global --prefix "$npm_prefix" --cache "$npm_config_cache" --no-audit --no-fund "$FUSION_NPM_PACKAGE"; fi; rm -f "$socket"; tmux -S "$socket" new-session -d -s "$session" -c "$HOME/Sources/Fusion" "$npm_prefix/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; while tmux -S "$socket" has-session -t "$session" 2>/dev/null; do sleep 5; done'\'''
-ExecStop=/bin/sh -lc 'set -eu; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; exec "$nix_bin" --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#tmux" --command tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" kill-session -t fusion'
+ExecStart=/bin/sh -lc 'set -eu; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; runtime="$FUSION_RUNTIME_DIR"; export XDG_CACHE_HOME="$runtime/xdg-cache"; export NIX_PATH="nixpkgs=flake:github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV"; mkdir -p "$runtime" "$XDG_CACHE_HOME"; fusion_store_path="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --impure --expr "let pkgs = import (builtins.getFlake \"github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV\") { system = builtins.currentSystem; }; in import $FUSION_NIX_CONFIG { inherit pkgs; }")"; socket="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/fusion/tmux.sock"; session="fusion"; rm -f "$socket"; exec "$nix_bin" --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#tmux" --command tmux -S "$socket" new-session -d -s "$session" -c "$HOME/Sources/Fusion" "$fusion_store_path/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; while "$nix_bin" --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#tmux" --command tmux -S "$socket" has-session -t "$session" 2>/dev/null; do sleep 5; done'
+ExecStop=/bin/sh -lc 'set -eu; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; runtime="$FUSION_RUNTIME_DIR"; export XDG_CACHE_HOME="$runtime/xdg-cache"; exec "$nix_bin" --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#tmux" --command tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" kill-session -t fusion'
 
 Restart=on-failure
 RestartSec=5s
@@ -35,6 +35,7 @@ ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 
+ReadOnlyPaths=%h/.config/nix/fusion-npm.nix
 ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %C/fusion-systemd %h/.config/qmd %t/fusion
 
 [Install]
