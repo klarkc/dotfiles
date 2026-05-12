@@ -3,7 +3,6 @@
     "local-vllm": {
       "baseUrl": "http://127.0.0.1:8000/v1",
       "api": "openai-completions",
-      "apiKey": "VLLM_API_KEY",
       "compat": {
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false,
@@ -24,65 +23,25 @@
             "output": 0,
             "cacheRead": 0,
             "cacheWrite": 0
-          },
-          "model": "qwen3.6-35b-a3b",
-          "provider": "vllm",
-          "base_url": "http://localhost:8000/v1/",
-          "baseUrl": "http://localhost:8000/v1/",
-          "context_window": 43008,
-          "max_context_tokens": 43008,
-          "maxContextTokens": 43008,
-          "default_max_tokens": 4096,
-          "defaultMaxTokens": 4096,
-          "max_tokens": 4096,
-          "max_concurrent": 2,
-          "maxConcurrent": 2,
-          "parallel_requests": 2,
-          "parallelRequests": 2
+          }
+        },
+        {
+          "id": "qwen3.6-27b",
+          "name": "Qwen3.6 27B",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 43008,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         }
       ]
-    }
-  },
-  "models": {
-    "qwen3.6-35b-a3b": {
-      "name": "Qwen3.6 35B A3B",
-      "id": "qwen3.6-35b-a3b",
-      "model": "qwen3.6-35b-a3b",
-      "provider": "vllm",
-      "base_url": "http://localhost:8000/v1/",
-      "baseUrl": "http://localhost:8000/v1/",
-      "context_window": 43008,
-      "contextWindow": 43008,
-      "max_context_tokens": 43008,
-      "maxContextTokens": 43008,
-      "default_max_tokens": 4096,
-      "defaultMaxTokens": 4096,
-      "max_tokens": 4096,
-      "maxTokens": 4096,
-      "max_concurrent": 2,
-      "maxConcurrent": 2,
-      "parallel_requests": 2,
-      "parallelRequests": 2
-    },
-    "qwen3.6-27b": {
-      "name": "Qwen3.6 27B",
-      "id": "qwen3.6-27b",
-      "model": "qwen3.6-27b",
-      "provider": "vllm",
-      "base_url": "http://localhost:8000/v1/",
-      "baseUrl": "http://localhost:8000/v1/",
-      "context_window": 43008,
-      "contextWindow": 43008,
-      "max_context_tokens": 43008,
-      "maxContextTokens": 43008,
-      "default_max_tokens": 4096,
-      "defaultMaxTokens": 4096,
-      "max_tokens": 4096,
-      "maxTokens": 4096,
-      "max_concurrent": 2,
-      "maxConcurrent": 2,
-      "parallel_requests": 2,
-      "parallelRequests": 2
     }
   }
 }
