@@ -8,7 +8,7 @@ max_tokens="${DEFAULT_MAX_TOKENS:-4096}"
 max_num_seqs="${MAX_NUM_SEQS:-2}"
 port="${PORT:-8000}"
 base_url="http://localhost:${port}/v1/"
-client_context_window="$(( (raw_context_window - max_tokens) * 70 / 100 ))"
+client_context_window="$(( raw_context_window - ((max_tokens * 3) / 2) ))"
 if [ "$client_context_window" -lt 1024 ]; then
   client_context_window=1024
 fi
