@@ -24,6 +24,157 @@ VLLM_MAX_TOKENS=$max_tokens
 VLLM_MAX_NUM_SEQS=$max_num_seqs
 EOF
 
+patch_models_json() {
+  local path="$1"
+  local app="$2"
+  [ -f "$path" ] || return 0
+  python3 - "$path" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" "$model_id" "$app" <<'PY'
+import json
+import os
+import sys
+
+path, context_window, max_tokens, max_num_seqs, base_url, default_model, app = sys.argv[1:]
+context_window = int(context_window)
+max_tokens = int(max_tokens)
+max_num_seqs = int(max_num_seqs)
+base_url_no_v1 = base_url.rstrip('/').removesuffix('/v1')
+
+model_entries = {
+    'qwen3.6-35b-a3b': {
+        'name': 'Qwen3.6 35B A3B',
+        'id': 'qwen3.6-35b-a3b',
+        'model': 'qwen3.6-35b-a3b',
+        'provider': 'vllm',
+        'base_url': base_url,
+        'baseUrl': base_url,
+        'api_base': base_url,
+        'apiBase': base_url,
+        'context_window': context_window,
+        'contextWindow': context_window,
+        'max_context_tokens': context_window,
+        'maxContextTokens': context_window,
+        'default_max_tokens': max_tokens,
+        'defaultMaxTokens': max_tokens,
+        'max_tokens': max_tokens,
+        'maxTokens': max_tokens,
+        'max_concurrent': max_num_seqs,
+        'maxConcurrent': max_num_seqs,
+        'parallel_requests': max_num_seqs,
+        'parallelRequests': max_num_seqs,
+    },
+    'qwen3.6-27b': {
+        'name': 'Qwen3.6 27B',
+        'id': 'qwen3.6-27b',
+        'model': 'qwen3.6-27b',
+        'provider': 'vllm',
+        'base_url': base_url,
+        'baseUrl': base_url,
+        'api_base': base_url,
+        'apiBase': base_url,
+        'context_window': context_window,
+        'contextWindow': context_window,
+        'max_context_tokens': context_window,
+        'maxContextTokens': context_window,
+        'default_max_tokens': max_tokens,
+        'defaultMaxTokens': max_tokens,
+        'max_tokens': max_tokens,
+        'maxTokens': max_tokens,
+        'max_concurrent': max_num_seqs,
+        'maxConcurrent': max_num_seqs,
+        'parallel_requests': max_num_seqs,
+        'parallelRequests': max_num_seqs,
+    },
+}
+
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+
+
+def key_for(item):
+    if not isinstance(item, dict):
+        return None
+    for field in ('id', 'model', 'modelId', 'name'):
+        value = item.get(field)
+        if value in model_entries:
+            return value
+    return None
+
+
+def patch_existing(obj):
+    changed = False
+    if isinstance(obj, dict):
+        key = key_for(obj)
+        if key:
+            obj.update(model_entries[key])
+            changed = True
+        for value in obj.values():
+            if isinstance(value, (dict, list)):
+                changed = patch_existing(value) or changed
+    elif isinstance(obj, list):
+        for value in obj:
+            if isinstance(value, (dict, list)):
+                changed = patch_existing(value) or changed
+    return changed
+
+patch_existing(data)
+
+if not isinstance(data, dict):
+    data = {'models': data if isinstance(data, list) else {}}
+
+if app == 'fusion':
+    data['defaultModel'] = default_model
+    data['default_model'] = default_model
+    data['maxTokens'] = max_tokens
+    data['max_tokens'] = max_tokens
+    data['contextWindow'] = context_window
+    data['context_window'] = context_window
+
+providers = data.setdefault('providers', {})
+if isinstance(providers, dict):
+    vllm = providers.setdefault('vllm', {})
+    if isinstance(vllm, dict):
+        vllm.update({
+            'name': 'vLLM',
+            'type': 'openai-compat',
+            'provider': 'openai-compatible',
+            'base_url': base_url,
+            'baseUrl': base_url,
+            'api_base': base_url,
+            'apiBase': base_url,
+            'endpoint': base_url_no_v1,
+            'models': list(model_entries.values()),
+        })
+
+models = data.setdefault('models', {})
+if isinstance(models, dict):
+    for key, entry in model_entries.items():
+        current = models.get(key, {})
+        if not isinstance(current, dict):
+            current = {}
+        current.update(entry)
+        models[key] = current
+elif isinstance(models, list):
+    seen = {key_for(item) for item in models if isinstance(item, dict)}
+    for key, entry in model_entries.items():
+        if key not in seen:
+            models.append(entry)
+else:
+    data['models'] = model_entries
+
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+os.replace(tmp, path)
+PY
+}
+
+fusion_settings="$HOME/.fusion/settings.json"
+patch_models_json "$fusion_settings" fusion
+
 crush_config="$HOME/.config/crush/crush.json"
 if [ -f "$crush_config" ]; then
   python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url" <<'PY'
@@ -66,124 +217,6 @@ os.replace(tmp, path)
 PY
 fi
 
-pi_models="$HOME/.pi/agent/models.json"
-if [ -f "$pi_models" ]; then
-  python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" <<'PY'
-import json
-import os
-import sys
-
-path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
-context_window = int(context_window)
-max_tokens = int(max_tokens)
-max_num_seqs = int(max_num_seqs)
-
-model_entries = {
-    'qwen3.6-35b-a3b': {
-        'name': 'Qwen3.6 35B A3B',
-        'id': 'qwen3.6-35b-a3b',
-        'model': 'qwen3.6-35b-a3b',
-        'provider': 'vllm',
-        'base_url': base_url,
-        'baseUrl': base_url,
-        'context_window': context_window,
-        'contextWindow': context_window,
-        'max_context_tokens': context_window,
-        'maxContextTokens': context_window,
-        'default_max_tokens': max_tokens,
-        'defaultMaxTokens': max_tokens,
-        'max_tokens': max_tokens,
-        'maxTokens': max_tokens,
-        'max_concurrent': max_num_seqs,
-        'maxConcurrent': max_num_seqs,
-        'parallel_requests': max_num_seqs,
-        'parallelRequests': max_num_seqs,
-    },
-    'qwen3.6-27b': {
-        'name': 'Qwen3.6 27B',
-        'id': 'qwen3.6-27b',
-        'model': 'qwen3.6-27b',
-        'provider': 'vllm',
-        'base_url': base_url,
-        'baseUrl': base_url,
-        'context_window': context_window,
-        'contextWindow': context_window,
-        'max_context_tokens': context_window,
-        'maxContextTokens': context_window,
-        'default_max_tokens': max_tokens,
-        'defaultMaxTokens': max_tokens,
-        'max_tokens': max_tokens,
-        'maxTokens': max_tokens,
-        'max_concurrent': max_num_seqs,
-        'maxConcurrent': max_num_seqs,
-        'parallel_requests': max_num_seqs,
-        'parallelRequests': max_num_seqs,
-    },
-}
-
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-except json.JSONDecodeError:
-    data = {}
-
-
-def key_for(item):
-    if not isinstance(item, dict):
-        return None
-    for field in ('id', 'model', 'modelId', 'name'):
-        value = item.get(field)
-        if value in model_entries:
-            return value
-    return None
-
-
-def patch_existing(obj):
-    changed = False
-    if isinstance(obj, dict):
-        key = key_for(obj)
-        if key:
-            obj.update(model_entries[key])
-            changed = True
-        for value in obj.values():
-            if isinstance(value, (dict, list)):
-                changed = patch_existing(value) or changed
-    elif isinstance(obj, list):
-        for value in obj:
-            if isinstance(value, (dict, list)):
-                changed = patch_existing(value) or changed
-    return changed
-
-patch_existing(data)
-
-if isinstance(data, dict):
-    models = data.setdefault('models', {})
-    if isinstance(models, dict):
-        for key, entry in model_entries.items():
-            current = models.get(key, {})
-            if not isinstance(current, dict):
-                current = {}
-            current.update(entry)
-            models[key] = current
-    elif isinstance(models, list):
-        seen = {key_for(item) for item in models if isinstance(item, dict)}
-        for key, entry in model_entries.items():
-            if key not in seen:
-                models.append(entry)
-elif isinstance(data, list):
-    seen = {key_for(item) for item in data if isinstance(item, dict)}
-    for key, entry in model_entries.items():
-        if key not in seen:
-            data.append(entry)
-else:
-    data = {'models': model_entries}
-
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-os.replace(tmp, path)
-PY
-fi
+patch_models_json "$HOME/.pi/agent/models.json" pi
 
 echo "Selected vLLM model defaults: $model_id, raw_context=$raw_context_window, client_context=$client_context_window, max_tokens=$max_tokens, max_num_seqs=$max_num_seqs"
