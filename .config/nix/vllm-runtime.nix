@@ -76,8 +76,14 @@ pkgs.stdenvNoCC.mkDerivation {
     mkdir -p "$out" "$out/nix-support"
     ${pythonWithPip}/bin/python3.12 -m venv "$out"
     "$out/bin/python" -m pip install --no-index --find-links ${wheelhouse} ${pkgs.lib.escapeShellArgs allPythonPackages}
+
     site_packages="$out/lib/python3.12/site-packages"
-    wheel_library_path="${runtimeLibraryPath}:$site_packages:$site_packages/Pillow.libs"
+    wheel_library_path="${runtimeLibraryPath}:$site_packages"
+    wheel_lib_dirs="$(${pkgs.findutils}/bin/find "$site_packages" -maxdepth 2 -type d \( -iname '*.libs' -o -path '*/nvidia/*/lib' -o -path '*/torch/lib' \) -print 2>/dev/null | ${pkgs.coreutils}/bin/paste -sd: - || true)"
+    if [ -n "$wheel_lib_dirs" ]; then
+      wheel_library_path="$wheel_lib_dirs:$wheel_library_path"
+    fi
+
     printf '%s\n' "$wheel_library_path" > "$out/nix-support/ld-library-path"
     wrapProgram "$out/bin/vllm" \
       --prefix PATH : ${runtimePath} \
