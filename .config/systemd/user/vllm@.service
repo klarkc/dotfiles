@@ -47,7 +47,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 
 ReadOnlyPaths=%h/.config/nix/vllm-runtime.nix %h/.config/vllm/%i.env %h/.local/bin/vllm-patch-model-defaults %h/.local/bin/vllm-serve-pure %h/.local/bin/vllm-wait-ready
-ReadWritePaths=%C/vllm-%i %h/.cache/huggingface %h/.config/crush %h/.zeroclaw %h/.fusion
+ReadWritePaths=%C/vllm-%i %h/.cache/huggingface %h/.config/crush %h/.pi/agent %h/.fusion
 
 [Install]
 WantedBy=default.target
