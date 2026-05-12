@@ -1,0 +1,43 @@
+[Unit]
+Description=Selected vLLM model server
+After=default.target network-online.target
+Wants=network-online.target
+Before=fusion.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+TimeoutStopSec=30
+PassEnvironment=HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VLLM_API_KEY
+EnvironmentFile=%h/.config/vllm/selected.env
+Environment=VLLM_NIX_CONFIG=%h/.config/nix/vllm-runtime.nix
+Environment=VLLM_RUNTIME_DIR=%C/vllm-selected
+Environment=HF_HUB_ETAG_TIMEOUT=60
+Environment=HF_HUB_DOWNLOAD_TIMEOUT=600
+Environment=HF_HUB_DISABLE_IMPLICIT_TOKEN=0
+Environment=OMP_NUM_THREADS=8
+Environment=MKL_NUM_THREADS=8
+Environment=OPENBLAS_NUM_THREADS=8
+Environment=NUMEXPR_NUM_THREADS=8
+Environment=RAYON_NUM_THREADS=8
+Environment=MALLOC_ARENA_MAX=2
+Environment=VLLM_MARLIN_USE_ATOMIC_ADD=1
+Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Environment=VLLM_READY_TIMEOUT_SECONDS=1800
+
+UnsetEnvironment=LD_LIBRARY_PATH LD_PRELOAD
+
+CacheDirectory=vllm-selected
+CacheDirectoryMode=0700
+
+ExecStartPre=%h/.local/bin/vllm-patch-model-defaults
+ExecStart=%h/.local/bin/vllm-serve-pure
+ExecStartPost=%h/.local/bin/vllm-wait-ready
+
+ReadOnlyPaths=%h/.config/nix/vllm-runtime.nix %h/.config/vllm/selected.env %h/.local/bin/vllm-patch-model-defaults %h/.local/bin/vllm-serve-pure %h/.local/bin/vllm-wait-ready
+ReadWritePaths=%C/vllm-selected %h/.cache/huggingface %h/.config/crush %h/.zeroclaw %h/.fusion
+
+[Install]
+WantedBy=default.target
