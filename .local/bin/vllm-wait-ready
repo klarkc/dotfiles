@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -n "${VLLM_INSTANCE:-}" ] && [ -r "$HOME/.config/vllm/${VLLM_INSTANCE}.env" ]; then
+  set -a
+  . "$HOME/.config/vllm/${VLLM_INSTANCE}.env"
+  set +a
+fi
+
 host="${HOST:-127.0.0.1}"
 port="${PORT:-8000}"
 model="${SERVED_MODEL_NAME:-}"
@@ -36,7 +42,7 @@ while true; do
   now_ts="$(date +%s)"
   if [ $((now_ts - last_log_ts)) -ge 15 ]; then
     elapsed=$((now_ts - start_ts))
-    echo "Still waiting for vLLM readiness after ${elapsed}s: http=${http_code:-none}, expected_model=${model:-any}"
+    echo "Still waiting for vLLM readiness after ${elapsed}s: http=${http_code:-none}, expected_model=${model:-any}, auth=$([ -n "$api_key" ] && printf configured || printf missing)"
     if [ -n "$body" ]; then
       printf '%s\n' "$body" | head -c 500
       printf '\n'
