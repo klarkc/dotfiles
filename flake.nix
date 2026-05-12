@@ -19,23 +19,45 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
+
+          fusionRuntime = pkgs.buildEnv {
+            name = "fusion-runtime";
+            paths = with pkgs; [
+              bashInteractive
+              cacert
+              coreutils
+              curl
+              docker-client
+              findutils
+              gawk
+              gh
+              git
+              gnugrep
+              gnused
+              nodejs
+              openssh
+              python3
+              tmux
+              uv
+            ];
+          };
         in
         {
+          packages.fusion-runtime = fusionRuntime;
+
           packages.default = pkgs.buildEnv {
             name = "klarkc-dotfiles_profile";
             paths = with pkgs; [
               (pkgs.runCommand "profile" { } ''
                 mkdir -p $out/etc/profile.d
-                cp ${nixProfile} $out/etc/profile.d/nix.sh 
+                cp ${nixProfile} $out/etc/profile.d/nix.sh
               '')
               direnv
               nixos-rebuild
               nix-output-monitor
               nix-fast-build
-              nodejs
               codex
-              uv
-              gh
+              fusionRuntime
             ];
           };
         });
