@@ -49,6 +49,7 @@ esac
 
 selected_target="vllm-${pick}.target"
 selected_service="vllm@${pick}.service"
+fusion_service="fusion.service"
 all_targets=()
 all_services=()
 for item in "${choices[@]}"; do
@@ -57,43 +58,51 @@ for item in "${choices[@]}"; do
   all_services+=("vllm@${key}.service")
 done
 
+unit_state() {
+  systemctl --user show "$1" --property="$2" --value 2>/dev/null || true
+}
+
 since="$(date --iso-8601=seconds)"
 printf 'Stopping Fusion and vLLM units through systemd...\n'
-systemctl --user stop fusion.service "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
+systemctl --user stop "$fusion_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
 printf 'Starting selected target: %s\n' "$selected_target"
 systemctl --user daemon-reload
-systemctl --user reset-failed fusion.service "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
+systemctl --user reset-failed "$fusion_service" "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
 systemctl --user start --no-block "$selected_target"
 
 echo
-systemctl --user --no-pager -l status "$selected_target" "$selected_service" fusion.service || true
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" "$fusion_service" || true
 
 cat <<EOF
 
---- Current logs since $since: $selected_service + fusion.service ---
+--- Current logs since $since: $selected_service + $fusion_service ---
 EOF
-journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 40 --no-pager -o short-iso || true
+journalctl --user-unit "$selected_service" --user-unit "$fusion_service" --since "$since" -n 40 --no-pager -o short-iso || true
 
 cat <<EOF
 
---- Following new logs: $selected_service + fusion.service ---
+--- Following new logs: $selected_service + $fusion_service ---
 EOF
-journalctl --user-unit "$selected_service" --user-unit fusion.service --since "$since" -n 0 -f -o short-iso &
+journalctl --user-unit "$selected_service" --user-unit "$fusion_service" --since "$since" -n 0 -f -o short-iso &
 journal_pid=$!
 
 while kill -0 "$journal_pid" 2>/dev/null; do
-  service_state="$(systemctl --user show "$selected_service" --property=ActiveState --value 2>/dev/null || true)"
-  service_result="$(systemctl --user show "$selected_service" --property=Result --value 2>/dev/null || true)"
-  target_state="$(systemctl --user show "$selected_target" --property=ActiveState --value 2>/dev/null || true)"
-  target_result="$(systemctl --user show "$selected_target" --property=Result --value 2>/dev/null || true)"
+  service_state="$(unit_state "$selected_service" ActiveState)"
+  service_result="$(unit_state "$selected_service" Result)"
+  fusion_state="$(unit_state "$fusion_service" ActiveState)"
+  fusion_result="$(unit_state "$fusion_service" Result)"
+  target_state="$(unit_state "$selected_target" ActiveState)"
+  target_result="$(unit_state "$selected_target" Result)"
 
-  if [ "$service_state" = active ] && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
+  if [ "$service_state" = active ] && [ "$fusion_state" = active ] \
+    && { [ -z "$service_result" ] || [ "$service_result" = success ]; } \
+    && { [ -z "$fusion_result" ] || [ "$fusion_result" = success ]; }; then
     kill "$journal_pid" 2>/dev/null || true
     wait "$journal_pid" 2>/dev/null || true
     echo
-    echo "$selected_service is active. Systemd will continue managing vLLM and Fusion."
-    systemctl --user --no-pager -l status "$selected_service" fusion.service || true
+    echo "$selected_service and $fusion_service are active. Systemd will continue managing them."
+    systemctl --user --no-pager -l status "$selected_service" "$fusion_service" || true
     exit 0
   fi
 
@@ -102,7 +111,16 @@ while kill -0 "$journal_pid" 2>/dev/null; do
     wait "$journal_pid" 2>/dev/null || true
     echo
     echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
-    systemctl --user --no-pager -l status "$selected_service" fusion.service >&2 || true
+    systemctl --user --no-pager -l status "$selected_service" "$fusion_service" >&2 || true
+    exit 1
+  fi
+
+  if [ "$fusion_state" = failed ] || { [ -n "$fusion_result" ] && [ "$fusion_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$fusion_service failed: state=${fusion_state:-unknown} result=${fusion_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_service" "$fusion_service" >&2 || true
     exit 1
   fi
 
@@ -111,7 +129,7 @@ while kill -0 "$journal_pid" 2>/dev/null; do
     wait "$journal_pid" 2>/dev/null || true
     echo
     echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
-    systemctl --user --no-pager -l status "$selected_target" "$selected_service" fusion.service >&2 || true
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" "$fusion_service" >&2 || true
     exit 1
   fi
 
