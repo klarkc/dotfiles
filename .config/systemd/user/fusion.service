@@ -8,16 +8,16 @@ Wants=network-online.target
 Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
-Environment=PATH=%h/.nix-profile/bin
+Environment=FUSION_NIXPKGS_REV=68a8af93ff4297686cb68880845e61e5e2e41d92
+Environment=FUSION_SOURCE_REV=52ac48ab4b68b1be3da52e055381b576af3e7d5f
+Environment=FUSION_RUNTIME_DIR=%h/.cache/fusion-systemd
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
-WorkingDirectory=%h
+WorkingDirectory=%h/Sources/Fusion
 
 RuntimeDirectory=fusion
 RuntimeDirectoryMode=0700
 
-ExecStartPre=-%h/.nix-profile/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
-ExecStart=%h/.nix-profile/bin/fusion-dashboard-service
-ExecStop=-%h/.nix-profile/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
+ExecStart=/bin/sh -lc 'set -eu; runtime="$FUSION_RUNTIME_DIR"; src="$runtime/src"; export XDG_CACHE_HOME="$runtime/xdg-cache"; export XDG_CONFIG_HOME="$runtime/xdg-config"; export XDG_DATA_HOME="$runtime/xdg-data"; export PNPM_HOME="$runtime/pnpm-home"; export PNPM_STORE_DIR="$runtime/pnpm-store"; mkdir -p "$runtime" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$PNPM_HOME" "$PNPM_STORE_DIR"; exec /usr/bin/nix --extra-experimental-features "nix-command flakes" shell "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#bashInteractive" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#cacert" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#coreutils" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#curl" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#docker-client" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#findutils" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gawk" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gh" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#git" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gnugrep" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#gnused" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#nodejs" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#openssh" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#pnpm" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#python3" "github:NixOS/nixpkgs/$FUSION_NIXPKGS_REV#uv" --command bash -lc '\''set -euo pipefail; runtime="$FUSION_RUNTIME_DIR"; src="$runtime/src"; if [ ! -d "$src/.git" ]; then rm -rf "$src"; git clone https://github.com/Runfusion/Fusion "$src"; fi; git -C "$src" fetch --depth 1 origin "$FUSION_SOURCE_REV"; git -C "$src" checkout --detach "$FUSION_SOURCE_REV"; cd "$src"; export COREPACK_ENABLE_DOWNLOAD_PROMPT=0; corepack enable; pnpm config set store-dir "$PNPM_STORE_DIR"; pnpm install --frozen-lockfile --ignore-scripts=false; pnpm --filter @runfusion/fusion build; exec node "$src/packages/cli/dist/bin.js" dashboard --host 0.0.0.0 --port 4040 --no-auth'\'''
 
 Restart=on-failure
 RestartSec=5s
@@ -32,8 +32,7 @@ ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 
-ReadOnlyPaths=%h/.npm-packages %h/.nix-profile %h/Sources/Fusion
-ReadWritePaths=%h/.fusion %h/.pi %t/fusion %h/.cache %h/.config/qmd
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %h/.cache/fusion-systemd %h/.cache/nix %h/.config/qmd %t/fusion
 
 [Install]
 WantedBy=default.target
