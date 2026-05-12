@@ -8,17 +8,16 @@ Wants=network-online.target
 Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
-Environment=PATH=%h/.npm-packages/bin:%h/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.nix-profile/bin
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
-InaccessiblePaths=%h/.codex
 WorkingDirectory=%h
 
 RuntimeDirectory=fusion
 RuntimeDirectoryMode=0700
 
-ExecStartPre=-/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
-ExecStart=/bin/sh -lc 'rm -f "$XDG_RUNTIME_DIR/fusion/tmux.sock"; /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" new-session -d -s fusion -c "$HOME/Sources/Fusion" "$HOME/.npm-packages/bin/fusion dashboard --host 0.0.0.0 --port 4040 --no-auth"; while /usr/bin/tmux -S "$XDG_RUNTIME_DIR/fusion/tmux.sock" has-session -t fusion 2>/dev/null; do sleep 5; done'
-ExecStop=-/usr/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
+ExecStartPre=-%h/.nix-profile/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
+ExecStart=%h/.nix-profile/bin/fusion-dashboard-service
+ExecStop=-%h/.nix-profile/bin/tmux -S %t/fusion/tmux.sock kill-session -t fusion
 
 Restart=on-failure
 RestartSec=5s
@@ -33,7 +32,8 @@ ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %t/fusion %h/.cache %h/.npm-packages %h/.config/qmd
+ReadOnlyPaths=%h/.npm-packages %h/.nix-profile %h/Sources/Fusion
+ReadWritePaths=%h/.fusion %h/.pi %t/fusion %h/.cache %h/.config/qmd
 
 [Install]
 WantedBy=default.target
