@@ -2,7 +2,6 @@
 Description=vLLM model server (%i)
 After=default.target network-online.target
 Wants=network-online.target
-Before=fusion.service
 
 [Service]
 Type=simple
@@ -41,6 +40,7 @@ CacheDirectoryMode=0700
 ExecStartPre=%h/.local/bin/vllm-patch-model-defaults
 ExecStart=%h/.local/bin/vllm-serve-pure
 ExecStartPost=%h/.local/bin/vllm-wait-ready
+ExecStartPost=/usr/bin/systemctl --user restart fusion.service
 
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
