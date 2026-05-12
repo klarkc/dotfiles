@@ -17,6 +17,8 @@ Environment=VLLM_RUNTIME_DIR=%C/vllm-%i
 Environment=HF_HUB_ETAG_TIMEOUT=60
 Environment=HF_HUB_DOWNLOAD_TIMEOUT=600
 Environment=HF_HUB_DISABLE_IMPLICIT_TOKEN=0
+Environment=FLASHINFER_CACHE_DIR=%C/vllm-%i/flashinfer
+Environment=FLASHINFER_WORKSPACE_BASE=%C/vllm-%i/flashinfer
 Environment=OMP_NUM_THREADS=8
 Environment=MKL_NUM_THREADS=8
 Environment=OPENBLAS_NUM_THREADS=8
