@@ -37,15 +37,131 @@ load_env_key() {
   export "$key"
 }
 
+redact_file() {
+  local src="$1"
+  local dst="$2"
+  if [ -r "$src" ]; then
+    sed -E \
+      -e 's/(VLLM_API_KEY=).*/\1<redacted>/' \
+      -e 's/(HF_TOKEN=).*/\1<redacted>/' \
+      -e 's/(HF_HUB_TOKEN=).*/\1<redacted>/' \
+      -e 's/(HUGGING_FACE_HUB_TOKEN=).*/\1<redacted>/' \
+      "$src" > "$dst"
+  fi
+}
+
+metric_value() {
+  local label="$1"
+  local file="$2"
+  awk -F: -v label="$label" '$1 == label {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; found=1} END {if (!found) exit 1}' "$file" 2>/dev/null | tail -n 1 || true
+}
+
+write_summary() {
+  local name="$1"
+  local slug="$2"
+  local file="$artifact_dir/${slug}.log"
+  local out="$artifact_dir/${slug}.summary.env"
+  local duration input_tokens output_tokens req_tps output_tps total_tps mean_ttft median_ttft p99_ttft mean_tpot mean_itl
+
+  duration="$(metric_value 'Benchmark duration (s)' "$file")"
+  input_tokens="$(metric_value 'Total input tokens' "$file")"
+  output_tokens="$(metric_value 'Total generated tokens' "$file")"
+  req_tps="$(metric_value 'Request throughput (req/s)' "$file")"
+  output_tps="$(metric_value 'Output token throughput (tok/s)' "$file")"
+  total_tps="$(metric_value 'Total Token throughput (tok/s)' "$file")"
+  mean_ttft="$(metric_value 'Mean TTFT (ms)' "$file")"
+  median_ttft="$(metric_value 'Median TTFT (ms)' "$file")"
+  p99_ttft="$(metric_value 'P99 TTFT (ms)' "$file")"
+  mean_tpot="$(metric_value 'Mean TPOT (ms)' "$file")"
+  mean_itl="$(metric_value 'Mean ITL (ms)' "$file")"
+
+  prefill_tps=""
+  if [ -n "$duration" ] && [ -n "$input_tokens" ]; then
+    prefill_tps="$(awk -v tokens="$input_tokens" -v seconds="$duration" 'BEGIN {if (seconds > 0) printf "%.2f", tokens / seconds}')"
+  fi
+
+  {
+    echo "name=$name"
+    echo "served_model=$MODEL"
+    echo "tokenizer=$TOKENIZER"
+    echo "base_url=$BASE_URL"
+    echo "max_concurrency=2"
+    echo "duration_s=$duration"
+    echo "input_tokens=$input_tokens"
+    echo "output_tokens=$output_tokens"
+    echo "request_tps=$req_tps"
+    echo "prefill_tps=$prefill_tps"
+    echo "decode_tps=$output_tps"
+    echo "total_tps=$total_tps"
+    echo "mean_ttft_ms=$mean_ttft"
+    echo "median_ttft_ms=$median_ttft"
+    echo "p99_ttft_ms=$p99_ttft"
+    echo "mean_tpot_ms=$mean_tpot"
+    echo "mean_itl_ms=$mean_itl"
+  } > "$out"
+
+  cat <<EOF
+
+--- $name metrics ---
+request_tps=${req_tps:-n/a}
+prefill_tps=${prefill_tps:-n/a}
+decode_tps=${output_tps:-n/a}
+total_tps=${total_tps:-n/a}
+mean_ttft_ms=${mean_ttft:-n/a}
+p99_ttft_ms=${p99_ttft:-n/a}
+mean_tpot_ms=${mean_tpot:-n/a}
+mean_itl_ms=${mean_itl:-n/a}
+EOF
+}
+
+capture_metadata() {
+  {
+    echo "timestamp=$timestamp"
+    echo "benchmark_env=$benchmark_env"
+    echo "instance=$instance"
+    echo "instance_env=$instance_env"
+    echo "served_model=$MODEL"
+    echo "tokenizer=$TOKENIZER"
+    echo "base_url=$BASE_URL"
+    echo "runtime=$runtime"
+    echo "vllm_nix_config=$VLLM_NIX_CONFIG"
+    echo "max_concurrency=2"
+    echo "small_requests=prompts:32,input:1024,output:128"
+    echo "long_context_requests=prompts:8,input:48000,output:512"
+  } > "$artifact_dir/metadata.env"
+
+  systemctl --user --no-pager -l status "vllm@${instance}.service" fusion.service > "$artifact_dir/systemd-status.txt" 2>&1 || true
+  journalctl --user-unit "vllm@${instance}.service" -n 500 --no-pager -o short-iso > "$artifact_dir/journal-vllm.txt" 2>&1 || true
+  journalctl --user-unit fusion.service -n 300 --no-pager -o short-iso > "$artifact_dir/journal-fusion.txt" 2>&1 || true
+  nvidia-smi > "$artifact_dir/nvidia-smi.txt" 2>&1 || true
+  ps -eo pid,ppid,stat,pcpu,pmem,rss,vsz,args | grep -E 'vllm|fusion|tmux' | grep -v grep > "$artifact_dir/processes.txt" 2>&1 || true
+  printf '%s\n' "$runtime" > "$artifact_dir/vllm-runtime-path.txt"
+  [ ! -r "$HOME/.cache/vllm-${instance}/runtime_command.sh" ] || cp "$HOME/.cache/vllm-${instance}/runtime_command.sh" "$artifact_dir/runtime_command.sh"
+  redact_file "$benchmark_env" "$artifact_dir/benchmark.env"
+  redact_file "$instance_env" "$artifact_dir/model.env"
+}
+
+finish_archive() {
+  local status="$1"
+  echo "$status" > "$artifact_dir/status.txt"
+  capture_metadata
+  tar -C "$artifact_root" -czf "$archive" "$(basename "$artifact_dir")"
+  echo
+  echo "Benchmark artifact: $archive"
+}
+
 run_case() {
   local name="$1"
-  local num_prompts="$2"
-  local input_len="$3"
-  local output_len="$4"
+  local slug="$2"
+  local num_prompts="$3"
+  local input_len="$4"
+  local output_len="$5"
+  local log_file="$artifact_dir/${slug}.log"
 
   echo
   echo "=== $name ==="
   echo "served_model=$MODEL tokenizer=$TOKENIZER base_url=$BASE_URL prompts=$num_prompts concurrency=2 input=$input_len output=$output_len"
+  set +e
   "$runtime/bin/vllm" bench serve \
     --backend openai-chat \
     --base-url "$BASE_URL" \
@@ -57,7 +173,14 @@ run_case() {
     --max-concurrency 2 \
     --random-input-len "$input_len" \
     --random-output-len "$output_len" \
-    "${auth_args[@]}"
+    "${auth_args[@]}" 2>&1 | tee "$log_file"
+  rc="${PIPESTATUS[0]}"
+  set -e
+  echo "$rc" > "$artifact_dir/${slug}.exit-code"
+  if [ "$rc" -eq 0 ]; then
+    write_summary "$name" "$slug"
+  fi
+  return "$rc"
 }
 
 benchmark_env="$(find_benchmark_env)"
@@ -105,8 +228,25 @@ if ! "$runtime/bin/vllm" bench serve --help >/dev/null 2>&1; then
   exit 1
 fi
 
+timestamp="$(date +%Y%m%d-%H%M%S)"
+artifact_root="$HOME/.cache/vllm-benchmarks"
+artifact_dir="$artifact_root/${timestamp}-${instance}"
+archive="$artifact_dir.tar.gz"
+mkdir -p "$artifact_dir"
+trap 'finish_archive interrupted; exit 130' INT TERM
+
+redact_file "$benchmark_env" "$artifact_dir/benchmark.env"
+redact_file "$instance_env" "$artifact_dir/model.env"
+
 echo "Using benchmark env: $benchmark_env"
 echo "Using vLLM runtime: $runtime"
+echo "Benchmark artifact directory: $artifact_dir"
 
-run_case "Small requests" 32 1024 128
-run_case "Long-context requests" 8 48000 512
+status=success
+run_case "Small requests" "small-requests" 32 1024 128 || status=failed
+if [ "$status" = success ]; then
+  run_case "Long-context requests" "long-context-requests" 8 48000 512 || status=failed
+fi
+
+finish_archive "$status"
+[ "$status" = success ]
