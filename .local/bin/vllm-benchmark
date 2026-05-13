@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+find_nix() {
+  for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do
+    [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+  done
+  echo "nix executable not found" >&2
+  return 127
+}
+
+find_benchmark_env() {
+  local env_file latest
+  if [ -n "${VLLM_BENCHMARK_ENV:-}" ] && [ -r "$VLLM_BENCHMARK_ENV" ]; then
+    printf '%s\n' "$VLLM_BENCHMARK_ENV"
+    return 0
+  fi
+  latest="$(ls -t "$HOME"/.cache/vllm-*/benchmark.env 2>/dev/null | head -n 1 || true)"
+  if [ -n "$latest" ] && [ -r "$latest" ]; then
+    printf '%s\n' "$latest"
+    return 0
+  fi
+  echo "No vLLM benchmark.env found. Start a model first with: vllm-config qwen3.6-27B" >&2
+  return 1
+}
+
+load_env_key() {
+  local env_file="$1"
+  local key="$2"
+  local line value
+  line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+  [ -n "$line" ] || return 0
+  value="${line#*=}"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf -v "$key" '%s' "$value"
+  export "$key"
+}
+
+run_case() {
+  local name="$1"
+  local num_prompts="$2"
+  local input_len="$3"
+  local output_len="$4"
+
+  echo
+  echo "=== $name ==="
+  echo "model=$MODEL base_url=$BASE_URL prompts=$num_prompts input=$input_len output=$output_len"
+  "$runtime/bin/python" -m vllm.benchmarks.benchmark_serving \
+    --backend openai-chat \
+    --base-url "$BASE_URL" \
+    --model "$MODEL" \
+    --num-prompts "$num_prompts" \
+    --random-input-len "$input_len" \
+    --random-output-len "$output_len" \
+    "${auth_args[@]}"
+}
+
+benchmark_env="$(find_benchmark_env)"
+load_env_key "$benchmark_env" BASE_URL
+load_env_key "$benchmark_env" MODEL
+load_env_key "$benchmark_env" VLLM_API_KEY
+
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL%/}"
+BASE_URL="${BASE_URL%/v1}"
+MODEL="${MODEL:-}"
+if [ -z "$MODEL" ]; then
+  echo "MODEL missing from $benchmark_env" >&2
+  exit 1
+fi
+
+auth_args=()
+if [ -n "${VLLM_API_KEY:-}" ]; then
+  auth_args+=(--endpoint /v1/chat/completions)
+fi
+
+nix_bin="$(find_nix)"
+VLLM_NIX_CONFIG="${VLLM_NIX_CONFIG:-$HOME/.config/nix/vllm-runtime.nix}"
+runtime="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "$VLLM_NIX_CONFIG")"
+
+if ! "$runtime/bin/python" -c 'import vllm.benchmarks.benchmark_serving' >/dev/null 2>&1; then
+  echo "Pinned vLLM runtime does not expose vllm.benchmarks.benchmark_serving" >&2
+  exit 1
+fi
+
+echo "Using benchmark env: $benchmark_env"
+echo "Using vLLM runtime: $runtime"
+
+run_case "Crush-style short requests" 32 1024 128
+run_case "Fusion-style long-context requests" 8 48000 512
