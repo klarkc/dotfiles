@@ -10,7 +10,7 @@ find_nix() {
 }
 
 find_benchmark_env() {
-  local env_file latest
+  local latest
   if [ -n "${VLLM_BENCHMARK_ENV:-}" ] && [ -r "$VLLM_BENCHMARK_ENV" ]; then
     printf '%s\n' "$VLLM_BENCHMARK_ENV"
     return 0
@@ -46,9 +46,11 @@ run_case() {
   echo
   echo "=== $name ==="
   echo "model=$MODEL base_url=$BASE_URL prompts=$num_prompts input=$input_len output=$output_len"
-  "$runtime/bin/python" -m vllm.benchmarks.benchmark_serving \
+  "$runtime/bin/vllm" bench serve \
     --backend openai-chat \
     --base-url "$BASE_URL" \
+    --endpoint /v1/chat/completions \
+    --dataset-name random \
     --model "$MODEL" \
     --num-prompts "$num_prompts" \
     --random-input-len "$input_len" \
@@ -72,15 +74,15 @@ fi
 
 auth_args=()
 if [ -n "${VLLM_API_KEY:-}" ]; then
-  auth_args+=(--endpoint /v1/chat/completions)
+  auth_args+=(--header "Authorization=Bearer $VLLM_API_KEY")
 fi
 
 nix_bin="$(find_nix)"
 VLLM_NIX_CONFIG="${VLLM_NIX_CONFIG:-$HOME/.config/nix/vllm-runtime.nix}"
 runtime="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "$VLLM_NIX_CONFIG")"
 
-if ! "$runtime/bin/python" -c 'import vllm.benchmarks.benchmark_serving' >/dev/null 2>&1; then
-  echo "Pinned vLLM runtime does not expose vllm.benchmarks.benchmark_serving" >&2
+if ! "$runtime/bin/vllm" bench serve --help >/dev/null 2>&1; then
+  echo "Pinned vLLM runtime does not expose: vllm bench serve" >&2
   exit 1
 fi
 
