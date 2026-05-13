@@ -11,6 +11,7 @@ TimeoutStartSec=0
 TimeoutStopSec=30
 PassEnvironment=HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VLLM_API_KEY
 EnvironmentFile=%h/.config/vllm/%i.env
+Environment=VLLM_INSTANCE=%i
 Environment=VLLM_NIX_CONFIG=%h/.config/nix/vllm-runtime.nix
 Environment=VLLM_RUNTIME_DIR=%C/vllm-%i
 Environment=HF_HUB_ETAG_TIMEOUT=60
