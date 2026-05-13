@@ -45,7 +45,7 @@ run_case() {
 
   echo
   echo "=== $name ==="
-  echo "served_model=$MODEL tokenizer=$TOKENIZER base_url=$BASE_URL prompts=$num_prompts input=$input_len output=$output_len"
+  echo "served_model=$MODEL tokenizer=$TOKENIZER base_url=$BASE_URL prompts=$num_prompts concurrency=2 input=$input_len output=$output_len"
   "$runtime/bin/vllm" bench serve \
     --backend openai-chat \
     --base-url "$BASE_URL" \
@@ -54,6 +54,7 @@ run_case() {
     --model "$MODEL" \
     --tokenizer "$TOKENIZER" \
     --num-prompts "$num_prompts" \
+    --max-concurrency 2 \
     --random-input-len "$input_len" \
     --random-output-len "$output_len" \
     "${auth_args[@]}"
