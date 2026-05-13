@@ -45,13 +45,14 @@ run_case() {
 
   echo
   echo "=== $name ==="
-  echo "model=$MODEL base_url=$BASE_URL prompts=$num_prompts input=$input_len output=$output_len"
+  echo "served_model=$MODEL tokenizer=$TOKENIZER base_url=$BASE_URL prompts=$num_prompts input=$input_len output=$output_len"
   "$runtime/bin/vllm" bench serve \
     --backend openai-chat \
     --base-url "$BASE_URL" \
     --endpoint /v1/chat/completions \
     --dataset-name random \
     --model "$MODEL" \
+    --tokenizer "$TOKENIZER" \
     --num-prompts "$num_prompts" \
     --random-input-len "$input_len" \
     --random-output-len "$output_len" \
@@ -63,12 +64,29 @@ load_env_key "$benchmark_env" BASE_URL
 load_env_key "$benchmark_env" MODEL
 load_env_key "$benchmark_env" VLLM_API_KEY
 
+instance="$(basename "$(dirname "$benchmark_env")")"
+instance="${instance#vllm-}"
+instance_env="$HOME/.config/vllm/${instance}.env"
+if [ -r "$instance_env" ]; then
+  load_env_key "$instance_env" TOKENIZER
+  if [ -z "${TOKENIZER:-}" ]; then
+    load_env_key "$instance_env" MODEL
+    TOKENIZER="$MODEL"
+    load_env_key "$benchmark_env" MODEL
+  fi
+fi
+
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 BASE_URL="${BASE_URL%/}"
 BASE_URL="${BASE_URL%/v1}"
 MODEL="${MODEL:-}"
+TOKENIZER="${TOKENIZER:-$MODEL}"
 if [ -z "$MODEL" ]; then
   echo "MODEL missing from $benchmark_env" >&2
+  exit 1
+fi
+if [ -z "$TOKENIZER" ]; then
+  echo "TOKENIZER missing; expected MODEL in $instance_env" >&2
   exit 1
 fi
 
@@ -89,5 +107,5 @@ fi
 echo "Using benchmark env: $benchmark_env"
 echo "Using vLLM runtime: $runtime"
 
-run_case "Crush-style short requests" 32 1024 128
-run_case "Fusion-style long-context requests" 8 48000 512
+run_case "Small requests" 32 1024 128
+run_case "Long-context requests" 8 48000 512
