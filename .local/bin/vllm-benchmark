@@ -61,7 +61,7 @@ write_summary() {
   local slug="$2"
   local file="$artifact_dir/${slug}.log"
   local out="$artifact_dir/${slug}.summary.env"
-  local duration input_tokens output_tokens req_tps output_tps total_tps mean_ttft median_ttft p99_ttft mean_tpot mean_itl
+  local duration input_tokens output_tokens req_tps output_tps total_tps mean_ttft median_ttft p99_ttft mean_tpot mean_itl prefill_tps
 
   duration="$(metric_value 'Benchmark duration (s)' "$file")"
   input_tokens="$(metric_value 'Total input tokens' "$file")"
@@ -126,8 +126,9 @@ capture_metadata() {
     echo "runtime=$runtime"
     echo "vllm_nix_config=$VLLM_NIX_CONFIG"
     echo "max_concurrency=2"
-    echo "small_requests=prompts:32,input:1024,output:128"
-    echo "long_context_requests=prompts:8,input:48000,output:512"
+    echo "small_requests=prompts:${SMALL_PROMPTS},input:${SMALL_INPUT_LEN},output:${SMALL_OUTPUT_LEN}"
+    echo "medium_requests=prompts:${MEDIUM_PROMPTS},input:${MEDIUM_INPUT_LEN},output:${MEDIUM_OUTPUT_LEN}"
+    echo "long_context_requests=prompts:${LONG_PROMPTS},input:${LONG_INPUT_LEN},output:${LONG_OUTPUT_LEN}"
   } > "$artifact_dir/metadata.env"
 
   systemctl --user --no-pager -l status "vllm@${instance}.service" fusion.service > "$artifact_dir/systemd-status.txt" 2>&1 || true
@@ -173,6 +174,7 @@ run_case() {
     --max-concurrency 2 \
     --random-input-len "$input_len" \
     --random-output-len "$output_len" \
+    --temperature 0 \
     "${auth_args[@]}" 2>&1 | tee "$log_file"
   rc="${PIPESTATUS[0]}"
   set -e
@@ -214,6 +216,16 @@ if [ -z "$TOKENIZER" ]; then
   exit 1
 fi
 
+SMALL_PROMPTS="${SMALL_PROMPTS:-4}"
+SMALL_INPUT_LEN="${SMALL_INPUT_LEN:-1024}"
+SMALL_OUTPUT_LEN="${SMALL_OUTPUT_LEN:-32}"
+MEDIUM_PROMPTS="${MEDIUM_PROMPTS:-4}"
+MEDIUM_INPUT_LEN="${MEDIUM_INPUT_LEN:-4096}"
+MEDIUM_OUTPUT_LEN="${MEDIUM_OUTPUT_LEN:-64}"
+LONG_PROMPTS="${LONG_PROMPTS:-2}"
+LONG_INPUT_LEN="${LONG_INPUT_LEN:-48000}"
+LONG_OUTPUT_LEN="${LONG_OUTPUT_LEN:-64}"
+
 auth_args=()
 if [ -n "${VLLM_API_KEY:-}" ]; then
   auth_args+=(--header "Authorization=Bearer $VLLM_API_KEY")
@@ -243,9 +255,12 @@ echo "Using vLLM runtime: $runtime"
 echo "Benchmark artifact directory: $artifact_dir"
 
 status=success
-run_case "Small requests" "small-requests" 32 1024 128 || status=failed
+run_case "Small requests" "small-requests" "$SMALL_PROMPTS" "$SMALL_INPUT_LEN" "$SMALL_OUTPUT_LEN" || status=failed
 if [ "$status" = success ]; then
-  run_case "Long-context requests" "long-context-requests" 8 48000 512 || status=failed
+  run_case "Medium requests" "medium-requests" "$MEDIUM_PROMPTS" "$MEDIUM_INPUT_LEN" "$MEDIUM_OUTPUT_LEN" || status=failed
+fi
+if [ "$status" = success ]; then
+  run_case "Long-context requests" "long-context-requests" "$LONG_PROMPTS" "$LONG_INPUT_LEN" "$LONG_OUTPUT_LEN" || status=failed
 fi
 
 finish_archive "$status"
