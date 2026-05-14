@@ -5,7 +5,7 @@
   "defaultProvider": "local-vllm",
   "defaultModelId": "qwen3.6-27b",
   "fallbackProvider": "local-vllm",
-  "fallbackModelId": "qwen3.6-27b",
+  "fallbackModelId": "qwen3.6-35b-a3b",
   "ntfyEnabled": false,
   "ntfyTopic": "fusion",
   "ntfyEvents": [
@@ -39,7 +39,9 @@
   "settingsSyncAuth": false,
   "settingsSyncInterval": 900000,
   "settingsSyncConflictResolution": "last-write-wins",
-  "dashboardCurrentProjectIdByNode": {},
+  "dashboardCurrentProjectIdByNode": {
+    "local": "proj_001efce040d44041"
+  },
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
   "persistAgentToolOutput": true,
