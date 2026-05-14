@@ -72,11 +72,14 @@ pkgs.stdenvNoCC.mkDerivation {
   installPhase = ''
     mkdir -p "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
-    cp -a ${fusionNpmPayload}/bin/. "$out/bin/"
+
+    for src in ${fusionNpmPayload}/bin/*; do
+      [ -e "$src" ] || continue
+      install -m 0755 -D "$src" "$out/bin/$(basename "$src")"
+    done
 
     for bin in "$out"/bin/*; do
       [ -f "$bin" ] || continue
-      [ -x "$bin" ] || chmod +x "$bin"
       wrapProgram "$bin" \
         --prefix PATH : ${runtimePath}:"$out/bin" \
         --set NODE_PATH "$out/lib/node_modules" \
