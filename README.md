@@ -121,7 +121,9 @@ The vLLM/Fusion workflow is target-based. Only one vLLM model target should run 
 - `vllm-qwen3.6-35B-a3b.target` starts `vllm@qwen3.6-35B-a3b.service`
 - `vllm-qwen3.6-27B.target` starts `vllm@qwen3.6-27B.service`
 
-Each target also pulls in `fusion.service`. The selected `vllm@...service` patches local Crush/Fusion/Pi defaults, starts the model, and waits for `GET /v1/models` to respond before Fusion is allowed to start. Fusion is stopped and started during model switches so it rereads changed config files.
+Use `vllm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
+
+The target starts only the selected vLLM service. The vLLM service then patches local Crush/Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vllm@...service`.
 
 Pick the model interactively:
 
@@ -136,6 +138,34 @@ vllm-config qwen3.6-35B-a3b
 vllm-config qwen3.6-27B
 ```
 
+Verify which target will start with the user systemd session:
+
+```bash
+systemctl --user is-enabled vllm-qwen3.6-35B-a3b.target
+systemctl --user is-enabled vllm-qwen3.6-27B.target
+```
+
+The selected target should be `enabled`; the other target should be `disabled`.
+
+User systemd services start when the user manager starts. To start the selected vLLM target after reboot before an interactive login, enable lingering once:
+
+```bash
+loginctl show-user "$USER" -p Linger
+sudo loginctl enable-linger "$USER"
+```
+
+After lingering is enabled, re-check:
+
+```bash
+loginctl show-user "$USER" -p Linger
+```
+
+Expected:
+
+```text
+Linger=yes
+```
+
 Watch startup progress:
 
 ```bash
@@ -146,29 +176,33 @@ journalctl --user-unit fusion.service -f
 
 For the 27B target, replace `35B-a3b` with `27B` in the commands above.
 
-Both model configurations use at least 48k context and 2 parallel sequences. Benchmark commands should exercise both Crush-style short/medium requests and Fusion-style long-context requests:
+Both model configurations use at least 48k context and 2 parallel sequences. The current default local winner is `qwen3.6-35B-a3b`; `qwen3.6-27B` is kept available as an experimental/secondary target.
+
+Run the benchmark wrapper instead of invoking vLLM's Python module directly:
 
 ```bash
-# Short/medium interactive requests
-python -m vllm.benchmarks.benchmark_serving \
-  --backend openai-chat \
-  --base-url http://127.0.0.1:8000 \
-  --model qwen3.6-35b-a3b \
-  --num-prompts 32 \
-  --random-input-len 1024 \
-  --random-output-len 128
-
-# Long-context Fusion-style requests
-python -m vllm.benchmarks.benchmark_serving \
-  --backend openai-chat \
-  --base-url http://127.0.0.1:8000 \
-  --model qwen3.6-35b-a3b \
-  --num-prompts 8 \
-  --random-input-len 48000 \
-  --random-output-len 512
+vllm-benchmark
 ```
 
-Use `--model qwen3.6-27b` after selecting the 27B target.
+`vllm-benchmark` reads the selected model from the latest `~/.cache/vllm-*/benchmark.env`, uses the pinned Nix vLLM runtime, caps benchmark concurrency at 2, and runs small, medium, and long-context random request cases. It writes logs, summaries, systemd status, vLLM/Fusion journals, runtime metadata, process state, and GPU state to a timestamped tarball under:
+
+```bash
+~/.cache/vllm-benchmarks/
+```
+
+The default cases are:
+
+```text
+Small:  prompts=4, input=1024,  output=32, concurrency=2
+Medium: prompts=4, input=4096,  output=64, concurrency=2
+Long:   prompts=2, input=48000, output=64, concurrency=2
+```
+
+Any case can be overridden from the environment:
+
+```bash
+SMALL_PROMPTS=8 SMALL_OUTPUT_LEN=64 LONG_PROMPTS=1 vllm-benchmark
+```
 
 #### Fusion
 
