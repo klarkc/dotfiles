@@ -52,10 +52,16 @@ selected_service="vllm@${pick}.service"
 fusion_service="fusion.service"
 all_targets=()
 all_services=()
+other_targets=()
 for item in "${choices[@]}"; do
   key="${item%%:*}"
-  all_targets+=("vllm-${key}.target")
-  all_services+=("vllm@${key}.service")
+  target="vllm-${key}.target"
+  service="vllm@${key}.service"
+  all_targets+=("$target")
+  all_services+=("$service")
+  if [ "$target" != "$selected_target" ]; then
+    other_targets+=("$target")
+  fi
 done
 
 unit_state() {
@@ -66,8 +72,14 @@ since="$(date --iso-8601=seconds)"
 printf 'Stopping Fusion and vLLM units through systemd...\n'
 systemctl --user stop "$fusion_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
-printf 'Starting selected target: %s\n' "$selected_target"
+printf 'Persisting selected target: %s\n' "$selected_target"
 systemctl --user daemon-reload
+if [ "${#other_targets[@]}" -gt 0 ]; then
+  systemctl --user disable "${other_targets[@]}" 2>/dev/null || true
+fi
+systemctl --user enable "$selected_target"
+
+printf 'Starting selected target: %s\n' "$selected_target"
 systemctl --user reset-failed "$fusion_service" "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
 systemctl --user start --no-block "$selected_target"
 
