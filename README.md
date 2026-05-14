@@ -72,7 +72,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin brave-bin crush btdu
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin crush btdu
 ```
 
 > Lumen
@@ -206,17 +206,27 @@ SMALL_PROMPTS=8 SMALL_OUTPUT_LEN=64 LONG_PROMPTS=1 vllm-benchmark
 
 #### Fusion
 
-Fusion is packaged by `.config/nix/fusion-npm.nix` and launched by the sandboxed user service. The service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
+Fusion is packaged by `.config/nix/fusion-npm.nix` and launched by the sandboxed user service. The service runs the long-lived Fusion dashboard/server process directly under systemd; it no longer owns a `tmux` session.
 
 The Nix package preserves the npm global-install layout enough for Fusion to detect its installed package, but the package itself lives in the immutable Nix store. Do not use Fusion's self-update flow for this setup. Upgrade Fusion by bumping the version and fixed-output hash in `.config/nix/fusion-npm.nix`, then restart `fusion.service` or select a vLLM target with `vllm-config` so Fusion is restarted after model readiness.
 
-Attach to the running Fusion TUI:
+Fusion 0.29 exposes `fn dashboard`/`fusion dashboard` as the command that starts the dashboard/server. There is currently no known CLI command that attaches a terminal UI to an already-running dashboard instance. Use the browser for the running dashboard:
+
+```bash
+xdg-open http://127.0.0.1:4040
+```
+
+`fusion-attach` is intentionally a log observer for now:
 
 ```bash
 fusion-attach
 ```
 
-Detach without stopping Fusion with `Ctrl-a d`. Service logs are also available with:
+It starts `fusion.service` if needed, then tails `journalctl --user-unit fusion.service`. Do not make `fusion-attach` start another `fusion dashboard`; that creates duplicate dashboard instances, port conflicts on `4040`, and Fusion peer/service-name collisions.
+
+Trail tip for future agents: when upstream lands a real "connect to existing dashboard" or terminal UI attach command, replace `fusion-attach`'s journal tail with that command. Keep `fusion.service` as the single owner of the long-running dashboard/server process.
+
+Service logs are available with:
 
 ```bash
 journalctl --user -u fusion.service -f
@@ -232,4 +242,4 @@ To customize a `.dotfile` you can write a corresponding `.dotfile_override`.
 
 ## Commit Guidelines
 
-See `COMMIT_GUIDELINES.md`.
+See `COMMIT_GUIDELINES.md.
