@@ -22,7 +22,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-MecG3e3enOJSjA7LVhT8/GimkObIW9qS+tYg6Hn1yXU=";
+    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
@@ -30,6 +30,8 @@ let
       export npm_config_update_notifier=false
       export npm_config_fund=false
       export npm_config_audit=false
+      export NODE_LLAMA_CPP_SKIP_DOWNLOAD=1
+      export NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 
       mkdir -p "$HOME" "$npm_config_cache" "$out"
 
@@ -38,7 +40,8 @@ let
         --cache "$npm_config_cache" \
         --no-audit \
         --no-fund \
-        @runfusion/fusion@0.29.0
+        @runfusion/fusion@0.29.0 \
+        @tobilu/qmd@2.1.0
     '';
   };
 
