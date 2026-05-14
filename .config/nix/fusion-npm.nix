@@ -72,11 +72,19 @@ pkgs.stdenvNoCC.mkDerivation {
   installPhase = ''
     mkdir -p "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
+    cp -a ${fusionNpmPayload}/bin/. "$out/bin/"
 
-    makeWrapper ${pkgs.nodejs}/bin/node "$out/bin/fusion" \
-      --prefix PATH : ${runtimePath} \
-      --add-flags "$out/lib/node_modules/@runfusion/fusion/dist/bin.js"
+    for bin in "$out"/bin/*; do
+      [ -f "$bin" ] || continue
+      [ -x "$bin" ] || chmod +x "$bin"
+      wrapProgram "$bin" \
+        --prefix PATH : ${runtimePath}:"$out/bin" \
+        --set NODE_PATH "$out/lib/node_modules" \
+        --set NPM_CONFIG_PREFIX "$out" \
+        --set npm_config_prefix "$out" \
+        --set npm_config_global true
+    done
 
-    ln -s ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
+    ln -sf ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
   '';
 }
