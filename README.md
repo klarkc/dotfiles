@@ -208,6 +208,8 @@ SMALL_PROMPTS=8 SMALL_OUTPUT_LEN=64 LONG_PROMPTS=1 vllm-benchmark
 
 Fusion is packaged by `.config/nix/fusion-npm.nix` and launched by the sandboxed user service. The service starts Fusion inside a named `tmux` session so the web dashboard runs under systemd while the interactive TUI remains attachable.
 
+The Nix package preserves the npm global-install layout enough for Fusion to detect its installed package, but the package itself lives in the immutable Nix store. Do not use Fusion's self-update flow for this setup. Upgrade Fusion by bumping the version and fixed-output hash in `.config/nix/fusion-npm.nix`, then restart `fusion.service` or select a vLLM target with `vllm-config` so Fusion is restarted after model readiness.
+
 Attach to the running Fusion TUI:
 
 ```bash
