@@ -16,6 +16,8 @@
     "awaiting-user-review",
     "planning-awaiting-input"
   ],
+  "failureNotificationDelayMs": 30000,
+  "failureNotificationMode": "sticky-only",
   "webhookEnabled": false,
   "webhookFormat": "generic",
   "webhookEvents": [],
@@ -45,6 +47,8 @@
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
   "persistAgentToolOutput": true,
+  "persistAgentThinkingLogPermanent": false,
+  "persistAgentThinkingLogEphemeral": false,
   "persistAgentThinkingLog": false,
   "researchGlobalDefaults": {
     "enabledSources": {
