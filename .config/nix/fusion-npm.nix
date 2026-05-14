@@ -41,7 +41,10 @@ let
         --no-audit \
         --no-fund \
         @runfusion/fusion@0.29.0 \
-        @tobilu/qmd@2.1.0
+        @tobilu/qmd@2.1.0 \
+        node-pty \
+        dockerode \
+        send
     '';
   };
 
