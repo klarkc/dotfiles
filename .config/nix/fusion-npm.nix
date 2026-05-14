@@ -63,35 +63,50 @@ pkgs.stdenvNoCC.mkDerivation {
   pname = "fusion-runtime";
   version = "0.29.0";
 
-  nativeBuildInputs = with pkgs; [
-    makeWrapper
-  ];
-
   dontUnpack = true;
 
   installPhase = ''
     mkdir -p "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
 
+    make_npm_bin_wrapper() {
+      src="$1"
+      name="$(basename "$src")"
+      resolved="$(readlink -f "$src")"
+      case "$resolved" in
+        ${fusionNpmPayload}/lib/node_modules/*)
+          target="$out/lib/node_modules/''${resolved#${fusionNpmPayload}/lib/node_modules/}"
+          ;;
+        *)
+          echo "Unsupported npm bin target for $name: $resolved" >&2
+          exit 1
+          ;;
+      esac
+
+      cat > "$out/bin/$name" <<EOF
+#!/bin/sh
+export PATH="${runtimePath}:$out/bin:\$PATH"
+export NODE_PATH="$out/lib/node_modules"
+export NPM_CONFIG_PREFIX="$out"
+export npm_config_prefix="$out"
+export npm_config_global=true
+exec "$target" "\$@"
+EOF
+      chmod 0755 "$out/bin/$name"
+    }
+
     for src in ${fusionNpmPayload}/bin/*; do
       [ -e "$src" ] || continue
-      install -m 0755 -D "$src" "$out/bin/$(basename "$src")"
+      make_npm_bin_wrapper "$src"
     done
 
     if [ ! -e "$out/bin/fusion" ] && [ -e "$out/bin/fn" ]; then
-      cp "$out/bin/fn" "$out/bin/fusion"
+      cat > "$out/bin/fusion" <<EOF
+#!/bin/sh
+exec "$out/bin/fn" "\$@"
+EOF
       chmod 0755 "$out/bin/fusion"
     fi
-
-    for bin in "$out"/bin/*; do
-      [ -f "$bin" ] || continue
-      wrapProgram "$bin" \
-        --prefix PATH : ${runtimePath}:"$out/bin" \
-        --set NODE_PATH "$out/lib/node_modules" \
-        --set NPM_CONFIG_PREFIX "$out" \
-        --set npm_config_prefix "$out" \
-        --set npm_config_global true
-    done
 
     ln -sf ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
   '';
