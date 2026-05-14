@@ -78,6 +78,11 @@ pkgs.stdenvNoCC.mkDerivation {
       install -m 0755 -D "$src" "$out/bin/$(basename "$src")"
     done
 
+    if [ ! -e "$out/bin/fusion" ] && [ -e "$out/bin/fn" ]; then
+      cp "$out/bin/fn" "$out/bin/fusion"
+      chmod 0755 "$out/bin/fusion"
+    fi
+
     for bin in "$out"/bin/*; do
       [ -f "$bin" ] || continue
       wrapProgram "$bin" \
