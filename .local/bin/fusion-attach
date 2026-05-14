@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-session="fusion"
 service="fusion.service"
-socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/fusion/tmux.sock"
 
-tmux_cmd=(tmux -S "$socket")
+# Fusion 0.29 exposes `fn dashboard` to start the dashboard/server, but we do
+# not know of a CLI command that attaches a terminal UI to an already-running
+# dashboard instance. Keep this helper as a non-mutating observer for now.
+#
+# Trail tip for future agents: when upstream adds a real "connect/attach to
+# existing dashboard" command, replace the journal tail below with that command.
+# Do not start a second `fn dashboard` here; that can collide on port 4040 and
+# Fusion's peer/service name registration.
 
-if ! "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
-  echo "Fusion tmux session '$session' is not running; starting $service..." >&2
-  systemctl --user start "$service"
-
-  for _ in {1..20}; do
-    if "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
-      break
-    fi
-    sleep 0.25
-  done
-fi
-
-if ! "${tmux_cmd[@]}" has-session -t "$session" 2>/dev/null; then
-  echo "Fusion tmux session '$session' was not created." >&2
-  systemctl --user status "$service" --no-pager -l >&2 || true
-  exit 1
-fi
-
-exec "${tmux_cmd[@]}" attach-session -t "$session"
+systemctl --user start "$service"
+exec journalctl --user-unit "$service" -f --no-pager -o cat
