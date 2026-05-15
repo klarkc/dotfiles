@@ -11,3 +11,4 @@ jobs:
         id: release
         with:
           release-type: simple
+          initial-version: 3.0.0
