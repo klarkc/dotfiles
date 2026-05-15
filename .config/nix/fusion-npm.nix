@@ -104,6 +104,9 @@ pkgs.stdenv.mkDerivation {
       --no-audit \
       --no-fund
 
+    rm -rf "$out/bin"
+    mkdir -p "$out/bin"
+
     make_npm_bin_wrapper() {
       src="$1"
       name="$(basename "$src")"
