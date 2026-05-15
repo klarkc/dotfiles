@@ -11,13 +11,16 @@ let
     system = builtins.currentSystem;
   };
 
-  fusionNpmPayload = pkgs.stdenvNoCC.mkDerivation {
+  fusionNpmPayload = pkgs.stdenv.mkDerivation {
     pname = "fusion-npm-payload";
     version = "0.29.0";
 
     nativeBuildInputs = with pkgs; [
       cacert
+      gnumake
       nodejs
+      pkg-config
+      python3
     ];
 
     outputHashAlgo = "sha256";
@@ -32,6 +35,8 @@ let
       export npm_config_audit=false
       export NODE_LLAMA_CPP_SKIP_DOWNLOAD=1
       export NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
+      export PYTHON="${pkgs.python3}/bin/python3"
+      export npm_config_python="$PYTHON"
 
       mkdir -p "$HOME" "$npm_config_cache" "$out"
 
