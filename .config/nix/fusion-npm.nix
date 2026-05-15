@@ -11,16 +11,13 @@ let
     system = builtins.currentSystem;
   };
 
-  fusionNpmPayload = pkgs.stdenv.mkDerivation {
+  fusionNpmPayload = pkgs.stdenvNoCC.mkDerivation {
     pname = "fusion-npm-payload";
     version = "0.29.0";
 
     nativeBuildInputs = with pkgs; [
       cacert
-      gnumake
       nodejs
-      pkg-config
-      python3
     ];
 
     outputHashAlgo = "sha256";
@@ -35,12 +32,11 @@ let
       export npm_config_audit=false
       export NODE_LLAMA_CPP_SKIP_DOWNLOAD=1
       export NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
-      export PYTHON="${pkgs.python3}/bin/python3"
-      export npm_config_python="$PYTHON"
 
       mkdir -p "$HOME" "$npm_config_cache" "$out"
 
       npm install --global \
+        --ignore-scripts \
         --prefix "$out" \
         --cache "$npm_config_cache" \
         --no-audit \
@@ -70,15 +66,45 @@ let
     uv
   ]);
 in
-pkgs.stdenvNoCC.mkDerivation {
+pkgs.stdenv.mkDerivation {
   pname = "fusion-runtime";
   version = "0.29.0";
+
+  nativeBuildInputs = with pkgs; [
+    gnumake
+    nodejs
+    pkg-config
+    python3
+  ];
 
   dontUnpack = true;
 
   installPhase = ''
-    mkdir -p "$out/bin" "$out/lib"
+    export HOME="$TMPDIR/home"
+    export npm_config_cache="$TMPDIR/npm-cache"
+    export npm_config_update_notifier=false
+    export npm_config_fund=false
+    export npm_config_audit=false
+    export NODE_LLAMA_CPP_SKIP_DOWNLOAD=1
+    export NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
+    export PYTHON="${pkgs.python3}/bin/python3"
+    export npm_config_python="$PYTHON"
+    export npm_config_build_from_source=true
+    export npm_config_nodedir="${pkgs.nodejs}"
+
+    mkdir -p "$HOME" "$npm_config_cache" "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
+    cp -a ${fusionNpmPayload}/bin/. "$out/bin/" 2>/dev/null || true
+
+    npm rebuild \
+      --prefix "$out" \
+      --cache "$npm_config_cache" \
+      --build-from-source \
+      --no-audit \
+      --no-fund
+
+    rm -rf "$out/bin"
+    mkdir -p "$out/bin"
 
     make_npm_bin_wrapper() {
       src="$1"
