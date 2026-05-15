@@ -32,7 +32,7 @@ ProtectHome=read-only
 ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-InaccessiblePaths=%h/.codex/auth.json
+InaccessiblePaths=%h/.codex
 
 ReadOnlyPaths=%h/.config/nix/fusion-npm.nix
 ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %C/fusion-systemd %h/.config/qmd %t/fusion
