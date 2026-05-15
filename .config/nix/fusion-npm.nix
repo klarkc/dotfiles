@@ -95,7 +95,7 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$HOME" "$npm_config_cache" "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
 
-    npm rebuild \
+    npm rebuild --global \
       --prefix "$out" \
       --cache "$npm_config_cache" \
       --build-from-source \
