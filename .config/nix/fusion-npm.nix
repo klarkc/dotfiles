@@ -125,7 +125,7 @@ export NODE_PATH="$out/lib/node_modules"
 export NPM_CONFIG_PREFIX="$out"
 export npm_config_prefix="$out"
 export npm_config_global=true
-exec "$target" "\$@"
+exec "${pkgs.nodejs}/bin/node" "$target" "\$@"
 EOF
       chmod 0755 "$out/bin/$name"
     }
