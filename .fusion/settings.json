@@ -38,7 +38,7 @@
   "settingsSyncInterval": 900000,
   "settingsSyncConflictResolution": "last-write-wins",
   "dashboardCurrentProjectIdByNode": {
-    "local": "proj_001efce040d44041"
+    "local": "proj_d08d6acb33834e40"
   },
   "vitestAutoKillEnabled": true,
   "vitestKillThresholdPct": 90,
