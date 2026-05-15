@@ -24,28 +24,6 @@ VLLM_MAX_TOKENS=$max_tokens
 VLLM_MAX_NUM_SEQS=$max_num_seqs
 EOF
 
-fusion_settings="$HOME/.fusion/settings.json"
-if [ -f "$fusion_settings" ]; then
-  python3 - "$fusion_settings" "$model_id" <<'PY'
-import json
-import os
-import sys
-
-path, model_id = sys.argv[1:]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-if not isinstance(data, dict):
-    raise SystemExit(f'{path} must contain a JSON object')
-data['fallbackProvider'] = 'local-vllm'
-data['fallbackModelId'] = model_id
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-os.replace(tmp, path)
-PY
-fi
-
 crush_config="$HOME/.config/crush/crush.json"
 if [ -f "$crush_config" ]; then
   python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url" <<'PY'
@@ -77,7 +55,7 @@ with open(path, 'r', encoding='utf-8') as f:
 vllm = data.setdefault('providers', {}).setdefault('vllm', {})
 vllm['name'] = 'vLLM'
 vllm['base_url'] = base_url
-vllm['api_key'] = '$VLLM_API_KEY'
+vllm['api_key'] = '$' + 'VLLM_API_KEY'
 vllm['type'] = 'openai-compat'
 vllm['models'] = models
 tmp = path + '.tmp'
