@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        branch: [host-example]
+        branch: [ssdinarch]
     steps:
       - uses: actions/checkout@v4
         with:
