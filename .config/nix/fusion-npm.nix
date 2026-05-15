@@ -94,7 +94,6 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p "$HOME" "$npm_config_cache" "$out/bin" "$out/lib"
     cp -a ${fusionNpmPayload}/lib/node_modules "$out/lib/"
-    cp -a ${fusionNpmPayload}/bin/. "$out/bin/" 2>/dev/null || true
 
     npm rebuild \
       --prefix "$out" \
@@ -102,9 +101,6 @@ pkgs.stdenv.mkDerivation {
       --build-from-source \
       --no-audit \
       --no-fund
-
-    rm -rf "$out/bin"
-    mkdir -p "$out/bin"
 
     make_npm_bin_wrapper() {
       src="$1"
