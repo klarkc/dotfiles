@@ -128,7 +128,7 @@ export NODE_PATH="$out/lib/node_modules"
 export NPM_CONFIG_PREFIX="$out"
 export npm_config_prefix="$out"
 export npm_config_global=true
-exec "${pkgs.nodejs}/bin/node" "$target" "\$@"
+exec "$target" "\$@"
 EOF
       chmod 0755 "$out/bin/$name"
     }
@@ -147,5 +147,8 @@ EOF
     fi
 
     ln -sf ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
+
+    "$out/bin/fusion" --version >/dev/null
+    "$out/bin/qmd" --help >/dev/null
   '';
 }
