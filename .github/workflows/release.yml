@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - main
+      - host-example
 name: release
 jobs:
   release:
