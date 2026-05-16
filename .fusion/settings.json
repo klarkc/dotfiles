@@ -2,9 +2,9 @@
   "themeMode": "system",
   "colorTheme": "nord",
   "dashboardFontScalePct": 100,
-  "defaultProvider": "vllm",
+  "defaultProvider": "local-vllm",
   "defaultModelId": "qwen3.6-35b-a3b",
-  "fallbackProvider": "vllm",
+  "fallbackProvider": "local-vllm",
   "fallbackModelId": "qwen3.6-35b-a3b",
   "ntfyEnabled": false,
   "ntfyTopic": "fusion",
@@ -22,25 +22,7 @@
   "webhookFormat": "generic",
   "webhookEvents": [],
   "notificationProviders": [],
-  "customProviders": [
-    {
-      "id": "vllm",
-      "name": "vLLM",
-      "apiType": "openai-compatible",
-      "baseUrl": "http://localhost:8000/v1/",
-      "apiKey": "VLLM_API_KEY",
-      "models": [
-        {
-          "id": "qwen3.6-35b-a3b",
-          "name": "Qwen3.6 35B A3B"
-        },
-        {
-          "id": "qwen3.6-27b",
-          "name": "Qwen3.6 27B"
-        }
-      ]
-    }
-  ],
+  "customProviders": [],
   "favoriteProviders": [],
   "favoriteModels": [
     "qwen3.6-35b-a3b"
