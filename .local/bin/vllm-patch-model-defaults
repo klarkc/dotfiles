@@ -105,7 +105,7 @@ provider = {
     'name': 'local-vllm',
     'baseUrl': base_url,
     'api': 'openai-completions',
-    'apiKey': 'unused',
+    'apiKey': 'VLLM_API_KEY',
     'compat': {
         'supportsDeveloperRole': False,
         'supportsReasoningEffort': False,
