@@ -50,6 +50,7 @@
   "persistAgentThinkingLogPermanent": false,
   "persistAgentThinkingLogEphemeral": false,
   "persistAgentThinkingLog": false,
+  "agentMemoryInclusionMode": "full",
   "researchGlobalDefaults": {
     "enabledSources": {
       "webSearch": true,
