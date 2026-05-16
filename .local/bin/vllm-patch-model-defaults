@@ -7,7 +7,7 @@ raw_context_window="${MAX_MODEL_LEN:-49152}"
 max_tokens="${DEFAULT_MAX_TOKENS:-4096}"
 max_num_seqs="${MAX_NUM_SEQS:-2}"
 port="${PORT:-8000}"
-base_url="http://localhost:${port}/v1/"
+base_url="http://localhost:${port}/v1"
 client_context_window="$(( raw_context_window - ((max_tokens * 3) / 2) ))"
 if [ "$client_context_window" -lt 1024 ]; then
   client_context_window=1024
@@ -26,41 +26,21 @@ EOF
 
 fusion_settings="$HOME/.fusion/settings.json"
 if [ -f "$fusion_settings" ]; then
-  python3 - "$fusion_settings" "$model_id" "$base_url" <<'PY'
+  python3 - "$fusion_settings" "$model_id" <<'PY'
 import json
 import os
 import sys
 
-path, model_id, base_url = sys.argv[1:]
-models = [
-    {'id': 'qwen3.6-35b-a3b', 'name': 'Qwen3.6 35B A3B'},
-    {'id': 'qwen3.6-27b', 'name': 'Qwen3.6 27B'},
-]
+path, model_id = sys.argv[1:]
 with open(path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 if not isinstance(data, dict):
     raise SystemExit(f'{path} must contain a JSON object')
-providers = data.setdefault('customProviders', [])
-if not isinstance(providers, list):
-    providers = []
-    data['customProviders'] = providers
-provider = None
-for item in providers:
-    if isinstance(item, dict) and item.get('id') == 'vllm':
-        provider = item
-        break
-if provider is None:
-    provider = {'id': 'vllm'}
-    providers.append(provider)
-provider['name'] = 'vLLM'
-provider['apiType'] = 'openai-compatible'
-provider['baseUrl'] = base_url
-provider['apiKey'] = 'VLLM_API_KEY'
-provider['models'] = models
-data['defaultProvider'] = 'vllm'
+data['defaultProvider'] = 'local-vllm'
 data['defaultModelId'] = model_id
-data['fallbackProvider'] = 'vllm'
+data['fallbackProvider'] = 'local-vllm'
 data['fallbackModelId'] = model_id
+data['customProviders'] = []
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2)
@@ -69,9 +49,65 @@ os.replace(tmp, path)
 PY
 fi
 
+pi_models="$HOME/.pi/agent/models.json"
+python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" <<'PY'
+import json
+import os
+import sys
+
+path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
+context_window = int(context_window)
+max_tokens = int(max_tokens)
+max_num_seqs = int(max_num_seqs)
+models = [
+    {
+        'id': 'qwen3.6-35b-a3b',
+        'name': 'Qwen3.6 35B A3B',
+        'reasoning': True,
+        'input': ['text'],
+        'contextWindow': context_window,
+        'maxTokens': max_tokens,
+        'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
+    },
+    {
+        'id': 'qwen3.6-27b',
+        'name': 'Qwen3.6 27B',
+        'reasoning': True,
+        'input': ['text'],
+        'contextWindow': context_window,
+        'maxTokens': max_tokens,
+        'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
+    },
+]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+providers = data.setdefault('providers', {})
+providers['local-vllm'] = {
+    'baseUrl': base_url,
+    'api': 'openai-completions',
+    'compat': {
+        'supportsDeveloperRole': False,
+        'supportsReasoningEffort': False,
+        'maxTokensField': 'max_tokens',
+    },
+    'models': models,
+}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+os.replace(tmp, path)
+PY
+
 crush_config="$HOME/.config/crush/crush.json"
 if [ -f "$crush_config" ]; then
-  python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url" <<'PY'
+  python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url/" <<'PY'
 import json
 import os
 import sys
@@ -103,53 +139,6 @@ vllm['base_url'] = base_url
 vllm['api_key'] = '$' + 'VLLM_API_KEY'
 vllm['type'] = 'openai-compat'
 vllm['models'] = models
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-os.replace(tmp, path)
-PY
-fi
-
-pi_models="$HOME/.pi/agent/models.json"
-if [ -f "$pi_models" ]; then
-  python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" <<'PY'
-import json
-import os
-import sys
-
-path, context_window, max_tokens, max_num_seqs = sys.argv[1:]
-context_window = int(context_window)
-max_tokens = int(max_tokens)
-max_num_seqs = int(max_num_seqs)
-model_ids = {'qwen3.6-35b-a3b', 'qwen3.6-27b'}
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-def is_model_entry(obj):
-    if not isinstance(obj, dict):
-        return False
-    return any(obj.get(field) in model_ids for field in ('id', 'model', 'modelId'))
-
-def patch(obj):
-    if isinstance(obj, dict):
-        if is_model_entry(obj):
-            for key in ('contextWindow', 'context_window', 'maxContextTokens', 'max_context_tokens'):
-                if key in obj:
-                    obj[key] = context_window
-            for key in ('maxTokens', 'max_tokens', 'defaultMaxTokens', 'default_max_tokens'):
-                if key in obj:
-                    obj[key] = max_tokens
-            for key in ('maxConcurrent', 'max_concurrent', 'parallelRequests', 'parallel_requests'):
-                if key in obj:
-                    obj[key] = max_num_seqs
-        for value in obj.values():
-            patch(value)
-    elif isinstance(obj, list):
-        for value in obj:
-            patch(value)
-
-patch(data)
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2)
