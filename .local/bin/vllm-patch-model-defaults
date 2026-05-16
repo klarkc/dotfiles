@@ -13,7 +13,7 @@ if [ "$client_context_window" -lt 1024 ]; then
   client_context_window=1024
 fi
 
-mkdir -p "$HOME/.fusion" "$HOME/.pi/agent"
+mkdir -p "$HOME/.fusion/agent" "$HOME/.pi/agent"
 cat > "$HOME/.fusion/vllm-defaults.env" <<EOF
 VLLM_BASE_URL=$base_url
 VLLM_MODEL=$model_id
@@ -48,6 +48,29 @@ with open(tmp, 'w', encoding='utf-8') as f:
 os.replace(tmp, path)
 PY
 fi
+
+fusion_auth="$HOME/.fusion/agent/auth.json"
+python3 - "$fusion_auth" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+data['local-vllm'] = {'type': 'api_key', 'key': 'VLLM_API_KEY'}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+os.replace(tmp, path)
+PY
 
 pi_models="$HOME/.pi/agent/models.json"
 python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" <<'PY'
