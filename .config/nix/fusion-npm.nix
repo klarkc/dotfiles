@@ -13,7 +13,7 @@ let
 
   fusionNpmPayload = pkgs.stdenvNoCC.mkDerivation {
     pname = "fusion-npm-payload";
-    version = "0.29.0";
+    version = "0.31.0";
 
     nativeBuildInputs = with pkgs; [
       cacert
@@ -22,7 +22,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-WuzJeeLGSq9qUWt4zpYLhE7DR+0T66R1uASD2I04kuk=";
+    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
@@ -41,7 +41,7 @@ let
         --cache "$npm_config_cache" \
         --no-audit \
         --no-fund \
-        @runfusion/fusion@0.29.0 \
+        @runfusion/fusion@0.31.0 \
         @tobilu/qmd@2.1.0 \
         node-pty \
         dockerode \
@@ -68,7 +68,7 @@ let
 in
 pkgs.stdenv.mkDerivation {
   pname = "fusion-runtime";
-  version = "0.29.0";
+  version = "0.31.0";
 
   nativeBuildInputs = with pkgs; [
     gnumake
