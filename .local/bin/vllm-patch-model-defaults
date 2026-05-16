@@ -55,6 +55,7 @@ if provider is None:
 provider['name'] = 'vLLM'
 provider['apiType'] = 'openai-compatible'
 provider['baseUrl'] = base_url
+provider['apiKey'] = 'VLLM_API_KEY'
 provider['models'] = models
 data['defaultProvider'] = 'vllm'
 data['defaultModelId'] = model_id
