@@ -26,17 +26,39 @@ EOF
 
 fusion_settings="$HOME/.fusion/settings.json"
 if [ -f "$fusion_settings" ]; then
-  python3 - "$fusion_settings" "$model_id" <<'PY'
+  python3 - "$fusion_settings" "$model_id" "$base_url" <<'PY'
 import json
 import os
 import sys
 
-path, model_id = sys.argv[1:]
+path, model_id, base_url = sys.argv[1:]
+models = [
+    {'id': 'qwen3.6-35b-a3b', 'name': 'Qwen3.6 35B A3B'},
+    {'id': 'qwen3.6-27b', 'name': 'Qwen3.6 27B'},
+]
 with open(path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 if not isinstance(data, dict):
     raise SystemExit(f'{path} must contain a JSON object')
-data['fallbackProvider'] = 'local-vllm'
+providers = data.setdefault('customProviders', [])
+if not isinstance(providers, list):
+    providers = []
+    data['customProviders'] = providers
+provider = None
+for item in providers:
+    if isinstance(item, dict) and item.get('id') == 'vllm':
+        provider = item
+        break
+if provider is None:
+    provider = {'id': 'vllm'}
+    providers.append(provider)
+provider['name'] = 'vLLM'
+provider['apiType'] = 'openai-compatible'
+provider['baseUrl'] = base_url
+provider['models'] = models
+data['defaultProvider'] = 'vllm'
+data['defaultModelId'] = model_id
+data['fallbackProvider'] = 'vllm'
 data['fallbackModelId'] = model_id
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
