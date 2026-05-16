@@ -81,7 +81,6 @@ import sys
 path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
 context_window = int(context_window)
 max_tokens = int(max_tokens)
-max_num_seqs = int(max_num_seqs)
 models = [
     {
         'id': 'qwen3.6-35b-a3b',
@@ -102,17 +101,11 @@ models = [
         'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
     },
 ]
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-except FileNotFoundError:
-    data = {}
-if not isinstance(data, dict):
-    data = {}
-providers = data.setdefault('providers', {})
-providers['local-vllm'] = {
+provider = {
+    'name': 'local-vllm',
     'baseUrl': base_url,
     'api': 'openai-completions',
+    'apiKey': 'unused',
     'compat': {
         'supportsDeveloperRole': False,
         'supportsReasoningEffort': False,
@@ -120,6 +113,19 @@ providers['local-vllm'] = {
     },
     'models': models,
 }
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+providers = data.get('providers')
+if not isinstance(providers, list):
+    providers = []
+providers = [p for p in providers if not (isinstance(p, dict) and p.get('name') == 'local-vllm')]
+providers.append(provider)
+data['providers'] = providers
 os.makedirs(os.path.dirname(path), exist_ok=True)
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
