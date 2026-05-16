@@ -121,10 +121,9 @@ except FileNotFoundError:
 if not isinstance(data, dict):
     data = {}
 providers = data.get('providers')
-if not isinstance(providers, list):
-    providers = []
-providers = [p for p in providers if not (isinstance(p, dict) and p.get('name') == 'local-vllm')]
-providers.append(provider)
+if not isinstance(providers, dict):
+    providers = {}
+providers['local-vllm'] = provider
 data['providers'] = providers
 os.makedirs(os.path.dirname(path), exist_ok=True)
 tmp = path + '.tmp'
