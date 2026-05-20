@@ -149,7 +149,8 @@ EOF
 
     ln -sf ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
 
-    "$out/bin/fusion" --version >/dev/null
+    fusion_version=$($out/bin/fusion --version)
+    [[ "$fusion_version" == "${version}" ]] || echo "Error: expected fusion ${version} but got $fusion_version"; exit 1;
     "$out/bin/qmd" --help >/dev/null
   '';
 }
