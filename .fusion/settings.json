@@ -122,7 +122,9 @@
     "agentOnboarding": true,
     "researchView": true,
     "chatRooms": true,
-    "evalsView": true
+    "evalsView": true,
+    "goalsView": true,
+    "sandbox": true
   },
   "researchWebSearchProvider": "none",
   "researchGitHubEnabled": false,
