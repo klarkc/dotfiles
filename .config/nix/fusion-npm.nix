@@ -1,4 +1,5 @@
 let
+  version = "0.32.0";
   nixpkgs = builtins.fetchTree {
     type = "github";
     owner = "NixOS";
@@ -12,8 +13,8 @@ let
   };
 
   fusionNpmPayload = pkgs.stdenvNoCC.mkDerivation {
+    inherit version;
     pname = "fusion-npm-payload";
-    version = "0.31.0";
 
     nativeBuildInputs = with pkgs; [
       cacert
@@ -22,7 +23,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-cq2/8CUmqHarw/aKg78CiCyP4PdUWrHsD9WXYfgBlcI=";
+    outputHash = "sha256-tBlBvgz4G2nb1ff4wEcMUmBpjHCJcTq9zxllcI7Cenk=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
@@ -41,7 +42,7 @@ let
         --cache "$npm_config_cache" \
         --no-audit \
         --no-fund \
-        @runfusion/fusion@0.31.0 \
+        @runfusion/fusion@${version} \
         @tobilu/qmd@2.1.0 \
         node-pty \
         dockerode \
@@ -67,8 +68,8 @@ let
   ]);
 in
 pkgs.stdenv.mkDerivation {
+  inherit version;
   pname = "fusion-runtime";
-  version = "0.31.0";
 
   nativeBuildInputs = with pkgs; [
     gnumake
