@@ -11,7 +11,7 @@ Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=FUSION_RUNTIME_DIR=%C/fusion-systemd
 Environment=FUSION_NIX_CONFIG=%h/.config/nix/fusion-npm.nix
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
-WorkingDirectory=%h/Sources/Fusion
+WorkingDirectory=%h/Sources/Fusion/klarkc/dotfiles
 
 RuntimeDirectory=fusion
 RuntimeDirectoryMode=0700
