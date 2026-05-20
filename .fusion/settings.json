@@ -51,6 +51,7 @@
   "persistAgentThinkingLogEphemeral": false,
   "persistAgentThinkingLog": false,
   "agentMemoryInclusionMode": "full",
+  "secretsSyncPassphraseConfigured": false,
   "researchGlobalDefaults": {
     "enabledSources": {
       "webSearch": true,
@@ -104,6 +105,11 @@
       "wasRunningOnShutdown": false
     }
   },
+  "worktrunk": {
+    "enabled": false,
+    "onFailure": "fail"
+  },
+  "owningNodeHandoffPolicy": "reassign-to-local",
   "experimentalFeatures": {
     "devServerView": false,
     "insights": true,
