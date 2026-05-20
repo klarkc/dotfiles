@@ -149,8 +149,13 @@ EOF
 
     ln -sf ${pkgs.tmux}/bin/tmux "$out/bin/tmux"
 
-    fusion_version=$($out/bin/fusion --version)
-    [[ "$fusion_version" == "${version}" ]] || echo "Error: expected fusion ${version} but got $fusion_version"; exit 1;
+    fusion_version="$($out/bin/fusion --version)"
+    if [ "$fusion_version" != "${version}" ]; then
+      echo "Error: expected fusion ${version} but got $fusion_version" >&2
+      echo "Bundled package manifest:" >&2
+      ${pkgs.nodejs}/bin/node -e 'const p=process.argv[1]; console.error(JSON.stringify(require(p), null, 2))' "$out/lib/node_modules/@runfusion/fusion/package.json" >&2
+      exit 1
+    fi
     "$out/bin/qmd" --help >/dev/null
   '';
 }
