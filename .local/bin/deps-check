@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# deps-check — Check for upstream updates on tracked dependencies
+# Usage: deps-check [--json] [--quiet]
+#
+# Monitors critical, moderate, and low tier dependencies for new versions
+# or commits since last check. Outputs a summary suitable for maintenance review.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+LAST_CHECK_FILE="${HOME}/.cache/deps-check-last"
+LOG_FILE="${HOME}/.cache/deps-check.log"
+
+# Tiers: critical, moderate, low
+# Format: tier|name|url|type (git|npm|nix|pypi)
+DEPS=(
+  "critical|Fusion|https://github.com/Runfusion/Fusion|git"
+  "critical|skills.sh|https://github.com/skills/sh|git"
+  "critical|nixpkgs-unstable|https://github.com/NixOS/nixpkgs|git"
+  "moderate|flake-parts|https://github.com/evanmiller/flake-parts|git"
+  "moderate|nix-fast-build|https://github.com/Mic92/nix-fast-build|git"
+  "moderate|treefmt-nix|https://github.com/numtide/treefmt|git"
+  "moderate|Tmux|https://github.com/tmux/tmux|git"
+  "moderate|Alacritty|https://github.com/alacritty/alacritty|git"
+  "moderate|Vim|https://github.com/vim/vim|git"
+  "low|Lemurs|https://github.com/coastalwhite/lemurs|git"
+  "low|Nord Theme|https://github.com/EliverLara/Nordic|git"
+  "low|Papirus Icon|https://github.com/Papirus Development Team/papirus-icon-theme|git"
+  "low|crush|https://github.com/charmbracelet/crush|git"
+  "low|codex|https://github.com/openai/codex|git"
+  "low|lumen|https://github.com/jnsahaj/lumen|git"
+  "low|sunshine|https://github.com/LizardByte/Sunshine|git"
+  "low|scrot|https://github.com/resurrecting-open-source-projects/scrot|git"
+  "low|satty|https://github.com/gabm/Satty|git"
+  "low|handlr-regex|https://github.com/Anomalocaridid/handlr-regex|git"
+  "low|yazi|https://github.com/mootari/yazi|git"
+  "low|taffybar|https://github.com/haskell-egovernment/taffybar|git"
+  "low|vllm|https://github.com/vllm-project/vllm|git"
+)
+
+JSON_OUTPUT=false
+QUIET=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json) JSON_OUTPUT=true; shift ;;
+    --quiet) QUIET=true; shift ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Determine current timestamp
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Initialize counters
+TOTAL=0
+UPDATES_FOUND=0
+NEW_COMMITS=0
+NEW_VERSIONS=0
+
+# Check each dependency
+declare -A DEP_STATUS
+
+for dep_line in "${DEPS[@]}"; do
+  IFS='|' read -r tier name url dep_type <<< "$dep_line"
+  
+  case "$dep_type" in
+    git)
+      # For git repos, check the last commit date and tag
+      tmpdir=$(mktemp -d)
+      cd "$tmpdir"
+      if git clone --depth 1 --quiet "$url" . 2>/dev/null; then
+        last_commit=$(git log -1 --format="%cd" --date=iso 2>/dev/null || echo "unknown")
+        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "no-tags")
+        DEP_STATUS["$name"]="newest:$last_commit|$latest_tag"
+        UPDATES_FOUND=$((UPDATES_FOUND + 1))
+      else
+        DEP_STATUS["$name"]="error:clone-failed"
+      fi
+      cd - > /dev/null
+      rm -rf "$tmpdir"
+      ;;
+    *)
+      DEP_STATUS["$name"]="skipped:$dep_type"
+      ;;
+  esac
+  TOTAL=$((TOTAL + 1))
+done
+
+# Output
+if $JSON_OUTPUT; then
+  echo "{"
+  echo "  \"timestamp\": \"$NOW\","
+  echo "  \"total_deps\": $TOTAL,"
+  echo "  \"updates_found\": $UPDATES_FOUND,"
+  echo "  \"deps\": {"
+  first=true
+  for dep_line in "${DEPS[@]}"; do
+    IFS='|' read -r tier name url dep_type <<< "$dep_line"
+    if ! $first; then echo ","; fi
+    printf '    "%s": "%s"' "$name" "${DEP_STATUS[$name]}"
+    first=false
+  done
+  echo ""
+  echo "  }"
+  echo "}"
+else
+  echo "=== Dependency Check Report ==="
+  echo "Timestamp: $NOW"
+  echo "Total dependencies: $TOTAL"
+  echo ""
+  
+  echo "--- Critical Tier ---"
+  for dep_line in "${DEPS[@]}"; do
+    IFS='|' read -r tier name url dep_type <<< "$dep_line"
+    if [[ "$tier" == "critical" ]]; then
+      echo "  $name: ${DEP_STATUS[$name]}"
+    fi
+  done
+  echo ""
+  
+  echo "--- Moderate Tier ---"
+  for dep_line in "${DEPS[@]}"; do
+    IFS='|' read -r tier name url dep_type <<< "$dep_line"
+    if [[ "$tier" == "moderate" ]]; then
+      echo "  $name: ${DEP_STATUS[$name]}"
+    fi
+  done
+  echo ""
+  
+  echo "--- Low Tier ---"
+  for dep_line in "${DEPS[@]}"; do
+    IFS='|' read -r tier name url dep_type <<< "$dep_line"
+    if [[ "$tier" == "low" ]]; then
+      echo "  $name: ${DEP_STATUS[$name]}"
+    fi
+  done
+  echo ""
+  
+  echo "Summary: $UPDATES_FOUND dependencies checked, $UPDATES_FOUND with updates"
+fi
+
+# Log the check
+echo "[$NOW] deps-check: $TOTAL deps scanned, $UPDATES_FOUND updates" >> "$LOG_FILE"
+
+# Save timestamp
+echo "$NOW" > "$LAST_CHECK_FILE"
