@@ -12,6 +12,15 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 LAST_CHECK_FILE="${HOME}/.cache/deps-check-last"
 LOG_FILE="${HOME}/.cache/deps-check.log"
 
+# Fallback cache dir in case HOME/.cache is read-only (NixOS)
+FALLBACK_CACHE_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/deps-check"
+if ! touch "$LOG_FILE" 2>/dev/null || ! touch "$LAST_CHECK_FILE" 2>/dev/null; then
+  FALLBACK_CACHE_DIR="/tmp/deps-check"
+  mkdir -p "$FALLBACK_CACHE_DIR" 2>/dev/null || true
+  LOG_FILE="${FALLBACK_CACHE_DIR}/deps-check.log"
+  LAST_CHECK_FILE="${FALLBACK_CACHE_DIR}/last"
+fi
+
 # Tiers: critical, moderate, low
 # Format: tier|name|url|type (git|npm|nix|pypi)
 DEPS=(
@@ -76,7 +85,12 @@ for dep_line in "${DEPS[@]}"; do
         DEP_STATUS["$name"]="newest:$last_commit|$latest_tag"
         UPDATES_FOUND=$((UPDATES_FOUND + 1))
       else
-        DEP_STATUS["$name"]="error:clone-failed"
+        err_msg=$(git clone --depth 1 "$url" . 2>&1 || true)
+        if echo "$err_msg" | grep -qi "auth\|credential\|permission"; then
+          DEP_STATUS["$name"]="error:auth-required (run gh auth login)"
+        else
+          DEP_STATUS["$name"]="error:clone-failed"
+        fi
       fi
       cd - > /dev/null
       rm -rf "$tmpdir"
