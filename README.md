@@ -40,7 +40,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 
 ## Optional Features
 
-- Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user)
+- Maintenance [systemd scripts](https://github.com/klarkc/dotfiles/tree/main/.config/systemd/user) and [upstream dependency monitoring](.local/bin/deps-check)
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
