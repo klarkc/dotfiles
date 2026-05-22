@@ -1,7 +1,54 @@
 ICONS=.icons
 
 .PHONY: all
-all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config agentrc.Readiness
+
+# ---------------------------------------------------------------------------
+# AgentRC Evaluation Pipeline
+# ---------------------------------------------------------------------------
+# AgentRC is a Microsoft tool for context engineering of AI coding agents.
+# It measures repo AI-readiness, generates instruction files, and evaluates
+# whether instructions remain effective as the codebase evolves.
+#
+# Installation: runs via npx (requires Node.js 20+, see flake.nix)
+# Auth: GITHUB_TOKEN or gh CLI login
+
+.PHONY: agentrc.Init
+agentrc.Init:
+	npx github:microsoft/agentrc init
+
+.PHONY: agentrc.Readiness
+agentrc.Readiness:
+	npx github:microsoft/agentrc readiness --fail-level 3
+
+.PHONY: agentrc.ReadinessJSON
+agentrc.ReadinessJSON:
+	npx github:microsoft/agentrc readiness --fail-level 3 --json > agentrc-readiness.json
+
+.PHONY: agentrc.Eval
+agentrc.Eval:
+	npx github:microsoft/agentrc eval
+
+.PHONY: agentrc.Instructions
+agentrc.Instructions:
+	npx github:microsoft/agentrc instructions
+
+.PHONY: agentrc.Batch
+agentrc.Batch:
+	npx github:microsoft/agentrc batch
+
+.PHONY: agentrc.Policy
+agentrc.Policy:
+	npx github:microsoft/agentrc policy
+
+.PHONY: agentrc.Clean
+agentrc.Clean:
+	rm -f agentrc.eval.json agentrc-readiness.json
+	rm -f .github/copilot-instructions.md .vscode/mcp.json .vscode/settings.json
+	rm -f AGENTS.md
+
+.PHONY: agentrc
+agentrc: agentrc.Init agentrc.Readiness agentrc.Eval
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -72,7 +119,7 @@ nix.Profile:
 	nix --extra-experimental-features "nix-command flakes" profile install .
 
 .PHONY: clean
-clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
+clean: agentrc.Clean .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
 	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm
 	rm .local/share/applications/xmonad.desktop

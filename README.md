@@ -240,6 +240,30 @@ Fusion-generated `.fusion/backups` directories are kept outside snapshots and mi
 
 To customize a `.dotfile` you can write a corresponding `.dotfile_override`.
 
+## AI Readiness Evaluation (AgentRC)
+
+This repo uses [AgentRC](https://github.com/microsoft/agentrc) for AI-readiness measurement, instruction generation, and drift detection.
+
+### Make Targets
+
+```bash
+make agentrc.Init        # Generate agentrc instructions and evals
+make agentrc.Readiness   # Check AI-readiness (fails if maturity < 3)
+make agentrc.ReadinessJSON  # Output JSON report to agentrc-readiness.json
+make agentrc.Eval        # Run evaluation test cases
+make agentrc.Instructions # Generate tailored instruction files
+make agentrc             # Run init + readiness + eval
+make agentrc.Clean       # Remove generated agentrc files
+```
+
+### CI
+
+The `agentrc-readiness` GitHub Actions workflow runs on every push/PR to `main`, `sol098`, and `ssdinarch` branches.
+
+### Evaluation Tests
+
+Defined in `agentrc.eval.json`: Flake checks, Make validation, config syntax validation for bashrc, vimrc, tmux, alacritty, Codex, and Crush.
+
 ## Commit Guidelines
 
 See `COMMIT_GUIDELINES.md.

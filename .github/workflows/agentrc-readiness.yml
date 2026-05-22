@@ -1,0 +1,30 @@
+name: "AgentRC Readiness"
+on:
+  push:
+    branches: [main, sol098, ssdinarch]
+  pull_request:
+jobs:
+  readiness:
+    name: AgentRC Readiness Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: DeterminateSystems/determinate-nix-action@v3.8.2
+      with:
+        extra-config: accept-flake-config = true
+    - uses: DeterminateSystems/magic-nix-cache-action@v13
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: AgentRC Readiness
+      run: |
+        npx github:microsoft/agentrc readiness --fail-level 3 --json > agentrc-readiness.json
+        echo "Readiness report: agentrc-readiness.json"
+      continue-on-error: true
+    - name: Upload readiness report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: agentrc-readiness
+        path: agentrc-readiness.json

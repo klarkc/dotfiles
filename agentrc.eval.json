@@ -1,0 +1,80 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/agentrc/main/packages/core/src/schemas/eval.schema.json",
+  "name": "dotfiles-eval",
+  "version": "1.0.0",
+  "description": "Evaluation test cases for dotfiles repo AI-readiness",
+  "tests": [
+    {
+      "id": "flake-check",
+      "name": "Nix Flake Validation",
+      "description": "Verify that `nix flake check` passes for the dotfiles repository",
+      "command": "nix flake check",
+      "expectedExitCode": 0,
+      "timeout": 120000
+    },
+    {
+      "id": "make-init",
+      "name": "Make Init Target",
+      "description": "Verify that `make` runs without errors",
+      "command": "make --dry-run",
+      "expectedExitCode": 0,
+      "timeout": 30000
+    },
+    {
+      "id": "git-config",
+      "name": "Git Configuration Valid",
+      "description": "Verify git global config is correctly set",
+      "command": "git config --global --list | grep -E 'merge\\.tool|defaultBranch'",
+      "expectedExitCode": 0,
+      "timeout": 5000
+    },
+    {
+      "id": "bashrc-syntax",
+      "name": "Bashrc Syntax Valid",
+      "description": "Verify .bashrc has no syntax errors",
+      "command": "bash -n .bashrc && bash -n .bash_profile",
+      "expectedExitCode": 0,
+      "timeout": 5000
+    },
+    {
+      "id": "vimrc-syntax",
+      "name": "Vimrc Syntax Valid",
+      "description": "Verify .vimrc has no syntax errors",
+      "command": "vim -es -u .vimrc -c 'quit' 2>&1 | grep -i error || true",
+      "expectedExitCode": 0,
+      "timeout": 10000
+    },
+    {
+      "id": "tmux-syntax",
+      "name": "Tmux Config Syntax Valid",
+      "description": "Verify .tmux.conf has no syntax errors",
+      "command": "tmux -f .tmux.conf source-file /dev/null 2>&1 | grep -i error || true",
+      "expectedExitCode": 0,
+      "timeout": 10000
+    },
+    {
+      "id": "alacritty-toml",
+      "name": "Alacritty Config Valid TOML",
+      "description": "Verify .alacritty.toml is valid TOML",
+      "command": "python3 -c \"import tomllib; tomllib.load(open('.alacritty.toml', 'rb'))\"",
+      "expectedExitCode": 0,
+      "timeout": 5000
+    },
+    {
+      "id": "codex-config",
+      "name": "Codex Config Valid JSON",
+      "description": "Verify .codex/config.toml is valid TOML",
+      "command": "python3 -c \"import tomllib; tomllib.load(open('.codex/config.toml', 'rb'))\"",
+      "expectedExitCode": 0,
+      "timeout": 5000
+    },
+    {
+      "id": "crush-config",
+      "name": "Crush Config Valid JSON",
+      "description": "Verify .config/crush/crush.json is valid JSON",
+      "command": "python3 -c \"import json; json.load(open('.config/crush/crush.json'))\"",
+      "expectedExitCode": 0,
+      "timeout": 5000
+    }
+  ]
+}
