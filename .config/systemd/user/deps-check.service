@@ -1,0 +1,7 @@
+[Unit]
+Description=Check for upstream dependency updates
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/deps-check --json --quiet >> %h/.cache/deps-check.log 2>&1
+Environment=PATH=/home/klarkc/.local/bin:/usr/local/bin:/usr/bin:/bin
