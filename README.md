@@ -30,7 +30,7 @@ git checkout main
 Each machine has specific configurations and enabled features so I'm splitting it between different branches.
 
 - `ssdinarch`: my personal laptop
-- `sol098` (default): work machine
+- `main` (default): work machine
 
 ### Aliases
 
