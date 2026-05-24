@@ -1,5 +1,5 @@
 let
-  version = "0.32.0";
+  version = "0.33.0";
   nixpkgs = builtins.fetchTree {
     type = "github";
     owner = "NixOS";
@@ -23,7 +23,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-rHwnQo2CwdyAwJxW79kAO32xxxOUjjssVHxZlaaGLik=";
+    outputHash = "sha256-vlAYI5cwPecLfvIsbJFFUdiIQOqiz+q+Fk8pBCt0Fdc=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
