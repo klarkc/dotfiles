@@ -1,148 +1,186 @@
 #!/usr/bin/env bash
-# deps-check — Check for upstream updates on tracked dependencies
-# Usage: deps-check [--json] [--quiet]
+# deps-check — Scan flake.lock for outdated dependencies
+# Outputs JSON with outdated dep info. Integrates with CI (GitHub Actions)
+# and systemd timers.
 #
-# Monitors critical, moderate, and low tier dependencies for new versions
-# or commits since last check. Outputs a summary suitable for maintenance review.
+# Usage: deps-check [--json] [--quiet]
+#   --json   Output machine-parseable JSON (default when output is not a terminal)
+#   --quiet  Suppress human-readable summary to stdout (only JSON to stdout)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-LAST_CHECK_FILE="${HOME}/.cache/deps-check-last"
-LOG_FILE="${HOME}/.cache/deps-check.log"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+FLAKE_LOCK="$REPO_ROOT/flake.lock"
 
-# Tiers: critical, moderate, low
-# Format: tier|name|url|type (git|npm|nix|pypi)
-DEPS=(
-  "critical|Fusion|https://github.com/Runfusion/Fusion|git"
-  "critical|skills.sh|https://github.com/skills/sh|git"
-  "critical|nixpkgs-unstable|https://github.com/NixOS/nixpkgs|git"
-  "moderate|flake-parts|https://github.com/evanmiller/flake-parts|git"
-  "moderate|nix-fast-build|https://github.com/Mic92/nix-fast-build|git"
-  "moderate|treefmt-nix|https://github.com/numtide/treefmt|git"
-  "moderate|Tmux|https://github.com/tmux/tmux|git"
-  "moderate|Alacritty|https://github.com/alacritty/alacritty|git"
-  "moderate|Vim|https://github.com/vim/vim|git"
-  "low|Lemurs|https://github.com/coastalwhite/lemurs|git"
-  "low|Nord Theme|https://github.com/EliverLara/Nordic|git"
-  "low|Papirus Icon|https://github.com/Papirus Development Team/papirus-icon-theme|git"
-  "low|crush|https://github.com/charmbracelet/crush|git"
-  "low|codex|https://github.com/openai/codex|git"
-  "low|lumen|https://github.com/jnsahaj/lumen|git"
-  "low|sunshine|https://github.com/LizardByte/Sunshine|git"
-  "low|scrot|https://github.com/resurrecting-open-source-projects/scrot|git"
-  "low|satty|https://github.com/gabm/Satty|git"
-  "low|handlr-regex|https://github.com/Anomalocaridid/handlr-regex|git"
-  "low|yazi|https://github.com/mootari/yazi|git"
-  "low|taffybar|https://github.com/haskell-egovernment/taffybar|git"
-  "low|vllm|https://github.com/vllm-project/vllm|git"
-)
-
-JSON_OUTPUT=false
+# ── Flags ───────────────────────────────────────────────────────────────
+JSON_MODE=false
 QUIET=false
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --json) JSON_OUTPUT=true; shift ;;
-    --quiet) QUIET=true; shift ;;
-    *) echo "Unknown option: $1" >&2; exit 1 ;;
+for arg in "$@"; do
+  case "$arg" in
+    --json)  JSON_MODE=true ;;
+    --quiet) QUIET=true ;;
+    *)       echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
-# Determine current timestamp
-NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-# Initialize counters
-TOTAL=0
-UPDATES_FOUND=0
-NEW_COMMITS=0
-NEW_VERSIONS=0
-
-# Check each dependency
-declare -A DEP_STATUS
-
-for dep_line in "${DEPS[@]}"; do
-  IFS='|' read -r tier name url dep_type <<< "$dep_line"
-  
-  case "$dep_type" in
-    git)
-      # For git repos, check the last commit date and tag
-      tmpdir=$(mktemp -d)
-      cd "$tmpdir"
-      if git clone --depth 1 --quiet "$url" . 2>/dev/null; then
-        last_commit=$(git log -1 --format="%cd" --date=iso 2>/dev/null || echo "unknown")
-        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "no-tags")
-        DEP_STATUS["$name"]="newest:$last_commit|$latest_tag"
-        UPDATES_FOUND=$((UPDATES_FOUND + 1))
-      else
-        DEP_STATUS["$name"]="error:clone-failed"
-      fi
-      cd - > /dev/null
-      rm -rf "$tmpdir"
-      ;;
-    *)
-      DEP_STATUS["$name"]="skipped:$dep_type"
-      ;;
-  esac
-  TOTAL=$((TOTAL + 1))
-done
-
-# Output
-if $JSON_OUTPUT; then
-  echo "{"
-  echo "  \"timestamp\": \"$NOW\","
-  echo "  \"total_deps\": $TOTAL,"
-  echo "  \"updates_found\": $UPDATES_FOUND,"
-  echo "  \"deps\": {"
-  first=true
-  for dep_line in "${DEPS[@]}"; do
-    IFS='|' read -r tier name url dep_type <<< "$dep_line"
-    if ! $first; then echo ","; fi
-    printf '    "%s": "%s"' "$name" "${DEP_STATUS[$name]}"
-    first=false
-  done
-  echo ""
-  echo "  }"
-  echo "}"
-else
-  echo "=== Dependency Check Report ==="
-  echo "Timestamp: $NOW"
-  echo "Total dependencies: $TOTAL"
-  echo ""
-  
-  echo "--- Critical Tier ---"
-  for dep_line in "${DEPS[@]}"; do
-    IFS='|' read -r tier name url dep_type <<< "$dep_line"
-    if [[ "$tier" == "critical" ]]; then
-      echo "  $name: ${DEP_STATUS[$name]}"
-    fi
-  done
-  echo ""
-  
-  echo "--- Moderate Tier ---"
-  for dep_line in "${DEPS[@]}"; do
-    IFS='|' read -r tier name url dep_type <<< "$dep_line"
-    if [[ "$tier" == "moderate" ]]; then
-      echo "  $name: ${DEP_STATUS[$name]}"
-    fi
-  done
-  echo ""
-  
-  echo "--- Low Tier ---"
-  for dep_line in "${DEPS[@]}"; do
-    IFS='|' read -r tier name url dep_type <<< "$dep_line"
-    if [[ "$tier" == "low" ]]; then
-      echo "  $name: ${DEP_STATUS[$name]}"
-    fi
-  done
-  echo ""
-  
-  echo "Summary: $UPDATES_FOUND dependencies checked, $UPDATES_FOUND with updates"
+# Auto JSON when stdout is piped
+if [ ! -t 1 ]; then
+  JSON_MODE=true
 fi
 
-# Log the check
-echo "[$NOW] deps-check: $TOTAL deps scanned, $UPDATES_FOUND updates" >> "$LOG_FILE"
+# ── Validate flake.lock ─────────────────────────────────────────────────
+if [ ! -f "$FLAKE_LOCK" ]; then
+  if [ "$QUIET" = true ]; then
+    exit 0
+  fi
+  echo "Error: flake.lock not found at $FLAKE_LOCK" >&2
+  exit 1
+fi
 
-# Save timestamp
-echo "$NOW" > "$LAST_CHECK_FILE"
+# ── Parse flake.lock and check for outdated deps ────────────────────────
+# We extract top-level inputs (excluding "root") that are GitHub sources,
+# then query GitHub API to see if locked revision matches latest on branch.
+
+DEPS=$(jq -r '
+  . as $root |
+  ($root.nodes.root.input // $root.nodes.root.inputs) |
+  if type == "array" then .[]
+  elif type == "object" then to_entries[] | .value
+  else empty
+  end as $input_name |
+  ($root.nodes[$input_name]) as $input |
+  if $input.locked and $input.locked.type == "github" then
+    "\($input_name)\t\($input.locked.owner)\t\($input.locked.repo)\t\($input.locked.rev)\t\($input.locked.ref // "")"
+  elif $input.original and $input.original.type == "github" then
+    "\($input_name)\t\($input.original.owner)\t\($input.original.repo)\t\($input.locked.rev // "UNKNOWN")\t\($input.locked.ref // $input.original.ref // "")"
+  else
+    empty
+  end
+' "$FLAKE_LOCK" 2>/dev/null || true)
+
+if [ -z "$DEPS" ]; then
+  # No GitHub inputs found — nothing to check
+  if [ "$JSON_MODE" = true ]; then
+    echo '{"status":"ok","outdated":[],"total_checked":0}'
+  elif [ "$QUIET" = false ]; then
+    echo "No GitHub dependencies found in flake.lock."
+  fi
+  exit 0
+fi
+
+# ── Check each dependency ───────────────────────────────────────────────
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+OUTDATED_JSON="[]"
+TOTAL_CHECKED=0
+
+while IFS=$'\t' read -r name owner repo rev ref; do
+  # Skip if we don't have enough info
+  if [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$rev" ] || [ "$rev" = "UNKNOWN" ]; then
+    continue
+  fi
+
+  TOTAL_CHECKED=$((TOTAL_CHECKED + 1))
+
+  # Query GitHub API for latest commit on the ref (default to "main" if ref is empty)
+  github_branch="${ref:-main}"
+  latest_rev=""
+  latest_date=""
+
+  response=$(curl -sf "https://api.github.com/repos/${owner}/${repo}/commits/${github_branch}" 2>/dev/null || true)
+  if [ -n "$response" ]; then
+    latest_rev=$(echo "$response" | jq -r '.sha // empty')
+    latest_date=$(echo "$response" | jq -r '.commit.committer.date // empty')
+  fi
+
+  # If we couldn't get latest from API, try fetching HEAD differently
+  if [ -z "$latest_rev" ] || [ "$latest_rev" = "null" ]; then
+    latest_rev=$(curl -sf "https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${github_branch}" 2>/dev/null | jq -r '.object.sha // empty' || true)
+  fi
+
+  # Also try fetching all branches to find the latest merge commit
+  if [ -z "$latest_rev" ] || [ "$latest_rev" = "null" ]; then
+    latest_rev=$(curl -sf "https://api.github.com/repos/${owner}/${repo}/branches/${github_branch}" 2>/dev/null | jq -r '.commit.sha // empty' || true)
+  fi
+
+  is_outdated=false
+  staleness_hours="null"
+
+  if [ -n "$latest_rev" ] && [ "$latest_rev" != "$rev" ]; then
+    is_outdated=true
+    # Calculate approximate staleness from latest_date
+    if [ -n "$latest_date" ] && [ "$latest_date" != "null" ]; then
+      latest_epoch=$(date -d "$latest_date" +%s 2>/dev/null || echo "0")
+      current_epoch=$(date +%s)
+      if [ "$latest_epoch" -gt 0 ]; then
+        diff_seconds=$((current_epoch - latest_epoch))
+        staleness_hours=$((diff_seconds / 3600))
+      fi
+    fi
+  fi
+
+  # Build JSON entry
+  if [ "$is_outdated" = true ]; then
+    OUTDATED_JSON=$(echo "$OUTDATED_JSON" | jq \
+      --arg name "$name" \
+      --arg owner "$owner" \
+      --arg repo "$repo" \
+      --arg rev "$rev" \
+      --arg latest "$latest_rev" \
+      --arg branch "$github_branch" \
+      --argjson hours "$staleness_hours" \
+      '. + [{
+        "name": $name,
+        "owner": $owner,
+        "repo": $repo,
+        "locked_rev": $rev,
+        "latest_rev": $latest,
+        "branch": $branch,
+        "stale_hours": $hours
+      }]')
+  fi
+
+done <<< "$DEPS"
+
+# ── Output ──────────────────────────────────────────────────────────────
+OUTDATED_COUNT=$(echo "$OUTDATED_JSON" | jq 'length')
+
+if [ "$JSON_MODE" = true ]; then
+  RESULT=$(jq -n \
+    --arg ts "$TIMESTAMP" \
+    --argjson outdated_count "$OUTDATED_COUNT" \
+    --argjson total "$TOTAL_CHECKED" \
+    --argjson outdated "$OUTDATED_JSON" \
+    '{
+      "timestamp": $ts,
+      "total_checked": $total,
+      "outdated_count": $outdated_count,
+      "status": (if $outdated_count > 0 then "outdated" else "ok" end),
+      "outdated": $outdated
+    }')
+
+  echo "$RESULT"
+
+  # Write to cache log if --json was explicitly set
+  if [ "$QUIET" = false ]; then
+    CACHE_DIR="$HOME/.cache"
+    mkdir -p "$CACHE_DIR" 2>/dev/null || true
+    echo "$RESULT" >> "$CACHE_DIR/deps-check.log"
+  fi
+else
+  if [ "$OUTDATED_COUNT" -gt 0 ]; then
+    echo "Found $OUTDATED_COUNT outdated dependency(ies) out of $TOTAL_CHECKED checked:"
+    echo "$OUTDATED_JSON" | jq -r '.[] | "  \(.name): \(.owner)/\(.repo) locked@\(.locked_rev) latest@\(.latest) (branch: \(.branch))"'
+    echo ""
+    echo "Full JSON:"
+    echo "$RESULT" | jq .
+    exit 1
+  else
+    echo "All $TOTAL_CHECKED dependency(ies) are up to date."
+    if [ -n "$RESULT" ]; then
+      echo "$RESULT" | jq .
+    fi
+    exit 0
+  fi
+fi
