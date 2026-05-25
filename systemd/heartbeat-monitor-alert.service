@@ -1,0 +1,36 @@
+# systemd service — triggered when heartbeat-monitor exits with code 1
+# Handles alert delivery (email, notification, etc.)
+# Must be idempotent — only sends if the previous run also failed
+# (avoids alerting on transient hiccups)
+
+[Unit]
+Description=Heartbeat Monitor Alert Dispatcher
+Documentation=https://github.com/klarkc/dotfiles/wiki/Heartbeat-Monitoring
+After=heartbeat-monitor.service
+Wants=heartbeat-monitor.service
+
+[Service]
+Type=oneshot
+User=klarkc
+Group=klarkc
+
+# Read the latest log for context
+Environment=HEARTBEAT_LOG=/var/log/klarkc/heartbeat-monitor.log
+
+# Send alert — uses mailx if available, otherwise logs to journald
+ExecStartPre=/bin/sh -c 'if [ ! -f "%e/HEARTBEAT_LOG" ]; then exit 1; fi'
+ExecStart=/bin/bash -c '
+  if command -v mailx >/dev/null 2>&1; then
+    mail -s "[ALERT] Stale agent detected" klarkc@localhost \
+      < "$HEARTBEAT_LOG" 2>/dev/null || true
+  fi
+  # Always log to journald for local visibility
+  logger -p daemon.err -t heartbeat-alert \
+    "Stale agent(s) detected — see $HEARTBEAT_LOG and DT-327/DT-330"
+'
+
+# Retry logic — if alert delivery fails, log and move on (non-critical)
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target
