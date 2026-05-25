@@ -1,0 +1,39 @@
+# systemd service — runs heartbeat-monitor.sh with logging
+# See heartbeat-monitor.timer for scheduling
+
+[Unit]
+Description=Agent Heartbeat Health Monitor
+Documentation=https://github.com/klarkc/dotfiles/wiki/Heartbeat-Monitoring
+After=fusion.service
+
+[Service]
+Type=oneshot
+
+# Run as the user that manages Fusion agents
+User=klarkc
+Group=klarkc
+
+# Environment — override defaults at need
+Environment=HEARTBEAT_THRESHOLD=60
+Environment=HEARTBEAT_LOG=/var/log/klarkc/heartbeat-monitor.log
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Execute the monitor script
+ExecStart=/home/klarkc/Sources/Fusion/klarkc/dotfiles/.worktrees/azure-crane/scripts/heartbeat-monitor.sh
+
+# Logging — journal capture is primary; script also appends to HEARTBEAT_LOG
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=heartbeat-monitor
+
+# Resource limits
+TimeoutStartSec=120
+
+# Alerting — if the script exits with code 1 (stale agents),
+# trigger the alert service via Wants (non-blocking)
+Wants=heartbeat-monitor-alert.service
+# But don't fail the timer just because alert delivery is async
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target
