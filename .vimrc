@@ -386,6 +386,12 @@ let g:zettel_format = '%title--%file_no'
 Plug 'arthurxavierx/vim-unicoder'
 "}}
 
+"{{ vim-easy-align
+Plug 'junegunn/vim-easy-align'
+xmap ga <Plug>(EasyAlign)
+nmap ga <Plug>(EasyAlign)
+"}}
+
 "{{ vim-highlighter
 function! GetFilePath(file)
   let l:keywords = ".keywords"
