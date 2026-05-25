@@ -1,0 +1,17 @@
+# Log rotation for heartbeat-monitor output
+# Install: sudo cp etc/logrotate.d/heartbeat-monitor /etc/logrotate.d/
+
+/var/log/klarkc/heartbeat-monitor.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0640 klarkc klarkc
+    sharedscripts
+    postrotate
+        # If running under systemd, signal the service to reopen log file
+        systemctl reload heartbeat-monitor 2>/dev/null || true
+    endscript
+}

@@ -1,0 +1,11 @@
+# Crontab fallback for heartbeat-monitor
+# Install: echo "@root crontab.d/heartbeat-monitor" | sudo tee -a /etc/crontab
+# Or: crontab -e and add the line below
+#
+# Runs every 5 minutes, logs to /var/log/klarkc/heartbeat-monitor.log
+# On exit code 1 (stale agent detected), sends email alert if mailx is available
+#
+# CRON_FACILITY=local6
+
+*/5 * * * * klarkc /home/klarkc/Sources/Fusion/klarkc/dotfiles/.worktrees/azure-crane/scripts/heartbeat-monitor.sh >>/var/log/klarkc/heartbeat-monitor.log 2>&1
+*/5 * * * * klarkc EXIT=$?; if [ $EXIT -ne 0 ]; then logger -p daemon.err -t heartbeat-alert "Stale agent(s) detected (exit=$EXIT)"; command -v mailx >/dev/null && echo "Stale agent detected. See /var/log/klarkc/heartbeat-monitor.log and DT-327/DT-330." | mail -s "[ALERT] Heartbeat monitor: stale agent" klarkc@localhost; fi

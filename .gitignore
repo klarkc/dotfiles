@@ -20,6 +20,11 @@
 !/flake.lock
 /.profile_override
 
+# monitoring scripts and systemd units
+!/scripts
+!/systemd
+!/etc
+
 # systemd
 !/.config
 /.config/*

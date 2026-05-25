@@ -1,0 +1,21 @@
+# systemd timer — runs heartbeat-monitor.sh every 5 minutes
+# Install: sudo cp systemd/heartbeat-monitor.timer /etc/systemd/system/
+#           sudo cp systemd/heartbeat-monitor.service /etc/systemd/system/
+#           sudo systemctl enable --now heartbeat-monitor.timer
+
+[Unit]
+Description=Agent Heartbeat Health Monitor Timer
+Documentation=https://github.com/klarkc/dotfiles/wiki/Heartbeat-Monitoring
+After=fusion.service
+
+[Timer]
+# Run every 5 minutes
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Add random delay to avoid thundering herd if multiple monitors exist
+RandomizedDelaySec=30
+# Persist the timer so missed runs are caught up after reboot
+Persistent=true
+
+[Install]
+WantedBy=timers.target
