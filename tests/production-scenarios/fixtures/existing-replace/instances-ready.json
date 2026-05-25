@@ -1,0 +1,1 @@
+{"instances":[{"id":84,"machine_id":4001,"label":"qwen36-27b-fp8-48k","actual_status":"running","cur_state":"running","intended_status":"running","next_state":"running","is_bid":true,"public_ipaddr":"203.0.113.84","gpu_name":"L40S","dph_total":0.3200,"min_bid":0.3200,"bid_price":0.3680,"duration":5}]}

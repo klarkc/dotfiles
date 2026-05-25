@@ -78,6 +78,7 @@
                 EXPECTED_REBID_MIN_BID="''${EXPECTED_REBID_MIN_BID:-}"
                 EXPECTED_REBID_TARGET_BID="''${EXPECTED_REBID_TARGET_BID:-}"
                 WATCH_INTERVAL="''${WATCH_INTERVAL:-60}"
+                WATCH_MAX_CYCLES="''${WATCH_MAX_CYCLES:-0}"
                 CHECK_RECOMMENDATION_FILE="''${CHECK_RECOMMENDATION_FILE:-}"
                 MAX_BID_PRICE="''${MAX_BID_PRICE:-0.45}"
                 MIN_REPLACE_SAVINGS_PCT="''${MIN_REPLACE_SAVINGS_PCT:-15}"
@@ -283,7 +284,9 @@ EOF
                   echo "Starting watch loop. Press Ctrl-C to stop."
                   echo "Interval: $WATCH_INTERVAL seconds"
 
+                  local watch_cycle=0
                   while true; do
+                    watch_cycle=$((watch_cycle + 1))
                     recommendation_file="$(mktemp)"
                     echo
                     echo "Watch cycle: checking current instance and market..."
@@ -421,6 +424,10 @@ EOF
 
                     echo "Sleeping $WATCH_INTERVAL seconds..."
                     sleep "$WATCH_INTERVAL"
+                    if awk -v max_cycles="$WATCH_MAX_CYCLES" -v cycle="$watch_cycle" 'BEGIN { exit !(max_cycles > 0 && cycle >= max_cycles) }'; then
+                      echo "Watch max cycles reached: $WATCH_MAX_CYCLES"
+                      break
+                    fi
                   done
                 }
 
@@ -1444,6 +1451,17 @@ EOF
 
                   verify_expected_rebid_state "$EXISTING_INSTANCE_CURRENT_BID" "$EXISTING_INSTANCE_MIN_BID" "$TARGET_REBID_PRICE"
 
+                  if ! rebid_is_useful "$TARGET_REBID_PRICE" "$EXISTING_INSTANCE_CURRENT_BID" "$EXISTING_INSTANCE_MIN_BID"; then
+                    if existing_instance_scheduler_stopped_bid; then
+                      echo "Refusing to rebid: scheduler reports this bid instance is stopped and no useful bid increase is available."
+                      echo "Run check to evaluate replacement or loosen bid ceilings."
+                      exit 1
+                    fi
+                    echo "No useful rebid is needed; target is not above current bid/minimum bid."
+                    echo "No bid change requested."
+                    exit 0
+                  fi
+
                   set_instance_bid_best_effort "$EXISTING_INSTANCE_ID" "$TARGET_REBID_PRICE"
                   echo "Rebid requested."
                   echo "Note: for bid instances, Vast show instances usually reflects the requested bid as dph_base/current cost after refresh."
@@ -1667,13 +1685,9 @@ EOF
 
                 echo "Hard-filtering candidates below VRAM floor: ''${MIN_GPU_RAM_MB} MB"
                 jq --argjson min_gpu_ram_mb "$MIN_GPU_RAM_MB" '
+                  # Vast API returns gpu_ram in GB; convert to MB
                   map(. + {
-                    gpu_ram_mb: (
-                      if ((.gpu_ram_mb // .gpu_ram // 0) < 1000)
-                      then ((.gpu_ram_mb // .gpu_ram // 0) * 1024)
-                      else (.gpu_ram_mb // .gpu_ram // 0)
-                      end
-                    )
+                    gpu_ram_mb: ((.gpu_ram // 0) * 1024)
                   })
                   | map(select((.gpu_ram_mb // 0) >= $min_gpu_ram_mb))
                 ' "$TMPDIR/candidates.json" > "$TMPDIR/candidates.vram-filtered.json"
@@ -1723,7 +1737,7 @@ EOF
                     RUNTIME_MODEL="$MODEL_24GB"
                     RUNTIME_QUANTIZATION="compressed-tensors"
                     RUNTIME_MAX_MODEL_LEN=49152
-                    RUNTIME_GPU_UTIL=0.88
+                    RUNTIME_GPU_UTIL=0.89
                     RUNTIME_MAX_BATCHED_TOKENS=1024
                   elif [[ "$BEST_GPU_RAM_MB" -lt 45000 ]]; then
                     # 32GB-class cards, including RTX 5090: FP8 repeatedly
@@ -1736,7 +1750,7 @@ EOF
                     else
                       RUNTIME_MODEL="$MODEL_32GB"
                       RUNTIME_QUANTIZATION="compressed-tensors"
-                      RUNTIME_GPU_UTIL=0.88
+                      RUNTIME_GPU_UTIL=0.89
                     fi
                     RUNTIME_MAX_MODEL_LEN=49152
                     RUNTIME_MAX_BATCHED_TOKENS=1024
@@ -2228,6 +2242,10 @@ EOF
                         --cuda129-image "$CUDA129_IMAGE" \
                         --image-auto-select "$IMAGE_AUTO_SELECT" \
                         --model "$MODEL" \
+                        --model-24gb "$MODEL_24GB" \
+                        --model-32gb "$MODEL_32GB" \
+                        --model-48gb "$MODEL_48GB" \
+                        --model-80gb "$MODEL_80GB" \
                         --max-model-len "$MAX_MODEL_LEN" \
                         --disk "$DISK_GB" \
                         --use-volume "$USE_VOLUME" \
@@ -2241,6 +2259,9 @@ EOF
                         --label "$LABEL" \
                         --max-create-attempts "$MAX_CREATE_ATTEMPTS" \
                         --destroy-timeout-secs "$DESTROY_TIMEOUT_SECS" \
+                        --destroy-grace-secs "$DESTROY_GRACE_SECS" \
+                        --check-ready-timeout-secs "$CHECK_READY_TIMEOUT_SECS" \
+                        --replace-ready-timeout-secs "$REPLACE_READY_TIMEOUT_SECS" \
                         --readiness-retry-attempts "$((READINESS_RETRY_ATTEMPTS - readiness_retry))" \
                         --readiness-retry-bid-margin "$READINESS_RETRY_BID_MARGIN" \
                         --max-bid-price "$MAX_BID_PRICE" \
@@ -2254,7 +2275,8 @@ EOF
                     exit 1
                   fi
                 else
-                  echo "Warning: could not parse new contract id; skipping local API readiness wait."
+                  echo "Could not parse new contract id from successful create response; refusing to skip readiness verification."
+                  exit 1
                 fi
 
                 echo
@@ -2605,6 +2627,14 @@ EOF
             grep -Fq 'Hard-filtering candidates below VRAM floor' "$launcher"
             grep -Fq 'Refusing candidate' "$launcher"
             grep -Fq 'MIN_GPU_RAM_MB:-22000' "$launcher"
+            touch $out
+          '';
+
+          production-scenarios = pkgs.runCommand "vast-qwen-launch-production-scenarios" {
+            nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.gawk pkgs.jq ];
+          } ''
+            set -euo pipefail
+            bash ${./tests/production-scenarios}/run.sh ${launcher}/bin/vast-qwen-launch
             touch $out
           '';
 
