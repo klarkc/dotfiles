@@ -1,5 +1,7 @@
 name: "Dependency Monitor"
 on:
+  push:
+    branches: [main]
   schedule:
     # Run weekly on Monday at 06:00 UTC (matches systemd timer)
     - cron: '0 6 * * 1'
