@@ -36,8 +36,8 @@
 
                 VASTAI_VERSION="''${VASTAI_VERSION:-1.0.3}"
                 VASTAI_BIN="''${VASTAI_BIN:-vastai}"
-                DEFAULT_IMAGE="''${DEFAULT_IMAGE:-vllm/vllm-openai:v0.19.1}"
-                CUDA13_IMAGE="''${CUDA13_IMAGE:-vllm/vllm-openai:v0.19.1-x86_64-cu130}"
+                DEFAULT_IMAGE="''${DEFAULT_IMAGE:-vllm/vllm-openai:v0.21.0}"
+                CUDA129_IMAGE="''${CUDA129_IMAGE:-vllm/vllm-openai:v0.21.0-cu129}"
                 IMAGE="''${IMAGE:-$DEFAULT_IMAGE}"
                 IMAGE_AUTO_SELECT="''${IMAGE_AUTO_SELECT:-1}"
                 MODEL="''${MODEL:-Qwen/Qwen3.6-27B-FP8}"
@@ -207,7 +207,7 @@ EOF
                     --vastai-version) VASTAI_VERSION="$2"; shift 2 ;;
                     --image) IMAGE="$2"; IMAGE_AUTO_SELECT=0; shift 2 ;;
                     --default-image) DEFAULT_IMAGE="$2"; if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then IMAGE="$2"; fi; shift 2 ;;
-                    --cuda13-image) CUDA13_IMAGE="$2"; shift 2 ;;
+                    --cuda129-image) CUDA129_IMAGE="$2"; shift 2 ;;
                     --image-auto-select) IMAGE_AUTO_SELECT="$2"; shift 2 ;;
                     --model) MODEL="$2"; shift 2 ;;
                     --model-24gb) MODEL_24GB="$2"; shift 2 ;;
@@ -293,7 +293,7 @@ EOF
                     "$0" check \
                       --vastai-version "$VASTAI_VERSION" \
                       --default-image "$DEFAULT_IMAGE" \
-                      --cuda13-image "$CUDA13_IMAGE" \
+                      --cuda129-image "$CUDA129_IMAGE" \
                       --image-auto-select "$IMAGE_AUTO_SELECT" \
                       --model "$MODEL" \
                       --model-24gb "$MODEL_24GB" \
@@ -365,7 +365,7 @@ EOF
                           --expected-cuda "$expected_replace_cuda" \
                           --vastai-version "$VASTAI_VERSION" \
                           --default-image "$DEFAULT_IMAGE" \
-                          --cuda13-image "$CUDA13_IMAGE" \
+                          --cuda129-image "$CUDA129_IMAGE" \
                           --image-auto-select "$IMAGE_AUTO_SELECT" \
                           --model "$MODEL" \
                           --model-24gb "$MODEL_24GB" \
@@ -463,8 +463,8 @@ EOF
 
                   if [[ "$IMAGE_AUTO_SELECT" = "1" ]]; then
                     IMAGE="$DEFAULT_IMAGE"
-                    if awk -v cuda="$BEST_CUDA_MAX_GOOD" 'BEGIN { exit !(cuda >= 13.0) }'; then
-                      IMAGE="$CUDA13_IMAGE"
+                    if awk -v cuda="$BEST_CUDA_MAX_GOOD" 'BEGIN { exit !(cuda < 13.0) }'; then
+                      IMAGE="$CUDA129_IMAGE"
                     fi
                   fi
                 }
@@ -2225,7 +2225,7 @@ EOF
                         replace \
                         --vastai-version "$VASTAI_VERSION" \
                         --default-image "$DEFAULT_IMAGE" \
-                        --cuda13-image "$CUDA13_IMAGE" \
+                        --cuda129-image "$CUDA129_IMAGE" \
                         --image-auto-select "$IMAGE_AUTO_SELECT" \
                         --model "$MODEL" \
                         --max-model-len "$MAX_MODEL_LEN" \
