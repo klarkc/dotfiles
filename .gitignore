@@ -93,3 +93,8 @@
 
 # vllm
 !/.local/bin/bench-vllm
+
+# opencode
+!/.config/opencode
+/.config/opencode/*
+!/.config/opencode/opencode.json
