@@ -133,6 +133,39 @@ with open(tmp, 'w', encoding='utf-8') as f:
 os.replace(tmp, path)
 PY
 
+opencode_config="$HOME/.config/opencode/opencode.json"
+if [ -f "$opencode_config" ]; then
+  python3 - "$opencode_config" "$base_url" "$client_context_window" "$max_tokens" "$model_id" "$model_name" <<'PY'
+import json
+import os
+import sys
+
+path, base_url, context_window, max_tokens, model_id, model_name = sys.argv[1:]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+if not isinstance(data, dict):
+    raise SystemExit(f'{path} must contain a JSON object')
+try:
+    data['provider']['vllm']['options']['baseURL'] = base_url
+except (KeyError, TypeError):
+    data.setdefault('provider', {})['vllm'] = {'options': {}}
+    data['provider']['vllm']['options']['baseURL'] = base_url
+models = data['provider']['vllm'].setdefault('models', {})
+current_id = models.get(model_id, {})
+if isinstance(current_id, dict):
+    current_id['name'] = model_name
+    current_id['limit']['context'] = int(context_window)
+    current_id['limit']['output'] = int(max_tokens)
+else:
+    models[model_id] = {'name': model_name, 'limit': {'context': int(context_window), 'output': int(max_tokens)}}
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+os.replace(tmp, path)
+PY
+fi
+
 crush_config="$HOME/.config/crush/crush.json"
 if [ -f "$crush_config" ]; then
   python3 - "$crush_config" "$client_context_window" "$max_tokens" "$base_url/" <<'PY'

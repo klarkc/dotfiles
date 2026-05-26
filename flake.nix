@@ -36,6 +36,7 @@
               codex
               uv
               gh
+              opencode
             ];
           };
         });
