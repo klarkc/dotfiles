@@ -4,7 +4,7 @@
 			{
 				"repoRoot": "/home/example",
 				"repoName": "klarkc",
-				"lastSeen": 1779826640019
+				"lastSeen": 1779888745369
 			},
 			{
 				"repoRoot": "/home/example/Sources/Solo/SoloSIG",
@@ -14,11 +14,40 @@
 		],
 		"recentAgents": []
 	},
-	"session": null,
+	"session": {
+		"terminals": [
+			{
+				"id": "b11fe10e-2b29-4849-95db-e10093df4db3",
+				"cwd": "/home/example",
+				"git": {
+					"repoRoot": "/home/example",
+					"repoName": "klarkc",
+					"worktreePath": "/home/example",
+					"branch": "main",
+					"isWorktree": false,
+					"mainRepoRoot": "/home/example"
+				},
+				"lastActivityAt": 0,
+				"canvasLayout": {
+					"x": 144,
+					"y": 168,
+					"w": 800,
+					"h": 540
+				},
+				"subPanel": {
+					"collapsed": true,
+					"panelSize": 0.3
+				}
+			}
+		],
+		"activeTerminalId": "b11fe10e-2b29-4849-95db-e10093df4db3",
+		"savedAt": 1779888748867
+	},
 	"preferences": {
 		"seenTips": [
 			"theme-switch",
-			"amb-search"
+			"amb-search",
+			"amb-minimap-window"
 		],
 		"startupTips": true,
 		"shuffleTheme": false,
