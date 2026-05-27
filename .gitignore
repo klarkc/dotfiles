@@ -99,7 +99,7 @@
 /.config/opencode/*
 !/.config/opencode/opencode.json
 
-# kolu
-!/.config/kolu
-/.config/kolu/*
-!/.config/kolu/config.json
+# kolu (uncomment to persist updates to config)
+#!/.config/kolu
+#/.config/kolu/*
+#!/.config/kolu/config.json
