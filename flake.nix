@@ -3,6 +3,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     utils.url = "github:ursi/flake-utils";
     nix-fast-build.url = "github:Mic92/nix-fast-build";
+    kolu.url = "github:juspay/kolu";
   };
 
   outputs = { self, utils, ... }@inputs:
@@ -14,7 +15,7 @@
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, ... }@ctx:
+      ({ pkgs, kolu, ... }@ctx:
         let
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -37,6 +38,7 @@
               uv
               gh
               opencode
+              kolu
             ];
           };
         });
