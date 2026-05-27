@@ -1,0 +1,13 @@
+[Unit]
+Description=Kolu
+Documentation=https://github.com/juspay/kolu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.nix-profile/bin/kolu --host 0.0.0.0
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

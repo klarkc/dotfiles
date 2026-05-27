@@ -1,0 +1,40 @@
+{
+	"activityFeed": {
+		"recentRepos": [
+			{
+				"repoRoot": "/home/klarkc",
+				"repoName": "klarkc",
+				"lastSeen": 1779826640019
+			},
+			{
+				"repoRoot": "/home/klarkc/Sources/Solo/SoloSIG",
+				"repoName": "SoloSIG",
+				"lastSeen": 1777040405804
+			}
+		],
+		"recentAgents": []
+	},
+	"session": null,
+	"preferences": {
+		"seenTips": [
+			"theme-switch",
+			"amb-search"
+		],
+		"startupTips": true,
+		"shuffleTheme": false,
+		"scrollLock": true,
+		"activityAlerts": true,
+		"colorScheme": "system",
+		"terminalRenderer": "auto",
+		"rightPanel": {
+			"collapsed": true,
+			"size": 0.25,
+			"codeTabTreeSize": 0.3999999999999999
+		}
+	},
+	"__internal__": {
+		"migrations": {
+			"version": "1.23.0"
+		}
+	}
+}

@@ -98,3 +98,8 @@
 !/.config/opencode
 /.config/opencode/*
 !/.config/opencode/opencode.json
+
+# kolu
+!/.config/kolu
+/.config/kolu/*
+!/.config/kolu/config.json
