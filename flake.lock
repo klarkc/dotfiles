@@ -36,6 +36,21 @@
         "type": "github"
       }
     },
+    "kolu": {
+      "locked": {
+        "lastModified": 1779800745,
+        "narHash": "sha256-+aa2YDZCmvpbEHCJVJeYp46X3IDKfbPrWfjnknV7yXA=",
+        "owner": "juspay",
+        "repo": "kolu",
+        "rev": "7df93210e1602f17770c1c5f6783725dc28346d5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "juspay",
+        "repo": "kolu",
+        "type": "github"
+      }
+    },
     "nix-fast-build": {
       "inputs": {
         "flake-parts": "flake-parts",
@@ -90,6 +105,7 @@
     },
     "root": {
       "inputs": {
+        "kolu": "kolu",
         "nix-fast-build": "nix-fast-build",
         "nixpkgs": "nixpkgs_2",
         "utils": "utils"

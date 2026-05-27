@@ -24,6 +24,9 @@ git checkout main
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
+- [codex](https://github.com/openai/codex), [Crush](https://github.com/charmbracelet/crush) and [opencode](https://github.com/anomalyco/opencode) as coding agents
+- [Fusion](https://github.com/Runfusion/Fusion) for agents orchestration
+- [kolu](https://github.com/juspay/kolu) for coding agent orchestration
 
 ## Machines
 
@@ -112,6 +115,7 @@ systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
 systemctl --user enable --now fusion-backup.timer
+systemctl --user enable --now kolu
 ```
 
 #### vLLM + Fusion
