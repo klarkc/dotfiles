@@ -1,56 +1,15 @@
 {
-	"activityFeed": {
-		"recentRepos": [
-			{
-				"repoRoot": "/home/example",
-				"repoName": "klarkc",
-				"lastSeen": 1779888745369
-			},
-			{
-				"repoRoot": "/home/example/Sources/Solo/SoloSIG",
-				"repoName": "SoloSIG",
-				"lastSeen": 1777040405804
-			}
-		],
-		"recentAgents": []
-	},
-	"session": {
-		"terminals": [
-			{
-				"id": "b11fe10e-2b29-4849-95db-e10093df4db3",
-				"cwd": "/home/example",
-				"git": {
-					"repoRoot": "/home/example",
-					"repoName": "klarkc",
-					"worktreePath": "/home/example",
-					"branch": "main",
-					"isWorktree": false,
-					"mainRepoRoot": "/home/example"
-				},
-				"lastActivityAt": 0,
-				"canvasLayout": {
-					"x": 144,
-					"y": 168,
-					"w": 800,
-					"h": 540
-				},
-				"subPanel": {
-					"collapsed": true,
-					"panelSize": 0.3
-				}
-			}
-		],
-		"activeTerminalId": "b11fe10e-2b29-4849-95db-e10093df4db3",
-		"savedAt": 1779888748867
-	},
 	"preferences": {
 		"seenTips": [
 			"theme-switch",
 			"amb-search",
-			"amb-minimap-window"
+			"amb-minimap-window",
+			"worktree",
+			"amb-canvas-shift-pan",
+			"amb-shuffle-theme"
 		],
 		"startupTips": true,
-		"shuffleTheme": false,
+		"shuffleTheme": true,
 		"scrollLock": true,
 		"activityAlerts": true,
 		"colorScheme": "system",
@@ -58,7 +17,7 @@
 		"rightPanel": {
 			"collapsed": true,
 			"size": 0.25,
-			"codeTabTreeSize": 0.3999999999999999
+			"codeTabTreeSize": 0.599999999627471
 		}
 	},
 	"__internal__": {
