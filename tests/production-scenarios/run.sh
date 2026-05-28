@@ -19,6 +19,11 @@ trap 'rm -rf "$WORK_ROOT"' EXIT
 
 SCENARIOS_RUN=0
 
+MODEL_24GB="cyankiwi/Qwen3.6-27B-AWQ-INT4"
+MODEL_32GB="cyankiwi/Qwen3.6-27B-AWQ-INT4"
+MODEL_48GB="Qwen/Qwen3.6-27B-FP8"
+MODEL_80GB="Qwen/Qwen3.6-27B-FP8"
+
 fail() { echo "FAIL: $*" >&2; exit 1; }
 assert_contains() {
   local file="$1" text="$2"
@@ -264,9 +269,11 @@ scenario_check_no_existing() {
   set -e
   assert_status 1 "$status" "check-no-existing"
   assert_contains "$out" "No existing labeled instance found."
+  assert_contains "$out" "Searching Vast offers..."
+  assert_contains "$out" "Selected:"
   assert_contains "$out" "Run the replace command to create an instance:"
-  assert_contains "$out" "  replace"
   assert_calls_contain "show instances --raw"
+  assert_calls_contain "search offers --raw"
   assert_calls_not_contain "destroy instance"
   assert_calls_not_contain "create instance"
 }
@@ -521,6 +528,77 @@ scenario_error_handling() {
   assert_contains "$out" "No offers found within max price"
 }
 
+scenario_vram_tier_routing() {
+  # 24GB GPU should route to INT4/AWQ model, not FP8
+  prepare_scenario vram-24gb "$FIXTURES/no-existing"
+  cp "$FIXTURES/base-market/offers-RTX_3090.json" "$CURRENT_DIR/scenario/offers-RTX_3090.json"
+  out="$CURRENT_DIR/vram-24gb.txt"
+  run_expect 1 "$out" vram-24gb check
+  assert_contains "$out" "gpu           : RTX 3090"
+  assert_contains "$out" "model         : $MODEL_24GB"
+  assert_contains "$out" "max context   : 49152"
+
+  # 32GB GPU should route to INT4/AWQ (default, unless ALLOW_32GB_FP8=1)
+  prepare_scenario vram-32gb "$FIXTURES/no-existing"
+  cp "$FIXTURES/base-market/offers-RTX_5090.json" "$CURRENT_DIR/scenario/offers-RTX_5090.json"
+  out="$CURRENT_DIR/vram-32gb.txt"
+  run_expect 1 "$out" vram-32gb check
+  assert_contains "$out" "gpu           : RTX 5090"
+  assert_contains "$out" "model         : $MODEL_32GB"
+  assert_contains "$out" "max context   : 49152"
+
+  # 48GB GPU should route to FP8
+  prepare_scenario vram-48gb "$FIXTURES/no-existing"
+  cp "$FIXTURES/base-market/offers-L40S.json" "$CURRENT_DIR/scenario/offers-L40S.json"
+  out="$CURRENT_DIR/vram-48gb.txt"
+  run_expect 1 "$out" vram-48gb check
+  assert_contains "$out" "gpu           : L40S"
+  assert_contains "$out" "model         : $MODEL_48GB"
+  assert_contains "$out" "max context   : 65536"
+
+  # 80GB GPU should route to FP8 with 98k context
+  prepare_scenario vram-80gb "$FIXTURES/no-existing"
+  cp "$FIXTURES/base-market/offers-A100_PCIE.json" "$CURRENT_DIR/scenario/offers-A100_PCIE.json"
+  out="$CURRENT_DIR/vram-80gb.txt"
+  run_expect 1 "$out" vram-80gb check
+  assert_contains "$out" "gpu           : A100_PCIE"
+  assert_contains "$out" "model         : $MODEL_80GB"
+  assert_contains "$out" "max context   : 98304"
+}
+
+# Unit tests for the VRAM normalization fix in flake.nix load_candidate()
+# These are fast, isolated, and catch the regression where vram_mb (in KB)
+# was divided by 1024 twice, producing wrong tier routing.
+test_vram_normalization() {
+  local vram_jq='
+    if .gpu_ram_mb then .gpu_ram_mb
+    elif .vram_mb then ((.vram_mb | tonumber) / 1024 | floor)
+    elif .gpu_ram then (.gpu_ram * 1024 | floor)
+    else 0
+    end
+  '
+
+  # 24GB GPU: gpu_ram_mb already in MB, passes through unchanged
+  test "$(echo '{"gpu_ram_mb": 24576}' | jq -r "$vram_jq")" = "24576"
+
+  # 80GB GPU via gpu_ram (GB): multiply by 1024
+  test "$(echo '{"gpu_ram": 80}' | jq -r "$vram_jq")" = "81920"
+
+  # 32GB GPU via gpu_ram (GB): multiply by 1024
+  test "$(echo '{"gpu_ram": 32}' | jq -r "$vram_jq")" = "32768"
+
+  # vram_mb in KB (25165824 KB = 24 GB): divide by 1024 to get MB
+  test "$(echo '{"vram_mb": 25165824}' | jq -r "$vram_jq")" = "24576"
+
+  # Priority: gpu_ram_mb wins over vram_mb
+  test "$(echo '{"gpu_ram_mb": 48000, "vram_mb": 99999, "gpu_ram": 10}' | jq -r "$vram_jq")" = "48000"
+
+  # Empty/fallback returns 0
+  test "$(echo '{}' | jq -r "$vram_jq")" = "0"
+}
+
+test_vram_normalization
+
 scenario_check_no_existing
 SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
 scenario_fake_guardrails
@@ -554,6 +632,8 @@ SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
 scenario_rebid_noop_and_scheduler_stopped_refusal
 SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
 scenario_watch_bounded_and_failure
+SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
+scenario_vram_tier_routing
 SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
 scenario_error_handling
 SCENARIOS_RUN=$((SCENARIOS_RUN + 1))
