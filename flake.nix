@@ -24,6 +24,14 @@
       url = "git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    apm = {
+      url = "github:microsoft/apm/v0.15.0";
+      flake = false;
+    };
+    llm-github-models = {
+      url = "github:tonybaloney/llm-github-models/0.18.0";
+      flake = false;
+    };
   };
 
   outputs =
@@ -31,6 +39,7 @@
     utils.apply-systems
       {
         inherit inputs;
+        systems = [ "x86_64-linux" ];
         overlays = [ inputs.herdr ];
         make-pkgs =
           system:
@@ -138,6 +147,62 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
+          azure-ai-inference-pkg = pkgs.python3Packages.buildPythonPackage {
+            pname = "azure-ai-inference";
+            version = "1.0.0b9";
+            src = pkgs.fetchurl {
+              url = "https://files.pythonhosted.org/packages/4e/6a/ed85592e5c64e08c291992f58b1a94dab6869f28fb0f40fd753dced73ba6/azure_ai_inference-1.0.0b9.tar.gz";
+              sha256 = "196mgjnmk223cj9yk2429ls7qpd2iwsh9z5yj4kfw0abv1mlksqz";
+            };
+            pyproject = true;
+            build-system = with pkgs.python3Packages; [ setuptools ];
+            propagatedBuildInputs = with pkgs.python3Packages; [
+              azure-core
+              isodate
+              typing-extensions
+            ];
+          };
+          llm-github-models-pkg = pkgs.python3Packages.buildPythonPackage {
+            pname = "llm-github-models";
+            version = "0.18.0";
+            src = inputs.llm-github-models;
+            pyproject = true;
+            build-system = with pkgs.python3Packages; [ setuptools ];
+            propagatedBuildInputs = with pkgs.python3Packages; [
+              aiohttp
+              llm
+              azure-ai-inference-pkg
+            ];
+          };
+          apm-pkg = pkgs.python3Packages.buildPythonApplication rec {
+            pname = "apm";
+            version = "0.15.0";
+            src = inputs.apm;
+            pyproject = true;
+            build-system = with pkgs.python3Packages; [ setuptools ];
+            propagatedBuildInputs =
+              with pkgs.python3Packages;
+              [
+                click
+                requests
+                pyyaml
+                jsonschema
+                packaging
+                colorama
+                python-frontmatter
+                llm
+                toml
+                rich
+                rich-click
+                watchdog
+                gitpython
+                ruamel-yaml
+                filelock
+                websockets
+              ]
+              ++ [ llm-github-models-pkg ];
+          };
+
           treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
             projectRootFile = "flake.nix";
 
@@ -162,8 +227,8 @@
               ".local/bin/home-cleanup-post"
               ".local/bin/pacman-clean"
               ".local/bin/pacman-paccache"
-              ".local/bin/pacman-pacreport"
               ".local/bin/pacman-report"
+              ".local/bin/pacman-pacreport"
             ];
 
             settings.formatter.taplo.includes = [
@@ -220,10 +285,12 @@
                 opencodeCodexAuthTools
                 kolu
                 herdr
+                apm-pkg
               ];
           };
 
           packages.alacritty = alacrittyWithLigatures;
+          packages.apm = apm-pkg;
         }
       );
 }

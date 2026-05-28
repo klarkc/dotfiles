@@ -17,6 +17,23 @@
         "type": "github"
       }
     },
+    "apm": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779837373,
+        "narHash": "sha256-xKY1ESX683uFqfiLqAK2ALpO+2NYs6ecqa4S639c1+k=",
+        "owner": "microsoft",
+        "repo": "apm",
+        "rev": "1b2c0f02bd3a107b2ba2af626b8c28fd0af19187",
+        "type": "github"
+      },
+      "original": {
+        "owner": "microsoft",
+        "ref": "v0.15.0",
+        "repo": "apm",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -166,6 +183,23 @@
         "type": "github"
       }
     },
+    "llm-github-models": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1755046372,
+        "narHash": "sha256-Hn6q1DZMwHMVI5bvFaT3d8e/mYhCSBVqqvZ+aLZwpgY=",
+        "owner": "tonybaloney",
+        "repo": "llm-github-models",
+        "rev": "423f2cb0ff829e00f2306170f1e0f335f898bdda",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tonybaloney",
+        "ref": "0.18.0",
+        "repo": "llm-github-models",
+        "type": "github"
+      }
+    },
     "nix-fast-build": {
       "inputs": {
         "flake-parts": "flake-parts",
@@ -247,9 +281,11 @@
     "root": {
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
+        "apm": "apm",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
+        "llm-github-models": "llm-github-models",
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
