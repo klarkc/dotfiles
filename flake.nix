@@ -284,6 +284,37 @@ EOF
                   echo "Starting watch loop. Press Ctrl-C to stop."
                   echo "Interval: $WATCH_INTERVAL seconds"
 
+                  # Watch requires an existing labeled instance to monitor.
+                  # If none exists, exit immediately rather than attempting
+                  # to create or replace an instance.
+                  local instance_check_output
+                  set +e
+                  instance_check_output="$(VASTAI_BIN="$VASTAI_BIN" \
+                  LABEL="$LABEL" \
+                   bash -c '
+                     VASTAI_BIN=''${VASTAI_BIN:-}
+                     LABEL=''${LABEL:-}
+                     : ''${VASTAI_BIN:=vastai}
+                    check_empty=$(mktemp)
+                    "$VASTAI_BIN" show instances --raw > "$check_empty" 2>/dev/null || true
+                    found=$(jq -r --arg label "$LABEL" '"'"'
+                      def rows:
+                        if type == "array" then .
+                        elif has("instances") then .instances
+                        else [] end;
+                      rows
+                      | map(select((.label // "") == $label and ((.actual_status // .cur_state // "") != "destroyed")))
+                      | length
+                    '"'"' "$check_empty")
+                    rm -f "$check_empty"
+                    echo "$found"
+                  ')" || true
+                  set -e
+                  if [[ "$instance_check_output" -eq 0 ]]; then
+                    echo "Watch check failed without actionable recommendation."
+                    exit 1
+                  fi
+
                   local watch_cycle=0
                   while true; do
                     watch_cycle=$((watch_cycle + 1))
@@ -452,7 +483,13 @@ EOF
                   BEST_ASK_ID="$(jq -r ".[$idx].ask_id" "$TMPDIR/candidates.json")"
                   BEST_MACHINE_ID="$(jq -r ".[$idx].machine_id" "$TMPDIR/candidates.json")"
                   BEST_GPU="$(jq -r ".[$idx].gpu_name" "$TMPDIR/candidates.json")"
-                  BEST_GPU_RAM_MB="$(jq -r ".[$idx].gpu_ram_mb // .[$idx].gpu_ram // 0" "$TMPDIR/candidates.json")"
+                  BEST_GPU_RAM_MB="$(jq -r --argjson idx "$idx" '.[$idx] |
+                    if .gpu_ram_mb then .gpu_ram_mb
+                    elif .vram_mb then ((.vram_mb | tonumber) / 1024 | floor)
+                    elif .gpu_ram then (.gpu_ram * 1024 | floor)
+                    else 0
+                    end
+                  ' "$TMPDIR/candidates.json")"
                   if ! awk -v observed="$BEST_GPU_RAM_MB" -v min="$MIN_GPU_RAM_MB" 'BEGIN { exit !(observed >= min) }'; then
                     printf 'Refusing candidate %s: GPU RAM %s MB is below floor %s MB.
 ' "$BEST_ASK_ID" "$BEST_GPU_RAM_MB" "$MIN_GPU_RAM_MB"
@@ -1350,14 +1387,13 @@ EOF
                   fi
                 else
                   echo "No existing labeled instance found."
-                  if [[ "$COMMAND" = "check" ]]; then
+                  # 'check' and 'replace' modes with no existing instance fall
+                  # through to market search.  'watch' and 'rebid' need an
+                  # existing instance to operate on and exit immediately.
+                  if [[ "$COMMAND" != "check" && "$COMMAND" != "replace" ]]; then
                     echo "No action is performed by default."
                     echo "Run the replace command to create an instance:"
                     suggest_command replace
-                    if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
-                      printf 'replace:%s:%s:%s:%s:%s:%s
-' "$BEST_ASK_ID" "$BEST_MACHINE_ID" "$BEST_DPH" "$BEST_TOTAL_COST" "$BEST_GPU" "$BEST_CUDA_MAX_GOOD" > "$CHECK_RECOMMENDATION_FILE"
-                    fi
                     exit 1
                   fi
                 fi
@@ -1776,6 +1812,18 @@ EOF
 
                 tune_runtime_for_selected_gpu
                 print_selected_candidate
+
+                # In check mode with no existing instance, just write recommendation and exit.
+                if [[ "$COMMAND" = "check" ]] && [[ -z "$EXISTING_INSTANCE_ID" ]]; then
+                  if [[ -n "$CHECK_RECOMMENDATION_FILE" ]]; then
+                    printf 'replace:%s:%s:%s:%s:%s:%s
+' "$BEST_ASK_ID" "$BEST_MACHINE_ID" "$BEST_DPH" "$BEST_TOTAL_COST" "$BEST_GPU" "$BEST_CUDA_MAX_GOOD" > "$CHECK_RECOMMENDATION_FILE"
+                  fi
+                  echo "No action is performed by default."
+                  echo "Run the replace command to create an instance:"
+                  suggest_command replace
+                  exit 1
+                fi
 
                 if [[ "$EXISTING_INSTANCE_NEEDS_FORCE_DECISION" = "1" ]]; then
                   if [[ "$USE_VOLUME" = "1" && -n "$EXISTING_VOLUME_ID" ]]; then
