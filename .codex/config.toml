@@ -1,6 +1,6 @@
 model = "gpt-5.3-codex"
 model_reasoning_effort = "xhigh"
-sandbox_mode = "workspace-write"
+sandbox_mode = "read-only"
 instructions = '''
 - When running any nix or devenv commands, always request execution with with_escalated_permissions=true so the nix-daemon socket is reachable while sandbox_mode=workspace-write.
 - Running `devenv` on nix 2.30.4 always emits many `unknown setting 'lazy-trees'` warnings but the command still succeeds -> treat as noise and proceed.
