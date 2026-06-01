@@ -5,6 +5,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment=KOLU_OPENCODE_DB=%h/.local/share/opencode/opencode-stable.db
 ExecStart=%h/.nix-profile/bin/kolu --host 0.0.0.0
 Restart=on-failure
 RestartSec=5s
