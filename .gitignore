@@ -80,6 +80,7 @@
 !/.codex
 /.codex/*
 !/.codex/config.toml
+!/.codex/*.config.toml
 
 # fusion
 !/.fusion

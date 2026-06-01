@@ -1,9 +1,44 @@
 {
 	"activityFeed": {
-		"recentRepos": [],
+		"recentRepos": [
+			{
+				"repoRoot": "/home/klarkc",
+				"repoName": "klarkc",
+				"lastSeen": 1780331545396
+			}
+		],
 		"recentAgents": []
 	},
-	"session": null,
+	"session": {
+		"terminals": [
+			{
+				"id": "77a7da0b-8bba-460b-984a-ef9e8928181c",
+				"cwd": "/home/klarkc",
+				"git": {
+					"repoRoot": "/home/klarkc",
+					"repoName": "klarkc",
+					"worktreePath": "/home/klarkc",
+					"branch": "main",
+					"isWorktree": false,
+					"mainRepoRoot": "/home/klarkc"
+				},
+				"lastActivityAt": 0,
+				"themeName": "SeedFlip Carbon",
+				"canvasLayout": {
+					"x": 72,
+					"y": 192,
+					"w": 800,
+					"h": 540
+				},
+				"subPanel": {
+					"collapsed": true,
+					"panelSize": 0.3
+				}
+			}
+		],
+		"activeTerminalId": "77a7da0b-8bba-460b-984a-ef9e8928181c",
+		"savedAt": 1780331545852
+	},
 	"preferences": {
 		"seenTips": [
 			"theme-switch",
@@ -11,7 +46,8 @@
 			"amb-minimap-window",
 			"worktree",
 			"amb-canvas-shift-pan",
-			"amb-shuffle-theme"
+			"amb-shuffle-theme",
+			"amb-mru"
 		],
 		"startupTips": true,
 		"shuffleTheme": true,
