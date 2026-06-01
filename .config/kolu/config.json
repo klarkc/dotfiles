@@ -1,4 +1,9 @@
 {
+	"activityFeed": {
+		"recentRepos": [],
+		"recentAgents": []
+	},
+	"session": null,
 	"preferences": {
 		"seenTips": [
 			"theme-switch",
