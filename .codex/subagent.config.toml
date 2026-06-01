@@ -1,0 +1,4 @@
+[profiles.subagent]
+disable_response_storage = true
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
