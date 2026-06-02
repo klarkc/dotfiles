@@ -1,6 +1,6 @@
-[profiles.solosig]
-model = "gpt-5.3-codex"
+model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
+[profiles.solosig]
 personality = "pragmatic"
 
 [profiles.solosig.mcp_servers.devenv]
