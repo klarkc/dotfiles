@@ -12,6 +12,9 @@
           "name": "Qwen3.6 35B A3B",
           "reasoning": true,
           "tool_call": true,
+          "interleaved": {
+            "field": "reasoning_content"
+          },
           "limit": {
             "context": 43008,
             "output": 4096
