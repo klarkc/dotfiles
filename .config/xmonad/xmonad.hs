@@ -64,7 +64,7 @@ main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 myConfig =
   def
     { keys = keys desktopConfig,
-      terminal = "alacritty",
+      terminal = "rio",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
@@ -82,7 +82,8 @@ myConfig =
         -- spawn "solaar -w hidden -b regular"
         -- spawn "steam-runtime -silent"
     }
-    `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
+    `additionalKeysP` [ ("M-S-<Return>", spawn "rio"),
+                        ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
                         ("M-s", runSteam),
