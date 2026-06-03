@@ -13,6 +13,11 @@ rename_tab = "prefix+comma"
 close_tab = "prefix+ampersand"
 detach = "prefix+d"
 
+# Optional Herdr actions with a clear tmux-style equivalent.
+previous_workspace = "prefix+shift+9"
+next_workspace = "prefix+shift+0"
+last_pane = "prefix+\u003b"
+
 # Move Herdr actions away from tmux muscle-memory keys:
 # - prefix+s is send-pane-to in .tmux.conf.
 # - prefix+j is join-pane-from in .tmux.conf.
