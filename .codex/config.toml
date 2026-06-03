@@ -48,3 +48,9 @@ theme = "ansi"
 
 [tui.model_availability_nux]
 "gpt-5.5" = 4
+
+[hooks.state]
+
+[hooks.state."/home/klarkc/.codex/hooks.json:session_start:0:0"]
+trusted_hash = "sha256:e6bb14fbfec4414e0f8d2e88c24531104da78cd85d71cd1034c01f46043386a0"
+enabled = true
