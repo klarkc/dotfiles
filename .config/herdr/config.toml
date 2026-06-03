@@ -4,24 +4,20 @@ onboarding = false
 name = "nord"
 
 [keys]
-prefix = "ctrl+b"
-new_tab = "prefix+c"
-previous_tab = "prefix+p"
-next_tab = "prefix+n"
-switch_tab = "prefix+1..9"
-workspace_picker = "prefix+w"
+# Keep only overrides that differ from Herdr defaults.
+# Herdr's prefix already defaults to ctrl+b; tmux remains ctrl+a in .tmux.conf.
+
+# Tmux-like bindings not covered by Herdr defaults.
+split_vertical = "prefix+\u007c"
 rename_tab = "prefix+comma"
 close_tab = "prefix+ampersand"
 detach = "prefix+d"
-copy_mode = "prefix+["
-split_vertical = "prefix+v"
-split_horizontal = "prefix+minus"
-close_pane = "prefix+x"
-zoom = "prefix+z"
-focus_pane_left = "prefix+left"
+
+# Move Herdr actions away from tmux muscle-memory keys:
+# - prefix+s is send-pane-to in .tmux.conf.
+# - prefix+j is join-pane-from in .tmux.conf.
+settings = "prefix+shift+s"
 focus_pane_down = "prefix+down"
-focus_pane_up = "prefix+up"
-focus_pane_right = "prefix+right"
 
 [ui.toast]
 delivery = "terminal"
