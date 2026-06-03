@@ -89,6 +89,10 @@
               ];
             };
 
+            settings.formatter.prettier.excludes = [
+              ".github/workflows/dependency-monitor.yml"
+            ];
+
             settings.formatter.shfmt.includes = [
               "*.sh"
               ".bash_profile"
