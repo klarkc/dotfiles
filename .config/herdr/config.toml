@@ -28,9 +28,15 @@ focus_pane_down = "prefix+down"
 open_worktree = "prefix+shift+o"
 remove_worktree = "prefix+alt+d"
 next_tab = ["prefix+n", "ctrl+alt+]"]
+next_agent = "prefix+shift+l"
+prevous_agent = "prefix+shift+h"
 
 [ui.toast]
 delivery = "terminal"
 
 [experimental]
 pane_history = true
+
+[ui]
+agent_panel_scope = "all"
+show_agent_labels_on_pane_borders = true
