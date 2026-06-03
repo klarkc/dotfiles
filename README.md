@@ -18,7 +18,7 @@ git checkout main
 
 - [Lemurs](https://github.com/coastalwhite/lemurs) Window Manager
 - [Pipewire](https://pipewire.org) Sound Server
-- [Alacritty](https://github.com/alacritty/alacritty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
+- [Rio](https://github.com/raphamorim/rio) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
 - [Nord Theme](https://www.nordtheme.com/)
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
@@ -62,8 +62,7 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-# TODO re-enable alacritty-ligature-git
-yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap keyd notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
+yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim rio qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap keyd dunst libnotify lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
@@ -101,6 +100,19 @@ yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa
 nix profile install .
 make
 systemctl --user daemon-reload
+```
+
+Install the Lemurs XMonad session wrapper after checkout. It starts XMonad with a valid D-Bus session when needed, imports the graphical environment into D-Bus and systemd user activation, and starts a notification daemon if one is installed.
+
+```bash
+sudo install -Dm755 .local/bin/xmonad-session /etc/lemurs/wms/xmonad
+```
+
+Test desktop and Rio OSC notifications after logging in again:
+
+```bash
+notify-send "dotfiles" "desktop notifications work"
+printf '\e]777;notify;Rio;OSC notification test\a'
 ```
 
 Configure the system-wide keyd remap so `ç` remains the regular Unicode character, while `Ctrl+ç` is emitted as `Ctrl+b` for tmux and terminal shortcuts. This requires sudo because the keyd config lives in `/etc/keyd` and the daemon runs system-wide.
