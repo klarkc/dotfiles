@@ -35,6 +35,13 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 start_notification_daemon() {
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user cat dunst.service >/dev/null 2>&1; then
+    pkill -x -u "$(id -u)" dunst >/dev/null 2>&1 || true
+    systemctl --user reset-failed dunst.service >/dev/null 2>&1 || true
+    systemctl --user start dunst.service >/dev/null 2>&1 || true
+    return
+  fi
+
   if command -v dunst >/dev/null 2>&1; then
     pgrep -x -u "$(id -u)" dunst >/dev/null 2>&1 || dunst >/dev/null 2>&1 &
     return
