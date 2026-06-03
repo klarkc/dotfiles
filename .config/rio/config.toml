@@ -23,3 +23,6 @@ trail-cursor = false
 
 [renderer]
 disable-occluded-render = true
+
+[platform]
+linux.theme = "nord"
