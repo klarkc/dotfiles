@@ -2,3 +2,23 @@ onboarding = false
 
 [theme]
 name = "nord"
+
+[keys]
+prefix = "ctrl+b"
+new_tab = "prefix+c"
+previous_tab = "prefix+p"
+next_tab = "prefix+n"
+switch_tab = "prefix+1..9"
+workspace_picker = "prefix+w"
+rename_tab = "prefix+comma"
+close_tab = "prefix+ampersand"
+detach = "prefix+d"
+copy_mode = "prefix+["
+split_vertical = "prefix+v"
+split_horizontal = "prefix+minus"
+close_pane = "prefix+x"
+zoom = "prefix+z"
+focus_pane_left = "prefix+left"
+focus_pane_down = "prefix+down"
+focus_pane_up = "prefix+up"
+focus_pane_right = "prefix+right"
