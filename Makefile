@@ -67,7 +67,6 @@ xmonad.Config: .local/bin/xmonad-session
 .PHONY: xmonad.LemursInstall
 xmonad.LemursInstall: .local/bin/xmonad-session
 	install -Dm755 $< /etc/lemurs/wms/xmonad
-	rm -f /etc/lemurs/wms/Xmonad /usr/share/xsessions/xmonad.desktop .local/share/applications/xmonad.desktop
 
 .PHONY: nix.Profile
 nix.Profile:
