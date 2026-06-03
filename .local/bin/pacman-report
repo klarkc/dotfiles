@@ -1,22 +1,22 @@
 #!/bin/bash
 function notify-send() {
-    #Detect the name of the display in use
-    local display=":$(ls /tmp/.X11-unix/* | sed 's#/tmp/.X11-unix/X##' | head -n 1)"
+  #Detect the name of the display in use
+  local display=":$(ls /tmp/.X11-unix/* | sed 's#/tmp/.X11-unix/X##' | head -n 1)"
 
-    #Detect the user using such display
-    local user=$(who | grep '('$display')' | awk '{print $1}' | head -n 1)
+  #Detect the user using such display
+  local user=$(who | grep '('$display')' | awk '{print $1}' | head -n 1)
 
-    #Detect the id of the user
-    local uid=$(id -u $user)
+  #Detect the id of the user
+  local uid=$(id -u $user)
 
-    sudo -u $user DISPLAY=$display DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus notify-send "$@"
+  sudo -u $user DISPLAY=$display DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus notify-send "$@"
 }
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-$SCRIPT_DIR/pacman-pacreport > /tmp/pacreport.txt
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+$SCRIPT_DIR/pacman-pacreport >/tmp/pacreport.txt
 FILES=$(awk '/Unowned/,/Unneeded Packages Installed Explicitly/' /tmp/pacreport.txt | sed -ne 's/\s\s//p')
 PKGS=$(pacman -Qtdq)
-PKGS_COUNT=$( pacman -Qtdq | wc -l)
+PKGS_COUNT=$(pacman -Qtdq | wc -l)
 
 echo "Files result:"
 echo $FILES
@@ -29,4 +29,4 @@ fi
 
 if [ "$PKGS_COUNT" -ne "0" ]; then
   notify-send 'Orphan packages found!' "These orphan packages were found:\n $PKGS" --icon=dialog-information
-fi 
+fi

@@ -2,4 +2,3 @@
 if [ -f "$HOME/.profile_override" ]; then
   . "$HOME/.profile_override"
 fi
-

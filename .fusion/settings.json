@@ -1,135 +1,133 @@
 {
-  "themeMode": "system",
-  "colorTheme": "nord",
-  "dashboardFontScalePct": 100,
-  "defaultProvider": "local-vllm",
-  "defaultModelId": "qwen3.6-35b-a3b",
-  "fallbackProvider": "local-vllm",
-  "fallbackModelId": "qwen3.6-35b-a3b",
-  "ntfyEnabled": false,
-  "ntfyTopic": "fusion",
-  "ntfyEvents": [
-    "in-review",
-    "merged",
-    "failed",
-    "awaiting-approval",
-    "awaiting-user-review",
-    "planning-awaiting-input"
-  ],
-  "failureNotificationDelayMs": 30000,
-  "failureNotificationMode": "sticky-only",
-  "webhookEnabled": false,
-  "webhookFormat": "generic",
-  "webhookEvents": [],
-  "notificationProviders": [],
-  "customProviders": [],
-  "favoriteProviders": [],
-  "favoriteModels": [
-    "qwen3.6-35b-a3b"
-  ],
-  "openrouterModelSync": true,
-  "opencodeGoModelSync": true,
-  "updateCheckEnabled": true,
-  "fnBinaryCheckEnabled": true,
-  "updateCheckFrequency": "weekly",
-  "autoReloadOnVersionChange": true,
-  "showGitHubStarButton": false,
-  "modelOnboardingComplete": true,
-  "daemonPort": 4040,
-  "daemonHost": "0.0.0.0",
-  "settingsSyncEnabled": false,
-  "settingsSyncAuth": false,
-  "settingsSyncInterval": 900000,
-  "settingsSyncConflictResolution": "last-write-wins",
-  "dashboardCurrentProjectIdByNode": {
-    "local": "proj_d08d6acb33834e40"
-  },
-  "vitestAutoKillEnabled": true,
-  "vitestKillThresholdPct": 90,
-  "persistAgentToolOutput": true,
-  "persistAgentThinkingLogPermanent": false,
-  "persistAgentThinkingLogEphemeral": false,
-  "persistAgentThinkingLog": false,
-  "agentMemoryInclusionMode": "full",
-  "secretsSyncPassphraseConfigured": false,
-  "researchGlobalDefaults": {
-    "enabledSources": {
-      "webSearch": true,
-      "pageFetch": true,
-      "github": false,
-      "localDocs": true,
-      "llmSynthesis": true
-    },
-    "maxSourcesPerRun": 20,
-    "defaultExportFormat": "markdown",
-    "searchProvider": "builtin"
-  },
-  "researchGlobalEnabled": true,
-  "researchGlobalMaxConcurrentRuns": 3,
-  "researchGlobalDefaultTimeout": 300000,
-  "researchGlobalMaxSourcesPerRun": 20,
-  "researchGlobalMaxSynthesisRounds": 2,
-  "researchGlobalWebSearchProvider": "builtin",
-  "researchGlobalGitHubEnabled": true,
-  "researchGlobalLocalDocsEnabled": true,
-  "researchGlobalMaxSearchResults": 10,
-  "researchGlobalFetchTimeoutMs": 30000,
-  "researchGlobalUserAgent": "FusionResearchBot/1.0",
-  "remoteAccess": {
-    "providers": {
-      "tailscale": {
-        "enabled": false,
-        "hostname": "",
-        "targetPort": 0,
-        "acceptRoutes": false
-      },
-      "cloudflare": {
-        "enabled": false,
-        "quickTunnel": true,
-        "tunnelName": "",
-        "ingressUrl": ""
-      }
-    },
-    "tokenStrategy": {
-      "persistent": {
-        "enabled": true
-      },
-      "shortLived": {
-        "enabled": false,
-        "ttlMs": 900000,
-        "maxTtlMs": 86400000
-      }
-    },
-    "lifecycle": {
-      "rememberLastRunning": false,
-      "wasRunningOnShutdown": false
-    }
-  },
-  "worktrunk": {
-    "enabled": false,
-    "onFailure": "fail"
-  },
-  "owningNodeHandoffPolicy": "reassign-to-local",
-  "experimentalFeatures": {
-    "devServerView": false,
-    "insights": true,
-    "memoryView": true,
-    "nodesView": true,
-    "remoteAccess": false,
-    "roadmap": true,
-    "skillsView": true,
-    "todoView": true,
-    "agentOnboarding": true,
-    "researchView": true,
-    "chatRooms": true,
-    "evalsView": true,
-    "goalsView": true,
-    "sandbox": true
-  },
-  "researchWebSearchProvider": "none",
-  "researchGitHubEnabled": false,
-  "researchLocalDocsEnabled": true,
-  "researchMaxSearchResults": 10,
-  "researchFetchTimeoutMs": 30000,
-  "researchUserAgent": "FusionResearchBot/1.0"
+	"themeMode": "system",
+	"colorTheme": "nord",
+	"dashboardFontScalePct": 100,
+	"defaultProvider": "local-vllm",
+	"defaultModelId": "qwen3.6-35b-a3b",
+	"fallbackProvider": "local-vllm",
+	"fallbackModelId": "qwen3.6-35b-a3b",
+	"ntfyEnabled": false,
+	"ntfyTopic": "fusion",
+	"ntfyEvents": [
+		"in-review",
+		"merged",
+		"failed",
+		"awaiting-approval",
+		"awaiting-user-review",
+		"planning-awaiting-input"
+	],
+	"failureNotificationDelayMs": 30000,
+	"failureNotificationMode": "sticky-only",
+	"webhookEnabled": false,
+	"webhookFormat": "generic",
+	"webhookEvents": [],
+	"notificationProviders": [],
+	"customProviders": [],
+	"favoriteProviders": [],
+	"favoriteModels": ["qwen3.6-35b-a3b"],
+	"openrouterModelSync": true,
+	"opencodeGoModelSync": true,
+	"updateCheckEnabled": true,
+	"fnBinaryCheckEnabled": true,
+	"updateCheckFrequency": "weekly",
+	"autoReloadOnVersionChange": true,
+	"showGitHubStarButton": false,
+	"modelOnboardingComplete": true,
+	"daemonPort": 4040,
+	"daemonHost": "0.0.0.0",
+	"settingsSyncEnabled": false,
+	"settingsSyncAuth": false,
+	"settingsSyncInterval": 900000,
+	"settingsSyncConflictResolution": "last-write-wins",
+	"dashboardCurrentProjectIdByNode": {
+		"local": "proj_d08d6acb33834e40"
+	},
+	"vitestAutoKillEnabled": true,
+	"vitestKillThresholdPct": 90,
+	"persistAgentToolOutput": true,
+	"persistAgentThinkingLogPermanent": false,
+	"persistAgentThinkingLogEphemeral": false,
+	"persistAgentThinkingLog": false,
+	"agentMemoryInclusionMode": "full",
+	"secretsSyncPassphraseConfigured": false,
+	"researchGlobalDefaults": {
+		"enabledSources": {
+			"webSearch": true,
+			"pageFetch": true,
+			"github": false,
+			"localDocs": true,
+			"llmSynthesis": true
+		},
+		"maxSourcesPerRun": 20,
+		"defaultExportFormat": "markdown",
+		"searchProvider": "builtin"
+	},
+	"researchGlobalEnabled": true,
+	"researchGlobalMaxConcurrentRuns": 3,
+	"researchGlobalDefaultTimeout": 300000,
+	"researchGlobalMaxSourcesPerRun": 20,
+	"researchGlobalMaxSynthesisRounds": 2,
+	"researchGlobalWebSearchProvider": "builtin",
+	"researchGlobalGitHubEnabled": true,
+	"researchGlobalLocalDocsEnabled": true,
+	"researchGlobalMaxSearchResults": 10,
+	"researchGlobalFetchTimeoutMs": 30000,
+	"researchGlobalUserAgent": "FusionResearchBot/1.0",
+	"remoteAccess": {
+		"providers": {
+			"tailscale": {
+				"enabled": false,
+				"hostname": "",
+				"targetPort": 0,
+				"acceptRoutes": false
+			},
+			"cloudflare": {
+				"enabled": false,
+				"quickTunnel": true,
+				"tunnelName": "",
+				"ingressUrl": ""
+			}
+		},
+		"tokenStrategy": {
+			"persistent": {
+				"enabled": true
+			},
+			"shortLived": {
+				"enabled": false,
+				"ttlMs": 900000,
+				"maxTtlMs": 86400000
+			}
+		},
+		"lifecycle": {
+			"rememberLastRunning": false,
+			"wasRunningOnShutdown": false
+		}
+	},
+	"worktrunk": {
+		"enabled": false,
+		"onFailure": "fail"
+	},
+	"owningNodeHandoffPolicy": "reassign-to-local",
+	"experimentalFeatures": {
+		"devServerView": false,
+		"insights": true,
+		"memoryView": true,
+		"nodesView": true,
+		"remoteAccess": false,
+		"roadmap": true,
+		"skillsView": true,
+		"todoView": true,
+		"agentOnboarding": true,
+		"researchView": true,
+		"chatRooms": true,
+		"evalsView": true,
+		"goalsView": true,
+		"sandbox": true
+	},
+	"researchWebSearchProvider": "none",
+	"researchGitHubEnabled": false,
+	"researchLocalDocsEnabled": true,
+	"researchMaxSearchResults": 10,
+	"researchFetchTimeoutMs": 30000,
+	"researchUserAgent": "FusionResearchBot/1.0"
 }
