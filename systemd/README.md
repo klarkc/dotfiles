@@ -50,11 +50,11 @@ sudo systemctl restart cron   # or crond
 
 Override via environment variables in the systemd service or via the crontab:
 
-| Variable                | Default   | Description                          |
-|------------------------|-----------|--------------------------------------|
-| `HEARTBEAT_THRESHOLD`  | `60`      | Seconds before an agent is stale     |
-| `HEARTBEAT_LOG`        | `/tmp/heartbeat-monitor.log` | Log file path           |
-| `HEARTBEAT_JSON`       | `false`   | JSON output mode                     |
+| Variable              | Default                      | Description                      |
+| --------------------- | ---------------------------- | -------------------------------- |
+| `HEARTBEAT_THRESHOLD` | `60`                         | Seconds before an agent is stale |
+| `HEARTBEAT_LOG`       | `/tmp/heartbeat-monitor.log` | Log file path                    |
+| `HEARTBEAT_JSON`      | `false`                      | JSON output mode                 |
 
 ## Log rotation
 

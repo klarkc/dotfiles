@@ -46,12 +46,12 @@ run_case() {
     --api-key "$API_KEY" \
     --prompt-tokens "$prompt" \
     --max-tokens "$max_tokens" \
-    > "$outfile" 2>"$OUT_DIR/${name}.stderr"
+    >"$outfile" 2>"$OUT_DIR/${name}.stderr"
   local rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
     echo "[bench] $name exited rc=$rc"
-    json_error "$name" "$prompt" "$max_tokens" "$rc" "$OUT_DIR/${name}.stderr" > "$outfile"
+    json_error "$name" "$prompt" "$max_tokens" "$rc" "$OUT_DIR/${name}.stderr" >"$outfile"
   fi
   cat "$outfile" | redact
   echo
@@ -61,19 +61,21 @@ run_parallel2() {
   local name="$1" prompt="$2" max_tokens="$3"
   echo "[bench] $name parallel=2 prompt=$prompt max_tokens=$max_tokens"
   set +e
-  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" > "$OUT_DIR/${name}-a.json" 2>"$OUT_DIR/${name}-a.stderr" &
+  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" >"$OUT_DIR/${name}-a.json" 2>"$OUT_DIR/${name}-a.stderr" &
   local p1=$!
-  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" > "$OUT_DIR/${name}-b.json" 2>"$OUT_DIR/${name}-b.stderr" &
+  python3 "$BENCH_PY" --base-url "$BASE_URL" --model "$MODEL" --api-key "$API_KEY" --prompt-tokens "$prompt" --max-tokens "$max_tokens" >"$OUT_DIR/${name}-b.json" 2>"$OUT_DIR/${name}-b.stderr" &
   local p2=$!
-  wait "$p1"; local rc1=$?
-  wait "$p2"; local rc2=$?
+  wait "$p1"
+  local rc1=$?
+  wait "$p2"
+  local rc2=$?
   set -e
   for suffix in a b; do
     local rc="$rc1"
     [ "$suffix" = "b" ] && rc="$rc2"
     local outfile="$OUT_DIR/${name}-${suffix}.json"
     if [ "$rc" -ne 0 ]; then
-      json_error "$name-$suffix" "$prompt" "$max_tokens" "$rc" "$OUT_DIR/${name}-${suffix}.stderr" > "$outfile"
+      json_error "$name-$suffix" "$prompt" "$max_tokens" "$rc" "$OUT_DIR/${name}-${suffix}.stderr" >"$outfile"
     fi
     cat "$outfile" | redact
     echo
@@ -83,22 +85,22 @@ run_parallel2() {
 capture_logs() {
   local since_usec since_epoch
 
-  systemctl --user status vllm.service --no-pager -l -n 1000 2>&1 \
-    | redact > "$OUT_DIR/systemctl-status-vllm.txt" || true
+  systemctl --user status vllm.service --no-pager -l -n 1000 2>&1 |
+    redact >"$OUT_DIR/systemctl-status-vllm.txt" || true
 
-  systemctl --user show vllm.service 2>&1 \
-    | redact > "$OUT_DIR/systemctl-show-vllm.txt" || true
+  systemctl --user show vllm.service 2>&1 |
+    redact >"$OUT_DIR/systemctl-show-vllm.txt" || true
 
   since_usec="$(systemctl --user show vllm.service -p ActiveEnterTimestampUSec --value 2>/dev/null || true)"
-  if [[ "$since_usec" =~ ^[0-9]+$ ]] && [ "$since_usec" -gt 0 ]; then
-    since_epoch="$(( since_usec / 1000000 ))"
-    journalctl --user-unit vllm.service --since "@$since_epoch" --no-pager 2>/dev/null \
-      | redact > "$OUT_DIR/vllm-session-since-restart.log" || true
+  if [[ $since_usec =~ ^[0-9]+$ ]] && [ "$since_usec" -gt 0 ]; then
+    since_epoch="$((since_usec / 1000000))"
+    journalctl --user-unit vllm.service --since "@$since_epoch" --no-pager 2>/dev/null |
+      redact >"$OUT_DIR/vllm-session-since-restart.log" || true
   fi
 
   # Always save a robust fallback. This system exposes the vLLM user service through --user-unit.
-  journalctl --user-unit vllm.service -n 4000 --no-pager 2>/dev/null \
-    | redact > "$OUT_DIR/vllm-last-4000.log" || true
+  journalctl --user-unit vllm.service -n 4000 --no-pager 2>/dev/null |
+    redact >"$OUT_DIR/vllm-last-4000.log" || true
 
   if [ ! -s "$OUT_DIR/vllm-session-since-restart.log" ] || grep -q -- "-- No entries --" "$OUT_DIR/vllm-session-since-restart.log"; then
     cp "$OUT_DIR/vllm-last-4000.log" "$OUT_DIR/vllm-session-since-restart.log" || true
@@ -107,7 +109,7 @@ capture_logs() {
   {
     echo "===== vLLM key lines ====="
     grep -E "Started vLLM server|Using vLLM install spec|host=.*max_model_len|gpu_memory_utilization|max_num_batched_tokens|GPU KV cache size|Maximum concurrency|Avg prompt throughput|Avg generation throughput|SpecDecoding metrics|CUDA out of memory|out of memory|EngineCore encountered|BadRequestError|maximum context length|num_running_reqs|prompt_token_ids_len|max_tokens" "$OUT_DIR/vllm-session-since-restart.log" | tail -200 || true
-  } > "$OUT_DIR/vllm-key-lines.txt"
+  } >"$OUT_DIR/vllm-key-lines.txt"
 }
 
 {

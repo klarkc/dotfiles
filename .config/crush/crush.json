@@ -1,81 +1,81 @@
 {
-  "$schema": "https://charm.land/crush.json",
-  "options": {
-    "debug": true
-  },
-  "providers": {
-    "llama-cpp": {
-      "name": "llama.cpp",
-      "base_url": "http://localhost:9090/v1/",
-      "type": "openai-compat",
-      "models": [
-        {
-          "name": "Qwen3.6 35B A3B",
-          "id": "qwen36-35b-a3b",
-          "context_window": 122880,
-          "default_max_tokens": 4096,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0
-        }
-      ]
-    },
-    "vllm": {
-      "name": "vLLM",
-      "base_url": "http://localhost:8000/v1/",
-      "api_key": "$VLLM_API_KEY",
-      "type": "openai-compat",
-      "models": [
-        {
-          "name": "Qwen3.6 35B A3B",
-          "id": "qwen3.6-35b-a3b",
-          "context_window": 43008,
-          "default_max_tokens": 4096,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0
-        },
-        {
-          "name": "Qwen3.6 27B",
-          "id": "qwen3.6-27b",
-          "context_window": 43008,
-          "default_max_tokens": 4096,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0
-        }
-      ]
-    },
-    "vllm_cloud": {
-      "name": "vLLM Cloud",
-      "base_url": " http://64.38.158.67:8000/v1/",
-      "type": "openai-compat",
-      "models": [
-        {
-          "name": "Qwen3.6 27B",
-          "id": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
-          "context_window": 44560,
-          "default_max_tokens": 4096,
-          "cost_per_1m_in": 0,
-          "cost_per_1m_out": 0
-        }
-      ]
-    }
-  },
-  "permissions": {
-    "allowed_tools": [
-      "agent",
-      "agentic_fetch",
-      "download",
-      "fetch",
-      "glob",
-      "grep",
-      "job_output",
-      "list_mcp_resources",
-      "ls",
-      "lsp_diagnostics",
-      "lsp_references",
-      "lsp_restart",
-      "read_mcp_resource",
-      "sourcegraph",
-      "view"
-    ]
-  }
+	"$schema": "https://charm.land/crush.json",
+	"options": {
+		"debug": true
+	},
+	"providers": {
+		"llama-cpp": {
+			"name": "llama.cpp",
+			"base_url": "http://localhost:9090/v1/",
+			"type": "openai-compat",
+			"models": [
+				{
+					"name": "Qwen3.6 35B A3B",
+					"id": "qwen36-35b-a3b",
+					"context_window": 122880,
+					"default_max_tokens": 4096,
+					"cost_per_1m_in": 0,
+					"cost_per_1m_out": 0
+				}
+			]
+		},
+		"vllm": {
+			"name": "vLLM",
+			"base_url": "http://localhost:8000/v1/",
+			"api_key": "$VLLM_API_KEY",
+			"type": "openai-compat",
+			"models": [
+				{
+					"name": "Qwen3.6 35B A3B",
+					"id": "qwen3.6-35b-a3b",
+					"context_window": 43008,
+					"default_max_tokens": 4096,
+					"cost_per_1m_in": 0,
+					"cost_per_1m_out": 0
+				},
+				{
+					"name": "Qwen3.6 27B",
+					"id": "qwen3.6-27b",
+					"context_window": 43008,
+					"default_max_tokens": 4096,
+					"cost_per_1m_in": 0,
+					"cost_per_1m_out": 0
+				}
+			]
+		},
+		"vllm_cloud": {
+			"name": "vLLM Cloud",
+			"base_url": " http://64.38.158.67:8000/v1/",
+			"type": "openai-compat",
+			"models": [
+				{
+					"name": "Qwen3.6 27B",
+					"id": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+					"context_window": 44560,
+					"default_max_tokens": 4096,
+					"cost_per_1m_in": 0,
+					"cost_per_1m_out": 0
+				}
+			]
+		}
+	},
+	"permissions": {
+		"allowed_tools": [
+			"agent",
+			"agentic_fetch",
+			"download",
+			"fetch",
+			"glob",
+			"grep",
+			"job_output",
+			"list_mcp_resources",
+			"ls",
+			"lsp_diagnostics",
+			"lsp_references",
+			"lsp_restart",
+			"read_mcp_resource",
+			"sourcegraph",
+			"view"
+		]
+	}
 }
