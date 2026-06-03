@@ -21,9 +21,17 @@
       }
       ({ pkgs, kolu, ... }@ctx:
         let
-          opencodeWithReasoning = pkgs.opencode.overrideAttrs (old: {
-            src = inputs.opencode-src;
-          });
+          opencodeWithReasoning = pkgs.opencode.overrideAttrs (old:
+            let
+              src = inputs.opencode-src;
+            in
+            {
+              inherit src;
+              node_modules = old.node_modules.overrideAttrs (_: {
+                inherit src;
+                outputHash = pkgs.lib.fakeHash;
+              });
+            });
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
