@@ -104,3 +104,8 @@
 #!/.config/kolu
 #/.config/kolu/*
 #!/.config/kolu/config.json
+
+# herdr
+!/.config/herdr
+/.config/herdr/*
+!/.config/herdr/config.toml

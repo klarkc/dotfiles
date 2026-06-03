@@ -7,6 +7,7 @@ instructions = '''
 '''
 
 [features]
+hooks = true
 streamable_shell = true
 apply_patch_freeform = true
 experimental_sandbox_command_assessment = true
