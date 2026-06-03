@@ -1,49 +1,45 @@
 {
-  "providers": {
-    "local-vllm": {
-      "name": "local-vllm",
-      "baseUrl": "http://localhost:8000/v1",
-      "api": "openai-completions",
-      "apiKey": "VLLM_API_KEY",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false,
-        "maxTokensField": "max_tokens"
-      },
-      "models": [
-        {
-          "id": "qwen3.6-35b-a3b",
-          "name": "Qwen3.6 35B A3B",
-          "reasoning": true,
-          "input": [
-            "text"
-          ],
-          "contextWindow": 43008,
-          "maxTokens": 4096,
-          "cost": {
-            "input": 0,
-            "output": 0,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        {
-          "id": "qwen3.6-27b",
-          "name": "Qwen3.6 27B",
-          "reasoning": true,
-          "input": [
-            "text"
-          ],
-          "contextWindow": 43008,
-          "maxTokens": 4096,
-          "cost": {
-            "input": 0,
-            "output": 0,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        }
-      ]
-    }
-  }
+	"providers": {
+		"local-vllm": {
+			"name": "local-vllm",
+			"baseUrl": "http://localhost:8000/v1",
+			"api": "openai-completions",
+			"apiKey": "VLLM_API_KEY",
+			"compat": {
+				"supportsDeveloperRole": false,
+				"supportsReasoningEffort": false,
+				"maxTokensField": "max_tokens"
+			},
+			"models": [
+				{
+					"id": "qwen3.6-35b-a3b",
+					"name": "Qwen3.6 35B A3B",
+					"reasoning": true,
+					"input": ["text"],
+					"contextWindow": 43008,
+					"maxTokens": 4096,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0
+					}
+				},
+				{
+					"id": "qwen3.6-27b",
+					"name": "Qwen3.6 27B",
+					"reasoning": true,
+					"input": ["text"],
+					"contextWindow": 43008,
+					"maxTokens": 4096,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0
+					}
+				}
+			]
+		}
+	}
 }

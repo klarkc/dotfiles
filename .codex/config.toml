@@ -16,17 +16,8 @@ ghost_commit = true
 inherit = "all"
 
 [sandbox_workspace_write]
-writable_roots = [
-    "/run/user/1000",
-    "/nix/var",
-    "/home/klarkc/.cache"
-]
-allowed_paths = [
-    "/nix",
-    "/nix/store",
-    "/nix/var",
-    "/home/klarkc/.cache"
-]
+writable_roots = ["/run/user/1000", "/nix/var", "/home/klarkc/.cache"]
+allowed_paths = ["/nix", "/nix/store", "/nix/var", "/home/klarkc/.cache"]
 
 [notice]
 hide_rate_limit_model_nudge = true

@@ -27,9 +27,10 @@ import XMonad
     startupHook,
     xmonad,
     (-->),
+    (.|.),
     (<+>),
     (=?),
-    (|||), (.|.),
+    (|||),
   )
 import XMonad.Actions.CycleWS (nextWS)
 import XMonad.Actions.ShowText (flashText, handleTimerEvent)
@@ -67,7 +68,7 @@ myConfig =
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
-      --modMask = controlMask, -- Ctrl
+      -- modMask = controlMask, -- Ctrl
       startupHook = do
         spawn "xrandr --output HDMI-0 --off"
         spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1"
@@ -77,9 +78,9 @@ myConfig =
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
-        --spawn "blueman-applet"
-        --spawn "solaar -w hidden -b regular"
-        --spawn "steam-runtime -silent"
+        -- spawn "blueman-applet"
+        -- spawn "solaar -w hidden -b regular"
+        -- spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),

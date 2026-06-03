@@ -3,10 +3,11 @@
 Optioned Linux for a dev environment
 
 ```bash
-git clone --no-checkout https://github.com/klarkc/dotfiles 
+git clone --no-checkout https://github.com/klarkc/dotfiles
 mv dotfiles/.git ~
 rm -r dotfiles
 ```
+
 ⚠ Next command will replace current home files with repo files (backup first!)
 
 ```bash
@@ -68,6 +69,7 @@ systemctl enable --now lemurs
 ```
 
 > Below dependencies are not mandatory but highly recommended
+
 ```bash
 yay -Syu ffmpeg unzip htop
 ```
@@ -86,6 +88,7 @@ yay --asdeps fzf mdcat
 ```
 
 > Yazi as file manager with optional deps
+
 ```bash
 yay -Syu yazi
 yay -S --asdeps 7zip jq poppler fd fzf zoxide resvg imagemagick xclip xsel chafa

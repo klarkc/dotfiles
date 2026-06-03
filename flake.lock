@@ -136,7 +136,9 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "treefmt-nix": "treefmt-nix"
+        "treefmt-nix": [
+          "treefmt-nix"
+        ]
       },
       "locked": {
         "lastModified": 1780231023,
@@ -193,13 +195,13 @@
         "nix-fast-build": "nix-fast-build",
         "nixpkgs": "nixpkgs",
         "opencode-src": "opencode-src",
+        "treefmt-nix": "treefmt-nix",
         "utils": "utils"
       }
     },
     "treefmt-nix": {
       "inputs": {
         "nixpkgs": [
-          "nix-fast-build",
           "nixpkgs"
         ]
       },

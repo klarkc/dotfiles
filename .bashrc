@@ -16,13 +16,13 @@ if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
   UHOST="\u@\h"
 fi
 case "$TERM" in
-  xterm-color|xterm|xterm-256color|tmux-256color)
-    export PROMPT_COMMAND="__git_ps1 \"${UHOST} \w\" \"$ \""
-    export GIT_PS1_SHOWCOLORHINTS=true
-    ;;
-  *)
-    export PS1="[${UHOST} \W\$(__git_ps1 \" (%s)\")]\$ "
-    ;;
+xterm-color | xterm | xterm-256color | tmux-256color)
+  export PROMPT_COMMAND="__git_ps1 \"${UHOST} \w\" \"$ \""
+  export GIT_PS1_SHOWCOLORHINTS=true
+  ;;
+*)
+  export PS1="[${UHOST} \W\$(__git_ps1 \" (%s)\")]\$ "
+  ;;
 esac
 unset UHOST
 
@@ -61,9 +61,9 @@ export LOCAL_ENDPOINT="http://localhost:11434/v1"
 
 # Grep
 case "$TERM" in
-  xterm-color|xterm|xterm-256color|tmux-256color)
-    alias grep="grep --color"
-    ;;
+xterm-color | xterm | xterm-256color | tmux-256color)
+  alias grep="grep --color"
+  ;;
 esac
 
 # JavaScript
@@ -74,7 +74,7 @@ export PATH="$PATH:$YARN_HOME/bin:$NPM_PACKAGES/bin:${HOME}/.local/bin"
 # PureScript
 alias setpurs="nix develop github:justinwoo/easy-purescript-nix#deluxe"
 
-# Color for less and man 
+# Color for less and man
 export MANPAGER='less -s -M +Gg'
 export LESS="--RAW-CONTROL-CHARS"
 lesscolors=$HOME/.LESS_TERMCAP
@@ -89,7 +89,7 @@ eval "$(direnv hook bash)"
 
 # Tmux
 export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
-if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ] && [[ "$AGENT" != "1" ]]; then
+if command -v tmux &>/dev/null && [ -n "$PS1" ] && [[ ! $TERM =~ screen ]] && [[ ! $TERM =~ tmux ]] && [ -z "$TMUX" ] && [[ $AGENT != "1" ]]; then
   exec tmux
 fi
 
@@ -103,31 +103,30 @@ if [ -d "${HOME}/.nix-profile/etc/profile.d" ]; then
 fi
 
 # Override bashrc
-override="${HOME}/.bashrc_override" 
-[[ -f $override ]] && . $override 
-
+override="${HOME}/.bashrc_override"
+[[ -f $override ]] && . $override
 
 export GPG_TTY=$(tty)
 
 # Shell-GPT integration BASH v0.2
 _sgpt_bash() {
-if [[ -n "$READLINE_LINE" ]]; then
-    READLINE_LINE=$(sgpt --shell --role "phi3-shell" <<< "$READLINE_LINE" --no-interaction)
+  if [[ -n $READLINE_LINE ]]; then
+    READLINE_LINE=$(sgpt --shell --role "phi3-shell" --no-interaction <<<"$READLINE_LINE")
     READLINE_POINT=${#READLINE_LINE}
-fi
+  fi
 }
 bind -x '"\C-e": _sgpt_bash'
 _sgpt_bash_repl() {
-    true || rm /tmp/chat_cache/shell
-    sgpt --repl shell --shell
+  true || rm /tmp/chat_cache/shell
+  sgpt --repl shell --shell
 }
 bind -x '"\C-o": _sgpt_bash_repl'
 # Shell-GPT integration BASH v0.2
 
 function y() {
-	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
-	yazi "$@" --cwd-file="$tmp"
-	IFS= read -r -d '' cwd < "$tmp"
-	[ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
-	rm -f -- "$tmp"
+  local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+  yazi "$@" --cwd-file="$tmp"
+  IFS= read -r -d '' cwd <"$tmp"
+  [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
+  rm -f -- "$tmp"
 }
