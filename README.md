@@ -284,4 +284,4 @@ To customize a `.dotfile` you can write a corresponding `.dotfile_override`.
 
 ## Commit Guidelines
 
-See `COMMIT_GUIDELINES.md.
+See `COMMIT_GUIDELINES.md`.
