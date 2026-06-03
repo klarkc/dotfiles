@@ -31,7 +31,7 @@
               inherit src;
               node_modules = old.node_modules.overrideAttrs (_: {
                 inherit src;
-                outputHash = pkgs.lib.fakeHash;
+                outputHash = "sha256-ZBdR7Vz4N0aKeXzHI7G70j9vE6hLlDw+Dam5WLruVoI=";
               });
             });
           nixProfile = pkgs.writeText "nix-profile" ''
@@ -51,9 +51,10 @@
               nix-output-monitor
               nix-fast-build
               nodejs
-              codex
               uv
               gh
+              codex
+              pi-coding-agent
               opencodeWithReasoning
               kolu
               herdr
