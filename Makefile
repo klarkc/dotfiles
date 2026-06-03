@@ -67,6 +67,10 @@ npm.Config:
 .PHONY: xmonad.Config
 xmonad.Config: .local/share/applications/xmonad.desktop .local/bin/xmonad-session
 
+.PHONY: xmonad.LemursInstall
+xmonad.LemursInstall: .local/bin/xmonad-session
+	install -Dm755 $< /etc/lemurs/wms/xmonad
+
 .PHONY: nix.Profile
 nix.Profile:
 	nix --extra-experimental-features "nix-command flakes" profile install .
