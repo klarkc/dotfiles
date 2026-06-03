@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-xmonad}"
+export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-xmonad}"
+export DESKTOP_SESSION="${DESKTOP_SESSION:-xmonad}"
+export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}"
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+  exec dbus-run-session -- "$0" "$@"
+fi
+
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+  dbus-update-activation-environment --systemd \
+    DBUS_SESSION_BUS_ADDRESS \
+    DISPLAY \
+    XAUTHORITY \
+    XDG_CURRENT_DESKTOP \
+    XDG_SESSION_DESKTOP \
+    DESKTOP_SESSION \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR || true
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user import-environment \
+    DBUS_SESSION_BUS_ADDRESS \
+    DISPLAY \
+    XAUTHORITY \
+    XDG_CURRENT_DESKTOP \
+    XDG_SESSION_DESKTOP \
+    DESKTOP_SESSION \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR || true
+fi
+
+start_notification_daemon() {
+  if command -v dunst >/dev/null 2>&1; then
+    pgrep -x -u "$(id -u)" dunst >/dev/null 2>&1 || dunst >/dev/null 2>&1 &
+    return
+  fi
+
+  if command -v notification-daemon >/dev/null 2>&1; then
+    pgrep -f -u "$(id -u)" 'notification-daemon' >/dev/null 2>&1 || notification-daemon >/dev/null 2>&1 &
+    return
+  fi
+
+  if [ -x /usr/lib/notification-daemon-1.0/notification-daemon ]; then
+    pgrep -f -u "$(id -u)" 'notification-daemon' >/dev/null 2>&1 || /usr/lib/notification-daemon-1.0/notification-daemon >/dev/null 2>&1 &
+  fi
+}
+
+start_notification_daemon
+
+exec xmonad
