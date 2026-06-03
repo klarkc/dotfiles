@@ -36,6 +36,24 @@
         "type": "github"
       }
     },
+    "herdr": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1780489429,
+        "narHash": "sha256-5JM6bgQUD1Or+0Vp08lbEJe++UKrdhFad/21gsmTCAc=",
+        "owner": "ogulcancelik",
+        "repo": "herdr",
+        "rev": "903662fcd822e50d875066ecc20811e3c9945e66",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ogulcancelik",
+        "repo": "herdr",
+        "type": "github"
+      }
+    },
     "kolu": {
       "locked": {
         "lastModified": 1780409289,
@@ -54,7 +72,7 @@
     "nix-fast-build": {
       "inputs": {
         "flake-parts": "flake-parts",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": "nixpkgs_2",
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
@@ -73,6 +91,22 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1779357205,
+        "narHash": "sha256-cCO8aTqss5x9Ky8GWkpY0Hy5fyTZEbtifSUV8QjSzic=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "f83fc3c307e74bc5fd5adb7eb6b8b13ffd2a36e1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1780206209,
         "narHash": "sha256-33WNQ5sssy+8+xhUz953aEnjR1Oh828j0DgLU1TfMqE=",
         "owner": "NixOS",
@@ -87,7 +121,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
+    "nixpkgs_3": {
       "locked": {
         "lastModified": 1780336545,
         "narHash": "sha256-vhVhuXzFrIOfcssC/9hDHx7MHzDKjF3keHuREOQqQiQ=",
@@ -103,11 +137,30 @@
         "type": "github"
       }
     },
+    "opencode-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780486832,
+        "narHash": "sha256-1NjqtwIaKiof6ZX+/tPYeoY+SriHEyorJ7ZWTRFA5HI=",
+        "owner": "anomalyco",
+        "repo": "opencode",
+        "rev": "bf0b8a6ba4e7b02c2a18eed88f9134d67988b09a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "anomalyco",
+        "ref": "pull/30477/head",
+        "repo": "opencode",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "herdr": "herdr",
         "kolu": "kolu",
         "nix-fast-build": "nix-fast-build",
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": "nixpkgs_3",
+        "opencode-src": "opencode-src",
         "utils": "utils"
       }
     },

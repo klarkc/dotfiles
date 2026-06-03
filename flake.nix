@@ -4,16 +4,18 @@
     utils.url = "github:ursi/flake-utils";
     nix-fast-build.url = "github:Mic92/nix-fast-build";
     kolu.url = "github:juspay/kolu";
+    herdr.url = "github:ogulcancelik/herdr";
     opencode-src = {
       url = "github:anomalyco/opencode/pull/30477/head";
       flake = false;
     };
   };
 
-  outputs = { self, utils, ... }@inputs:
+  outputs = { self, utils, herdr, ... }@inputs:
     utils.apply-systems
       {
         inherit inputs;
+        overlays = [ herdr ];
         make-pkgs = system: import inputs.nixpkgs {
           inherit system;
           #config.contentAddressedByDefault = true;
@@ -54,6 +56,7 @@
               gh
               opencodeWithReasoning
               kolu
+              herdr
             ];
           };
         });
