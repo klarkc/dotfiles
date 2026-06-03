@@ -3,25 +3,27 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     utils.url = "github:ursi/flake-utils";
     nix-fast-build.url = "github:Mic92/nix-fast-build";
+    nix-fast-build.inputs.nixpkgs.follows = "nixpkgs";
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
+    herdr.inputs.nixpkgs.follows = "nixpkgs";
     opencode-src = {
       url = "github:anomalyco/opencode/pull/30477/head";
       flake = false;
     };
   };
 
-  outputs = { self, utils, herdr, ... }@inputs:
+  outputs = { self, utils, ... }@inputs:
     utils.apply-systems
       {
         inherit inputs;
-        overlays = [ herdr ];
+        overlays = [ inputs.herdr ];
         make-pkgs = system: import inputs.nixpkgs {
           inherit system;
           #config.contentAddressedByDefault = true;
         };
       }
-      ({ pkgs, kolu, ... }@ctx:
+      ({ pkgs, ... }@ctx:
         let
           opencodeWithReasoning = pkgs.opencode.overrideAttrs (old:
             let
@@ -41,7 +43,7 @@
         {
           packages.default = pkgs.buildEnv {
             name = "klarkc-dotfiles_profile";
-            paths = with pkgs; [
+            paths = with pkgs; with ctx; [
               (pkgs.runCommand "profile" { } ''
                 mkdir -p $out/etc/profile.d
                 cp ${nixProfile} $out/etc/profile.d/nix.sh
@@ -50,6 +52,7 @@
               nixos-rebuild
               nix-output-monitor
               nix-fast-build
+              flake-edit
               nodejs
               uv
               gh
