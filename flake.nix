@@ -6,6 +6,8 @@
     nix-fast-build.inputs.nixpkgs.follows = "nixpkgs";
     git-hooks.url = "github:cachix/git-hooks.nix";
     git-hooks.inputs.nixpkgs.follows = "nixpkgs";
+    treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
@@ -51,72 +53,82 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
-          checkFlakeFollows = pkgs.writeShellApplication {
-            name = "check-flake-follows";
-            runtimeInputs = with pkgs; [
-              coreutils
-              diffutils
-              flake-edit
-            ];
+          formatFlakeFollows = pkgs.writeShellApplication {
+            name = "format-flake-follows";
+            runtimeInputs = [ pkgs.flake-edit ];
             text = ''
               set -euo pipefail
 
-              if [ ! -f flake.nix ]; then
+              if [ ! -f flake.nix ] || [ ! -f flake.lock ]; then
                 exit 0
               fi
 
-              if [ ! -f flake.lock ]; then
-                echo "flake.lock not found; run: nix flake lock"
-                exit 1
-              fi
-
-              tmp="$(mktemp -d)"
-              trap 'rm -rf "$tmp"' EXIT
-
-              cp flake.nix "$tmp/flake.nix"
-              cp flake.lock "$tmp/flake.lock"
-
               flake-edit \
-                --flake "$tmp/flake.nix" \
-                --lock-file "$tmp/flake.lock" \
+                --flake flake.nix \
+                --lock-file flake.lock \
                 --no-lock \
                 --non-interactive \
                 follow >/dev/null
-
-              if ! diff -u flake.nix "$tmp/flake.nix"; then
-                echo
-                echo "flake.nix follows are out of date."
-                echo "Run:"
-                echo "  nix develop -c flake-edit --no-lock --non-interactive follow"
-                exit 1
-              fi
             '';
+          };
+          treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
+            projectRootFile = "flake.nix";
+
+            programs.nixfmt.enable = true;
+            programs.ormolu.enable = true;
+            programs.prettier.enable = true;
+            programs.shfmt.enable = true;
+            programs.taplo.enable = true;
+
+            settings.formatter.flake-follows = {
+              command = pkgs.lib.getExe formatFlakeFollows;
+              includes = [
+                "flake.nix"
+                "flake.lock"
+              ];
+            };
+
+            settings.formatter.shfmt.includes = [
+              "*.sh"
+              ".bash_profile"
+              ".bashrc"
+              ".profile"
+              ".local/bin/bench-vllm"
+              ".local/bin/cleanup"
+              ".local/bin/home-cleanup"
+              ".local/bin/home-cleanup-post"
+              ".local/bin/pacman-clean"
+              ".local/bin/pacman-paccache"
+              ".local/bin/pacman-pacreport"
+              ".local/bin/pacman-report"
+            ];
+
+            settings.formatter.taplo.includes = [
+              "*.toml"
+              ".*.toml"
+            ];
           };
           pre-commit-check = inputs.git-hooks.lib.${system}.run {
             src = ./.;
-            hooks = {
-              nixfmt.enable = true;
-              flake-follows = {
-                enable = true;
-                name = "flake-edit follow";
-                entry = "${checkFlakeFollows}/bin/check-flake-follows";
-                files = "^flake\\.(nix|lock)$";
-                pass_filenames = false;
-              };
+            hooks.treefmt = {
+              enable = true;
+              package = treefmtEval.config.build.wrapper;
             };
           };
         in
         {
-          formatter = pkgs.writeShellScriptBin "pre-commit-run" ''
-            ${pkgs.lib.getExe pre-commit-check.config.package} run --all-files --config ${pre-commit-check.config.configFile}
-          '';
+          formatter = treefmtEval.config.build.wrapper;
 
-          checks.pre-commit-check = pre-commit-check;
+          checks = {
+            formatting = treefmtEval.config.build.check self;
+            pre-commit-check = pre-commit-check;
+          };
 
           devShells.default = pkgs.mkShell {
             inherit (pre-commit-check) shellHook;
             buildInputs = pre-commit-check.enabledPackages ++ [
               pkgs.flake-edit
+              treefmtEval.config.build.wrapper
             ];
           };
 
