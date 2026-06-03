@@ -73,7 +73,6 @@ myConfig =
         spawn "xrandr --output HDMI-0 --off"
         spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1"
         spawn "xsetroot -cursor_name left_ptr"
-        spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
         spawn "picom"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
