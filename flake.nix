@@ -4,6 +4,10 @@
     utils.url = "github:ursi/flake-utils";
     nix-fast-build.url = "github:Mic92/nix-fast-build";
     kolu.url = "github:juspay/kolu";
+    opencode-src = {
+      url = "github:anomalyco/opencode/pull/30477/head";
+      flake = false;
+    };
   };
 
   outputs = { self, utils, ... }@inputs:
@@ -17,32 +21,8 @@
       }
       ({ pkgs, kolu, ... }@ctx:
         let
-          opencodePatched = pkgs.opencode.overrideAttrs (old: {
-            postPatch = (old.postPatch or "") + ''
-              patched=0
-              for file in \
-                packages/opencode/src/provider/provider.ts \
-                packages/opencode/src/provider/models.ts
-              do
-                [ -f "$file" ] || continue
-                if grep -q 'Schema.Literals(\["reasoning_content", "reasoning_details"\])' "$file"; then
-                  substituteInPlace "$file" \
-                    --replace-fail 'Schema.Literals(["reasoning_content", "reasoning_details"])' \
-                                   'Schema.Literals(["reasoning_content", "reasoning_details", "reasoning"])'
-                  patched=1
-                fi
-                if grep -q '"reasoning_content" | "reasoning_details"' "$file"; then
-                  substituteInPlace "$file" \
-                    --replace-fail '"reasoning_content" | "reasoning_details"' \
-                                   '"reasoning_content" | "reasoning_details" | "reasoning"'
-                  patched=1
-                fi
-              done
-              if [ "$patched" -ne 1 ]; then
-                echo "failed to patch opencode interleaved reasoning field enum" >&2
-                exit 1
-              fi
-            '';
+          opencodeWithReasoning = pkgs.opencode.overrideAttrs (old: {
+            src = inputs.opencode-src;
           });
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -64,7 +44,7 @@
               codex
               uv
               gh
-              opencodePatched
+              opencodeWithReasoning
               kolu
             ];
           };
