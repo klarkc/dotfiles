@@ -24,6 +24,7 @@ git checkout main
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
+- Ctrl+ç as Ctrl+b through keyd, while ç remains Unicode without Ctrl
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
 - [codex](https://github.com/openai/codex), [Crush](https://github.com/charmbracelet/crush) and [opencode](https://github.com/anomalyco/opencode) as coding agents
 - [Fusion](https://github.com/Runfusion/Fusion) for agents orchestration
@@ -62,7 +63,7 @@ Below are the supported distro setups
 ```bash
 pacman -Syu yay
 # TODO re-enable alacritty-ligature-git
-yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
+yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim alacritty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap keyd notification-daemon lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
@@ -102,6 +103,28 @@ make
 systemctl --user daemon-reload
 ```
 
+Configure the system-wide keyd remap so `ç` remains the regular Unicode character, while `Ctrl+ç` is emitted as `Ctrl+b` for tmux and terminal shortcuts. This requires sudo because the keyd config lives in `/etc/keyd` and the daemon runs system-wide.
+
+```bash
+sudo install -d /etc/keyd
+sudo tee /etc/keyd/default.conf >/dev/null <<'EOF'
+[ids]
+*
+
+[control]
+semicolon = C-b
+EOF
+sudo keyd check
+sudo systemctl enable --now keyd
+sudo keyd reload
+```
+
+If the `ç` key is not reported as `semicolon` on a machine, check it with:
+
+```bash
+sudo keyd monitor
+```
+
 Fusion's systemd service uses `~/.fusion/ssh_config` for Git SSH operations. Keep that file generated when OpenSSH configuration changes so sandboxed Fusion can read a stable SSH config.
 
 Install the pacman hook so this generated SSH config is refreshed after `openssh` or `systemd` package updates:
@@ -130,7 +153,7 @@ The vLLM/Fusion workflow is target-based. Only one vLLM model target should run 
 
 Use `vllm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
 
-The target starts only the selected vLLM service. The vLLM service then patches local Crush/Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vllm@...service`.
+The target starts only the selected vLLM service. The vLLM service then patches local Crush/Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
 
 Pick the model interactively:
 
