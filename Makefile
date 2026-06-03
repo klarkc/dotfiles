@@ -65,7 +65,7 @@ npm.Config:
 	ln -s /usr/share/xsessions/xmonad.desktop $@
 
 .PHONY: xmonad.Config
-xmonad.Config: .local/share/applications/xmonad.desktop
+xmonad.Config: .local/share/applications/xmonad.desktop .local/bin/xmonad-session
 
 .PHONY: nix.Profile
 nix.Profile:
@@ -75,4 +75,4 @@ nix.Profile:
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
 	rm -Rf .vim/autoload/plug.vim .tmux/plugins/tpm
-	rm .local/share/applications/xmonad.desktop
+	rm -f .local/share/applications/xmonad.desktop
