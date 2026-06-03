@@ -1,0 +1,25 @@
+theme = "nord"
+env-vars = ["TERM=xterm-256color"]
+padding = [10]
+
+[fonts]
+family = "Fira Code"
+features = []
+use-drawable-chars = true
+
+[navigation]
+mode = "Plain"
+use-split = false
+hide-if-single = true
+
+[window]
+decorations = "Enabled"
+opacity = 1.0
+blur = false
+
+[effects]
+custom-mouse-cursor = false
+trail-cursor = false
+
+[renderer]
+disable-occluded-render = true
