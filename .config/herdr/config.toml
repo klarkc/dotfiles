@@ -21,3 +21,6 @@ focus_pane_down = "prefix+down"
 
 [ui.toast]
 delivery = "terminal"
+
+[experimental]
+pane_history = true
