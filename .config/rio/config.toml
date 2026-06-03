@@ -1,4 +1,3 @@
-theme = "nord"
 env-vars = ["TERM=xterm-256color"]
 padding = [10]
 
@@ -24,5 +23,50 @@ trail-cursor = false
 [renderer]
 disable-occluded-render = true
 
-[platform]
-linux.theme = "nord"
+[colors]
+background = "#2e3440"
+foreground = "#d8dee9"
+dim-foreground = "#a5abb6"
+
+black = "#3b4252"
+blue = "#81a1c1"
+cyan = "#88c0d0"
+green = "#a3be8c"
+magenta = "#b48ead"
+red = "#bf616a"
+white = "#e5e9f0"
+yellow = "#ebcb8b"
+
+light-black = "#4c566a"
+light-blue = "#81a1c1"
+light-cyan = "#8fbcbb"
+light-green = "#a3be8c"
+light-magenta = "#b48ead"
+light-red = "#bf616a"
+light-white = "#eceff4"
+light-yellow = "#ebcb8b"
+
+cursor = "#d8dee9"
+vi-cursor = "#d8dee9"
+
+selection-background = "#4c566a"
+selection-foreground = "#d8dee9"
+
+search-match-background = "#88c0d0"
+search-match-foreground = "#2e3440"
+search-focused-match-background = "#ebcb8b"
+search-focused-match-foreground = "#2e3440"
+
+dim-black = "#373e4d"
+dim-blue = "#68809a"
+dim-cyan = "#6d96a5"
+dim-green = "#809575"
+dim-magenta = "#8c738c"
+dim-red = "#94545d"
+dim-white = "#aeb3bb"
+dim-yellow = "#b29e75"
+
+tabs = "#d8dee9"
+tabs-active = "#eceff4"
+bar = "#3b4252"
+split = "#4c566a"
