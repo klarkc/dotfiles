@@ -109,3 +109,8 @@
 !/.config/herdr
 /.config/herdr/*
 !/.config/herdr/config.toml
+
+# btop
+!/.config/btop
+/.config/btop/*
+!/.config/btop/btop.conf
