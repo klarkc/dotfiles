@@ -65,7 +65,7 @@ main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 myConfig =
   def
     { keys = keys desktopConfig,
-      terminal = "ratty",
+      terminal = "alacritty",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
@@ -76,6 +76,7 @@ myConfig =
         spawn "xsetroot -cursor_name left_ptr"
         spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
+        spawn "pgrep -x picom >/dev/null || picom"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
@@ -83,7 +84,7 @@ myConfig =
         -- spawn "solaar -w hidden -b regular"
         -- spawn "steam-runtime -silent"
     }
-    `additionalKeysP` [ ("M-S-<Return>", spawn "ratty"),
+    `additionalKeysP` [ ("M-S-<Return>", spawn "alacritty"),
                         ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
