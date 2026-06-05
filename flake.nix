@@ -12,6 +12,10 @@
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
+    alacritty-ligatures-src = {
+      url = "github:ink-splatters/alacritty-ligatures/master";
+      flake = false;
+    };
     opencode-src = {
       url = "github:anomalyco/opencode/pull/30477/head";
       flake = false;
@@ -38,19 +42,12 @@
           ...
         }@ctx:
         let
-          opencodeWithReasoning = pkgs.opencode.overrideAttrs (
-            old:
-            let
-              src = inputs.opencode-src;
-            in
-            {
-              inherit src;
-              node_modules = old.node_modules.overrideAttrs (_: {
-                inherit src;
-                outputHash = "sha256-ZBdR7Vz4N0aKeXzHI7G70j9vE6hLlDw+Dam5WLruVoI=";
-              });
-            }
-          );
+          alacrittyWithLigatures = pkgs.callPackage ./.nix/alacritty-ligatures.nix {
+            alacritty-ligatures-src = inputs.alacritty-ligatures-src;
+          };
+          opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
+            opencode-src = inputs.opencode-src;
+          };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -147,6 +144,7 @@
                   mkdir -p $out/etc/profile.d
                   cp ${nixProfile} $out/etc/profile.d/nix.sh
                 '')
+                alacrittyWithLigatures
                 direnv
                 nixos-rebuild
                 nix-output-monitor
