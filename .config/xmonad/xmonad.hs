@@ -47,6 +47,7 @@ import XMonad.Layout (JumpToLayout (JumpToLayout))
 import XMonad.Layout.Decoration (ModifiedLayout (ModifiedLayout))
 import XMonad.Layout.Grid (Grid (Grid))
 import XMonad.Layout.IfMax (IfMax (IfMax))
+import XMonad.Layout.LayoutHints (layoutHints)
 import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.MultiToggle (single)
 import XMonad.Layout.MultiToggle.Instances (StdTransformers (FULL))
@@ -73,6 +74,7 @@ myConfig =
         spawn "xrandr --output HDMI-0 --off"
         spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1"
         spawn "xsetroot -cursor_name left_ptr"
+        spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
         spawn "picom"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
@@ -95,7 +97,7 @@ myConfig =
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-")
                       ]
 
-myLayout = tiled ||| full ||| mirror ||| tabbed
+myLayout = layoutHints $ tiled ||| full ||| mirror ||| tabbed
   where
     tiled = avoidStruts $ Tall nmaster delta ratio
     full = avoidStruts Full
