@@ -5,25 +5,25 @@ line-height = 1.0
 
 [fonts]
 size = 14
-family = "monospace"
-features = []
+family = "DejaVu Sans Mono"
+features = ["liga=0", "clig=0", "calt=0"]
 use-drawable-chars = false
 disable-warnings-not-found = true
 
 [fonts.regular]
-family = "monospace"
+family = "DejaVu Sans Mono"
 style = "default"
 
 [fonts.bold]
-family = "monospace"
+family = "DejaVu Sans Mono"
 style = "default"
 
 [fonts.italic]
-family = "monospace"
+family = "DejaVu Sans Mono"
 style = "default"
 
 [fonts.bold-italic]
-family = "monospace"
+family = "DejaVu Sans Mono"
 style = "default"
 
 [navigation]
