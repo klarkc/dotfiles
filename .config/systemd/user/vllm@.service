@@ -12,7 +12,7 @@ TimeoutStopSec=30
 PassEnvironment=HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VLLM_API_KEY
 EnvironmentFile=%h/.config/vllm/%i.env
 Environment=VLLM_INSTANCE=%i
-Environment=VLLM_NIX_CONFIG=%h/.config/nix/vllm-runtime.nix
+Environment=VLLM_NIX_CONFIG=%h/.nix/vllm-runtime.nix
 Environment=VLLM_RUNTIME_DIR=%C/vllm-%i
 Environment=HF_HUB_ETAG_TIMEOUT=60
 Environment=HF_HUB_DOWNLOAD_TIMEOUT=600
@@ -53,7 +53,7 @@ ProtectControlGroups=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 
-ReadOnlyPaths=%h/.config/nix/vllm-runtime.nix %h/.config/vllm/%i.env %h/.local/bin/vllm-patch-model-defaults %h/.local/bin/vllm-serve-pure %h/.local/bin/vllm-wait-ready
+ReadOnlyPaths=%h/.nix/vllm-runtime.nix %h/.config/vllm/%i.env %h/.local/bin/vllm-patch-model-defaults %h/.local/bin/vllm-serve-pure %h/.local/bin/vllm-wait-ready
 ReadWritePaths=%C/vllm-%i %h/.cache/huggingface %h/.config/crush %h/.config/opencode %h/.pi/agent %h/.fusion
 
 [Install]
