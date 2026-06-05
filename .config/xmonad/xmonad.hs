@@ -51,7 +51,7 @@ import XMonad.Layout.LayoutHints (layoutHints)
 import XMonad.Layout.Magnifier (magnifiercz')
 import XMonad.Layout.MultiToggle (single)
 import XMonad.Layout.MultiToggle.Instances (StdTransformers (FULL))
-import XMonad.Layout.Tabbed (TabbedDecoration (Tabbed), shrinkText, simpleTabbed, simpleTabbedLeft, tabbed, tabbedLeft, tabbedRight)
+import XMonad.Layout.Tabbed (TabbedDecoration (Tabbed), shrinkText, simpleTabbed, simpleTabbedLeft, tabbed, tabbedRight)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.ToggleLayouts (ToggleLayout (ToggleLayout))
 import XMonad.Operations (unGrab)
@@ -65,7 +65,7 @@ main = xmonad . docks . ewmhFullscreen . ewmh . pagerHints $ myConfig
 myConfig =
   def
     { keys = keys desktopConfig,
-      terminal = "rio",
+      terminal = "ratty",
       layoutHook = myLayout,
       normalBorderColor = "#3B4252",
       focusedBorderColor = "#5E81AC",
@@ -83,7 +83,7 @@ myConfig =
         -- spawn "solaar -w hidden -b regular"
         -- spawn "steam-runtime -silent"
     }
-    `additionalKeysP` [ ("M-S-<Return>", spawn "rio"),
+    `additionalKeysP` [ ("M-S-<Return>", spawn "ratty"),
                         ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
