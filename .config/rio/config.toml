@@ -6,7 +6,7 @@ line-height = 1.0
 size = 14
 family = "Fira Code"
 features = []
-use-drawable-chars = true
+use-drawable-chars = false
 
 [fonts.regular]
 family = "Fira Code"
@@ -29,6 +29,13 @@ mode = "Plain"
 use-split = false
 hide-if-single = true
 unfocused-split-opacity = 1.0
+
+[panel]
+padding = [0]
+row-gap = 0
+column-gap = 0
+border-width = 0.0
+border-radius = 0.0
 
 [window]
 decorations = "Enabled"
