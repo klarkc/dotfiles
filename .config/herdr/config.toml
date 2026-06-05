@@ -32,7 +32,7 @@ next_agent = "prefix+shift+l"
 prevous_agent = "prefix+shift+h"
 
 [ui.toast]
-delivery = "terminal"
+delivery = "system"
 
 [experimental]
 pane_history = true
