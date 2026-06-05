@@ -9,7 +9,7 @@ Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=FUSION_RUNTIME_DIR=%C/fusion-systemd
-Environment=FUSION_NIX_CONFIG=%h/.config/nix/fusion-npm.nix
+Environment=FUSION_NIX_CONFIG=%h/.nix/fusion-npm.nix
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
 WorkingDirectory=%h/Sources/Fusion/klarkc/dotfiles
 
@@ -34,7 +34,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 InaccessiblePaths=%h/.codex
 
-ReadOnlyPaths=%h/.config/nix/fusion-npm.nix
+ReadOnlyPaths=%h/.nix/fusion-npm.nix
 ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %C/fusion-systemd %h/.config/qmd %t/fusion
 
 [Install]
