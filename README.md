@@ -18,9 +18,9 @@ git checkout main
 
 - [Lemurs](https://github.com/coastalwhite/lemurs) Window Manager
 - [Pipewire](https://pipewire.org) Sound Server
-- [Ratty](https://github.com/orhun/ratty) + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
+- [Alacritty](https://github.com/alacritty/alacritty) with ligatures + [Tmux](https://github.com/tmux/tmux) + [vim](https://github.com/vim/vim)
 - [Vim Language Server Protocol](https://github.com/prabirshrestha/vim-lsp) + [Automatic Servers](https://github.com/mattn/vim-lsp-settings)
-- [Nord Theme](https://www.nordtheme.com/)
+- [Nord Theme](https://www.nordtheme.com/) for the desktop; Alacritty uses its default color theme
 - [Fira Code](https://github.com/tonsky/FiraCode) with ligatures support
 - [LSD](https://github.com/Peltoche/lsd) replaces `ls` with the modern `lsd` alternative
 - CapsLock as Escape
@@ -62,11 +62,13 @@ Below are the supported distro setups
 
 ```bash
 pacman -Syu yay
-yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim ratty qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap xclip keyd dunst libnotify lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
+yay -Syu openssh pwvucontrol pipewire pipewire-audio pipewire-pulse pipewire-alsa git git-lfs gvim qt5-styleplugins nix ttf-fira-code noto-fonts-emoji lsd dconf-editor picom xorg-xmodmap xclip keyd dunst libnotify lemurs haskell-language-server xmonad xmonad-contrib xorg-xsetroot feh the_silver_searcher satty scrot wget xorg-server taffybar libappindicator-gtk3 blueman dmenu sword
 sudo chmod +s .local/bin/pacman-*
 systemctl enable --now nix-daemon.socket
 systemctl enable --now lemurs
 ```
+
+Alacritty is installed by the Nix profile from the `ink-splatters/alacritty-ligatures` fork, so it is intentionally not installed from pacman/yay here.
 
 > Below dependencies are not mandatory but highly recommended
 
@@ -247,9 +249,9 @@ SMALL_PROMPTS=8 SMALL_OUTPUT_LEN=64 LONG_PROMPTS=1 vllm-benchmark
 
 #### Fusion
 
-Fusion is packaged by `.config/nix/fusion-npm.nix` and launched by the sandboxed user service. The service runs the long-lived Fusion dashboard/server process directly under systemd; it no longer owns a `tmux` session.
+Fusion is packaged by `.nix/fusion-npm.nix` and launched by the sandboxed user service. The service runs the long-lived Fusion dashboard/server process directly under systemd; it no longer owns a `tmux` session.
 
-The Nix package preserves the npm global-install layout enough for Fusion to detect its installed package, but the package itself lives in the immutable Nix store. Do not use Fusion's self-update flow for this setup. Upgrade Fusion by bumping the version and fixed-output hash in `.config/nix/fusion-npm.nix`, then restart `fusion.service` or select a vLLM target with `vllm-config` so Fusion is restarted after model readiness.
+The Nix package preserves the npm global-install layout enough for Fusion to detect its installed package, but the package itself lives in the immutable Nix store. Do not use Fusion's self-update flow for this setup. Upgrade Fusion by bumping the version and fixed-output hash in `.nix/fusion-npm.nix`, then restart `fusion.service` or select a vLLM target with `vllm-config` so Fusion is restarted after model readiness.
 
 Fusion 0.29 exposes `fn dashboard`/`fusion dashboard` as the command that starts the dashboard/server. There is currently no known CLI command that attaches a terminal UI to an already-running dashboard instance. Use the browser for the running dashboard:
 
