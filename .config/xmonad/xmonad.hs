@@ -76,7 +76,6 @@ myConfig =
         spawn "xsetroot -cursor_name left_ptr"
         spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
-        spawn "picom"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
