@@ -5,26 +5,25 @@ line-height = 1.0
 
 [fonts]
 size = 14
-family = "DejaVu Sans Mono"
-features = ["liga=0", "clig=0", "calt=0"]
-use-drawable-chars = false
-disable-warnings-not-found = true
+family = "Fira Code"
+features = []
+use-drawable-chars = true
 
 [fonts.regular]
-family = "DejaVu Sans Mono"
-style = "default"
+family = "Fira Code"
+style = "Regular"
 
 [fonts.bold]
-family = "DejaVu Sans Mono"
-style = "default"
+family = "Fira Code"
+style = "Bold"
 
 [fonts.italic]
-family = "DejaVu Sans Mono"
-style = "default"
+family = "Fira Code"
+style = "Italic"
 
 [fonts.bold-italic]
-family = "DejaVu Sans Mono"
-style = "default"
+family = "Fira Code"
+style = "Bold Italic"
 
 [navigation]
 mode = "Plain"
@@ -43,10 +42,6 @@ border-radius = 0.0
 decorations = "Enabled"
 opacity = 1.0
 blur = false
-
-[effects]
-custom-mouse-cursor = false
-trail-cursor = false
 
 [renderer]
 disable-occluded-render = true
