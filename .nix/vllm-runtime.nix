@@ -70,6 +70,7 @@ let
 
   runtimeLibraryPath = pkgs.lib.makeLibraryPath [
     pkgs.stdenv.cc.cc.lib
+    pkgs.zstd
   ];
 in
 pkgs.stdenvNoCC.mkDerivation {
@@ -84,34 +85,34 @@ pkgs.stdenvNoCC.mkDerivation {
   dontUnpack = true;
 
   installPhase = ''
-    mkdir -p "$out/lib/python3.12/site-packages" "$out/bin" "$out/nix-support"
-    export HOME="$TMPDIR/home"
-    export PIP_NO_INDEX=1
-    export PIP_FIND_LINKS=${wheelhouse}
-    export PIP_DISABLE_PIP_VERSION_CHECK=1
-    export PIP_NO_CACHE_DIR=1
+        mkdir -p "$out/lib/python3.12/site-packages" "$out/bin" "$out/nix-support"
+        export HOME="$TMPDIR/home"
+        export PIP_NO_INDEX=1
+        export PIP_FIND_LINKS=${wheelhouse}
+        export PIP_DISABLE_PIP_VERSION_CHECK=1
+        export PIP_NO_CACHE_DIR=1
 
-    ${pythonWithPip}/bin/python3.12 -m pip install \
-      --no-index \
-      --find-links ${wheelhouse} \
-      --target "$out/lib/python3.12/site-packages" \
-      ${pkgs.lib.escapeShellArgs allPythonPackages}
+        ${pythonWithPip}/bin/python3.12 -m pip install \
+          --no-index \
+          --find-links ${wheelhouse} \
+          --target "$out/lib/python3.12/site-packages" \
+          ${pkgs.lib.escapeShellArgs allPythonPackages}
 
-    makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
-      --set PYTHONNOUSERSITE 1 \
-      --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
-      --prefix PATH : "${runtimePath}"
+        makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
+          --set PYTHONNOUSERSITE 1 \
+          --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
+          --prefix PATH : "${runtimePath}"
 
-    cat > "$out/bin/vllm" <<EOF
-#!/bin/sh
-export PYTHONNOUSERSITE=1
-export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
-export PATH="${runtimePath}:\''${PATH:-}"
-export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
-exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.openai.api_server "\$@"
-EOF
-    chmod 0755 "$out/bin/vllm"
+        cat > "$out/bin/vllm" <<EOF
+    #!/bin/sh
+    export PYTHONNOUSERSITE=1
+    export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
+    export PATH="${runtimePath}:\''${PATH:-}"
+    export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
+    exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.cli.main "\$@"
+    EOF
+        chmod 0755 "$out/bin/vllm"
 
-    printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
+        printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
   '';
 }
