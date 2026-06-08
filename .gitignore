@@ -20,6 +20,9 @@
 !/flake.lock
 /.profile_override
 
+# nix files
+!/.nix
+
 # monitoring scripts and systemd units
 !/scripts
 !/systemd
