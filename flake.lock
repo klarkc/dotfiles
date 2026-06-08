@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "alacritty-ligatures-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721328738,
+        "narHash": "sha256-9h7BASr3BSoUoc35C0PU5pgT/4l2qlIeBWwoWGGjrX8=",
+        "owner": "ink-splatters",
+        "repo": "alacritty-ligatures",
+        "rev": "c3075f189c2d8148c70a82f176565ea8e420b49f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ink-splatters",
+        "ref": "master",
+        "repo": "alacritty-ligatures",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -189,6 +206,7 @@
     },
     "root": {
       "inputs": {
+        "alacritty-ligatures-src": "alacritty-ligatures-src",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
