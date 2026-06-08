@@ -55,6 +55,11 @@ if [ -r "$runtime/nix-support/ld-library-path" ]; then
   runtime_ld="$(cat "$runtime/nix-support/ld-library-path")"
   [ -z "$runtime_ld" ] || ld="$runtime_ld:$ld"
 fi
+[ -d "$site" ] || { echo "ERROR: site-packages directory is missing at $site" >&2; exit 1; }
+[ -z "$(find "$site" -type d -name '*.libs' -print -quit 2>/dev/null || true)" ] || {
+  libs_dirs="$(find "$site" -type d -name '*.libs' -print 2>/dev/null | paste -sd: - || true)"
+  [ -z "$libs_dirs" ] || ld="$libs_dirs:$ld"
+}
 [ ! -d "$site/torch/lib" ] || ld="$site/torch/lib:$ld"
 if [ -d "$site/nvidia" ]; then
   nvidia_libs="$(find "$site/nvidia" -type d -name lib -print 2>/dev/null | paste -sd: - || true)"
