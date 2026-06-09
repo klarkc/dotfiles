@@ -24,7 +24,22 @@
 		}
 	},
 	"permission": {
-		"edit": "ask",
-		"bash": "ask"
+		"external_directory": {
+			"*": "ask",
+			"~/.cache/**": "allow",
+			"~/.npm/**": "allow",
+			"/tmp/**": "allow",
+			"/run/user/1000/**": "allow",
+			"/nix/var/**": "allow",
+			"/nix/store/**": "allow"
+		},
+		"edit": {
+			"*": "ask",
+			"/tmp/**": "allow",
+			"/run/user/1000/**": "allow"
+		},
+		"bash": {
+			"*": "ask"
+		}
 	}
 }
