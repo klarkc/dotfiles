@@ -39,7 +39,26 @@
 			"/run/user/1000/**": "allow"
 		},
 		"bash": {
-			"*": "ask"
+			"*": "ask",
+			"git log *": "allow",
+			"git status *": "allow",
+			"git stash list *": "allow",
+			"git stash show *": "allow",
+			"grep *": "allow",
+			"ls *": "allow",
+			"find *": "allow",
+			"date *": "allow",
+			"echo *": "allow",
+			"tail *": "allow",
+			"head *": "allow",
+			"cat * ": "allow",
+			"wc * ": "allow",
+			"pwd": "allow",
+			"nix build *": "allow",
+			"nix profile run *": "allow",
+			"readelf *": "allow",
+			"devenv test *": "allow",
+			"which *": "allow"
 		}
 	}
 }
