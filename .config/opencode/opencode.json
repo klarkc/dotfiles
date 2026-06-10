@@ -44,6 +44,7 @@
 			"git status *": "allow",
 			"git stash list *": "allow",
 			"git stash show *": "allow",
+			"git show *": "allow",
 			"grep *": "allow",
 			"ls *": "allow",
 			"find *": "allow",
@@ -52,13 +53,23 @@
 			"tail *": "allow",
 			"head *": "allow",
 			"cat * ": "allow",
-			"wc * ": "allow",
 			"pwd": "allow",
-			"nix build *": "allow",
-			"nix profile run *": "allow",
 			"readelf *": "allow",
+			"which *": "allow",
+			"file *": "allow",
+			"wc * ": "allow",
+			"nix build *": "allow",
+			"nix eval *": "allow",
+			"nix profile run *": "allow",
+			"nix profile list *": "allow",
+			"nix search *": "allow",
+			"nix help *": "allow",
+			"nix help-store *": "allow",
+			"nix-store query-references *": "allow",
 			"devenv test *": "allow",
-			"which *": "allow"
+			"devenv info *": "allow",
+			"devenv search *": "allow",
+			"devenv help *": "allow"
 		}
 	}
 }
