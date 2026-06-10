@@ -5,6 +5,6 @@ pkgs.opencode.overrideAttrs (old: {
 
   node_modules = old.node_modules.overrideAttrs (_: {
     src = opencode-src;
-    outputHash = "sha256-ZBdR7Vz4N0aKeXzHI7G70j9vE6hLlDw+Dam5WLruVoI=";
+    outputHash = "sha256-4yjQlxN+U4CKwA/hE8gACuvA4bBeTrX0ACVBIK4UQCg=";
   });
 })
