@@ -28,8 +28,8 @@ focus_pane_down = "prefix+down"
 open_worktree = "prefix+shift+o"
 remove_worktree = "prefix+alt+d"
 next_tab = ["prefix+n", "ctrl+alt+]"]
-next_agent = "prefix+shift+l"
-prevous_agent = "prefix+shift+h"
+next_agent = "prefix+alt+l"
+prevous_agent = "prefix+alt+h"
 
 [ui.toast]
 delivery = "system"
