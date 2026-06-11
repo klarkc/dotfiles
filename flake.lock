@@ -119,11 +119,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781094825,
-        "narHash": "sha256-+34RsCNa+l3q4KNiM0FLsrEPw+pVjodJasHAtWLbC/U=",
+        "lastModified": 1781173320,
+        "narHash": "sha256-MhE/Ci4biaLoQfDeoAX4JQj2Qy04ekD69SJG6PgPyIA=",
         "owner": "ogulcancelik",
         "repo": "herdr",
-        "rev": "36a1b7f86444871f0c38ff36510a6e3c2eec48c6",
+        "rev": "1a61ea611a88ece179cf9e236b7efc68fa7a801b",
         "type": "github"
       },
       "original": {
@@ -134,11 +134,11 @@
     },
     "kolu": {
       "locked": {
-        "lastModified": 1781096946,
-        "narHash": "sha256-EfSrfmzRtWQuXai/kmG0l8Jry0OSnFid22Lx5EFM+R0=",
+        "lastModified": 1781178875,
+        "narHash": "sha256-aihazKaB1YtHhkJSqx3cVhoKzl6/ijR8wLwbTmYGn7Y=",
         "owner": "juspay",
         "repo": "kolu",
-        "rev": "0471f8bca5090bc480eee16963610cad4e21e7b1",
+        "rev": "637577c40b33761c64559a78869fc0f74e6e1801",
         "type": "github"
       },
       "original": {
@@ -158,11 +158,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781098794,
-        "narHash": "sha256-5eRXeI5O3HoQSqaVOGvck0fHKYzadMthidbImjZTz5c=",
+        "lastModified": 1781102980,
+        "narHash": "sha256-TedpVa2nOyxvQjC7MaugkTWTkDBqMa/v/pZYmIsQMsY=",
         "owner": "Mic92",
         "repo": "nix-fast-build",
-        "rev": "6aede9c62905b9e107f502329b7a08b24434ff74",
+        "rev": "591a0f3798cfd1af148eb323d5eae463bc837f80",
         "type": "github"
       },
       "original": {
