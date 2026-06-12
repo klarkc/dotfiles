@@ -102,6 +102,7 @@
 !/.config/opencode
 /.config/opencode/*
 !/.config/opencode/opencode.json
+!/.config/opencode/opencode.workspace.json
 
 # kolu (uncomment to persist updates to config)
 #!/.config/kolu
