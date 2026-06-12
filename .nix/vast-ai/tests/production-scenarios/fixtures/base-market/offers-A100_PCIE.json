@@ -1,0 +1,1 @@
+{"offers":[{"id":100001,"machine_id":1001,"gpu_name":"A100_PCIE","dph_total":0.3400,"reliability2":0.996,"dlperf":210,"geolocation":"California, US","direct_port_count":4,"disk_space":200,"gpu_ram":80,"cuda_max_good":12.9,"storage_cost":0.00037}]}
