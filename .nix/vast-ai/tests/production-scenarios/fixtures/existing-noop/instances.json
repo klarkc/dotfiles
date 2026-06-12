@@ -1,0 +1,1 @@
+{"instances":[{"id":47,"machine_id":1001,"label":"qwen36-27b-fp8-48k","actual_status":"running","cur_state":"running","intended_status":"running","next_state":"running","is_bid":true,"public_ipaddr":"198.51.100.47","gpu_name":"A100_PCIE","dph_total":0.3400,"min_bid":0.3600,"bid_price":0.3900,"duration":100}]}
