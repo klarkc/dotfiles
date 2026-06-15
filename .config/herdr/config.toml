@@ -27,9 +27,9 @@ focus_pane_down = "prefix+down"
 # Optional actions
 open_worktree = "prefix+shift+o"
 remove_worktree = "prefix+alt+d"
-next_tab = ["prefix+n", "ctrl+alt+]"]
-next_agent = "prefix+alt+l"
-prevous_agent = "prefix+alt+h"
+next_tab = ["prefix+n"]
+next_agent = "prefix+space"
+prevous_agent = "prefix+shift+space"
 
 [ui.toast]
 delivery = "system"
