@@ -28,7 +28,7 @@ focus_pane_down = "prefix+down"
 open_worktree = "prefix+shift+o"
 remove_worktree = "prefix+alt+d"
 next_tab = ["prefix+n"]
-next_agent = "prefix+space"
+next_agent = ["prefix+space", "prefix+$"]
 prevous_agent = "prefix+shift+space"
 
 [ui.toast]
