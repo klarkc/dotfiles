@@ -16,10 +16,12 @@
 					"interleaved": {
 						"field": "reasoning"
 					},
+
 					"limit": {
 						"context": 43008,
 						"output": 4096
 					},
+
 					"options": {
 						"top_k": 20,
 						"min_p": 0.0,
@@ -38,13 +40,60 @@
 			"steps": 50
 		},
 		"plan": {
-			"temperature": 1.0,
+			"temperature": 0.8,
 			"top_p": 0.95,
-			"steps": 30,
+			"steps": 32,
 			"options": {
-				"presence_penalty": 1.0,
-				"repetition_penalty": 1.05,
+				"presence_penalty": 0.4,
+				"repetition_penalty": 1.08,
 				"thinking_token_budget": 4096
+			}
+		},
+		"general": {
+			"temperature": 0.6,
+			"top_p": 0.95,
+			"steps": 36
+		},
+		"explore": {
+			"temperature": 0.35,
+			"top_p": 0.9,
+			"steps": 18,
+			"options": {
+				"thinking_token_budget": 1024
+			}
+		},
+		"scout": {
+			"temperature": 0.55,
+			"top_p": 0.95,
+			"steps": 24,
+			"options": {
+				"presence_penalty": 0.3,
+				"repetition_penalty": 1.08,
+				"thinking_token_budget": 1536
+			}
+		},
+		"compaction": {
+			"temperature": 0.2,
+			"top_p": 0.8,
+			"steps": 4,
+			"options": {
+				"thinking_token_budget": 512
+			}
+		},
+		"summary": {
+			"temperature": 0.2,
+			"top_p": 0.8,
+			"steps": 4,
+			"options": {
+				"thinking_token_budget": 512
+			}
+		},
+		"title": {
+			"temperature": 0.1,
+			"top_p": 0.8,
+			"steps": 2,
+			"options": {
+				"thinking_token_budget": 256
 			}
 		}
 	},
