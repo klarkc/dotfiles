@@ -48,6 +48,7 @@
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
           };
+          opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -156,6 +157,7 @@
                 codex
                 pi-coding-agent
                 opencodeWithReasoning
+                opencodeCodexAuthTools
                 kolu
                 herdr
               ];
