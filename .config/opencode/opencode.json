@@ -1,5 +1,16 @@
 {
 	"$schema": "https://opencode.ai/config.json",
+	"tool_output": {
+		"max_lines": 300,
+		"max_bytes": 16000
+	},
+	"compaction": {
+		"auto": true,
+		"prune": true,
+		"reserved": 8192,
+		"tail_turns": 1,
+		"preserve_recent_tokens": 6000
+	},
 	"provider": {
 		"vllm": {
 			"name": "vLLM",
@@ -16,18 +27,16 @@
 					"interleaved": {
 						"field": "reasoning"
 					},
-
 					"limit": {
 						"context": 43008,
 						"output": 4096
 					},
-
 					"options": {
 						"top_k": 20,
 						"min_p": 0.0,
 						"presence_penalty": 0.0,
 						"repetition_penalty": 1.1,
-						"thinking_token_budget": 2048
+						"thinking_token_budget": 1536
 					}
 				}
 			}
@@ -37,63 +46,63 @@
 		"build": {
 			"temperature": 0.6,
 			"top_p": 0.95,
-			"steps": 50
+			"steps": 40
 		},
 		"plan": {
-			"temperature": 0.8,
-			"top_p": 0.95,
-			"steps": 32,
-			"options": {
-				"presence_penalty": 0.4,
-				"repetition_penalty": 1.08,
-				"thinking_token_budget": 4096
-			}
-		},
-		"general": {
-			"temperature": 0.6,
-			"top_p": 0.95,
-			"steps": 36
-		},
-		"explore": {
-			"temperature": 0.35,
-			"top_p": 0.9,
-			"steps": 18,
-			"options": {
-				"thinking_token_budget": 1024
-			}
-		},
-		"scout": {
-			"temperature": 0.55,
+			"temperature": 0.75,
 			"top_p": 0.95,
 			"steps": 24,
 			"options": {
 				"presence_penalty": 0.3,
 				"repetition_penalty": 1.08,
-				"thinking_token_budget": 1536
+				"thinking_token_budget": 2048
+			}
+		},
+		"general": {
+			"temperature": 0.6,
+			"top_p": 0.95,
+			"steps": 24
+		},
+		"explore": {
+			"temperature": 0.35,
+			"top_p": 0.9,
+			"steps": 12,
+			"options": {
+				"thinking_token_budget": 512
+			}
+		},
+		"scout": {
+			"temperature": 0.55,
+			"top_p": 0.95,
+			"steps": 16,
+			"options": {
+				"presence_penalty": 0.3,
+				"repetition_penalty": 1.08,
+				"thinking_token_budget": 1024
 			}
 		},
 		"compaction": {
-			"temperature": 0.2,
-			"top_p": 0.8,
-			"steps": 4,
+			"temperature": 0.1,
+			"top_p": 0.7,
+			"steps": 2,
 			"options": {
-				"thinking_token_budget": 512
+				"thinking_token_budget": 256
 			}
 		},
 		"summary": {
-			"temperature": 0.2,
-			"top_p": 0.8,
-			"steps": 4,
+			"temperature": 0.1,
+			"top_p": 0.7,
+			"steps": 2,
 			"options": {
-				"thinking_token_budget": 512
+				"thinking_token_budget": 256
 			}
 		},
 		"title": {
 			"temperature": 0.1,
-			"top_p": 0.8,
-			"steps": 2,
+			"top_p": 0.7,
+			"steps": 1,
 			"options": {
-				"thinking_token_budget": 256
+				"thinking_token_budget": 64
 			}
 		}
 	},
