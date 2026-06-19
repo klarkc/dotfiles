@@ -20,6 +20,10 @@
       url = "github:anomalyco/opencode/pull/30477/head";
       flake = false;
     };
+    opencode-codex-auth-src = {
+      url = "github:numman-ali/opencode-openai-codex-auth";
+      flake = false;
+    };
   };
 
   outputs =
@@ -47,6 +51,7 @@
           };
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
+            opencode-codex-auth-src = inputs.opencode-codex-auth-src;
           };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
           nixProfile = pkgs.writeText "nix-profile" ''
