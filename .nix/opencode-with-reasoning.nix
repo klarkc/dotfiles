@@ -62,7 +62,20 @@ let
     '';
   };
 
-  codexAuthPluginUrl = "file://${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist";
+  codexOauthPlugin = pkgs.runCommand "codex-oauth-plugin" { } ''
+    mkdir -p $out
+    cp -r ${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist/. $out/
+    ln -s ${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/node_modules $out/node_modules
+    cat > $out/package.json <<'EOF'
+    {
+      "name": "codex-oauth-plugin",
+      "type": "module",
+      "main": "./index.js"
+    }
+    EOF
+  '';
+
+  codexAuthPluginUrl = "file://${codexOauthPlugin}";
   injectCodexAuthPlugin = pkgs.writeText "opencode-inject-codex-auth-plugin.sh" ''
     config_dir="''${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
     config_path="''${OPENCODE_CONFIG:-$config_dir/opencode.json}"
@@ -100,6 +113,10 @@ let
             isinstance(plugin, str)
             and plugin.startswith("file:///home/")
             and plugin.endswith("/openai-codex-auth")
+        )
+        and not (
+            isinstance(plugin, str)
+            and "opencode-openai-codex-auth" in plugin
         )
     ]
 
