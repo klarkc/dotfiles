@@ -38,11 +38,7 @@ let
       '
     '';
 
-    npmDeps = pkgs.importNpmLock {
-      npmRoot = opencode-codex-auth-src;
-    };
-    npmConfigHook = pkgs.importNpmLock.npmConfigHook;
-    npmFlags = [ "--legacy-peer-deps" ];
+    npmDepsHash = pkgs.lib.fakeHash;
 
     installPhase = ''
       runHook preInstall
