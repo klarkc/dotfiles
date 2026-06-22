@@ -62,9 +62,7 @@ let
     '';
   };
 
-  codexAuthPluginLoader = pkgs.writeText "openai-codex-auth.js" ''
-    export { default, OpenAIAuthPlugin } from "${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist/index.js";
-  '';
+  codexAuthPluginDist = "${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist";
 in
 pkgs.symlinkJoin {
   name = "${opencodeBase.name}-with-codex-auth";
@@ -80,6 +78,6 @@ pkgs.symlinkJoin {
         ]
       } \
       --run 'mkdir -p "$HOME/.config/opencode/plugins"' \
-      --run 'ln -sfn ${codexAuthPluginLoader} "$HOME/.config/opencode/plugins/openai-codex-auth.js"'
+      --run 'ln -sfn ${codexAuthPluginDist} "$HOME/.config/opencode/plugins/openai-codex-auth"'
   '';
 }
