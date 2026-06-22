@@ -104,6 +104,22 @@ make
 systemctl --user daemon-reload
 ```
 
+#### OpenCode + Codex OAuth
+
+`opencode` uses OpenCode's native auth store at `~/.local/share/opencode/auth.json`. The wrapped `opencode` command lazily syncs Codex OAuth before launch when `~/.codex/auth.json` exists and is newer than the OpenCode auth file, or when the OpenCode auth file does not exist yet.
+
+Run the sync explicitly after authenticating Codex or when rotating accounts:
+
+```bash
+opencode-codex-auth-import
+```
+
+Verify the imported OpenAI provider auth:
+
+```bash
+jq '.openai | {type, has_access: has("access"), has_refresh: has("refresh"), has_accountId: has("accountId"), expires}' ~/.local/share/opencode/auth.json
+```
+
 Install the Lemurs XMonad session wrapper after checkout. It starts XMonad with a valid D-Bus session when needed, imports the graphical environment into D-Bus and systemd user activation, and starts a notification daemon if one is installed.
 
 ```bash
@@ -218,71 +234,3 @@ journalctl --user-unit fusion.service -f
 ```
 
 For the 27B target, replace `35B-a3b` with `27B` in the commands above.
-
-Both model configurations use at least 48k context and 2 parallel sequences. The current default local winner is `qwen3.6-35B-a3b`; `qwen3.6-27B` is kept available as an experimental/secondary target.
-
-Run the benchmark wrapper instead of invoking vLLM's Python module directly:
-
-```bash
-vllm-benchmark
-```
-
-`vllm-benchmark` reads the selected model from the latest `~/.cache/vllm-*/benchmark.env`, uses the pinned Nix vLLM runtime, caps benchmark concurrency at 2, and runs small, medium, and long-context random request cases. It writes logs, summaries, systemd status, vLLM/Fusion journals, runtime metadata, process state, and GPU state to a timestamped tarball under:
-
-```bash
-~/.cache/vllm-benchmarks/
-```
-
-The default cases are:
-
-```text
-Small:  prompts=4, input=1024,  output=32, concurrency=2
-Medium: prompts=4, input=4096,  output=64, concurrency=2
-Long:   prompts=2, input=48000, output=64, concurrency=2
-```
-
-Any case can be overridden from the environment:
-
-```bash
-SMALL_PROMPTS=8 SMALL_OUTPUT_LEN=64 LONG_PROMPTS=1 vllm-benchmark
-```
-
-#### Fusion
-
-Fusion is packaged by `.nix/fusion-npm.nix` and launched by the sandboxed user service. The service runs the long-lived Fusion dashboard/server process directly under systemd; it no longer owns a `tmux` session.
-
-The Nix package preserves the npm global-install layout enough for Fusion to detect its installed package, but the package itself lives in the immutable Nix store. Do not use Fusion's self-update flow for this setup. Upgrade Fusion by bumping the version and fixed-output hash in `.nix/fusion-npm.nix`, then restart `fusion.service` or select a vLLM target with `vllm-config` so Fusion is restarted after model readiness.
-
-Fusion 0.29 exposes `fn dashboard`/`fusion dashboard` as the command that starts the dashboard/server. There is currently no known CLI command that attaches a terminal UI to an already-running dashboard instance. Use the browser for the running dashboard:
-
-```bash
-xdg-open http://127.0.0.1:4040
-```
-
-`fusion-attach` is intentionally a log observer for now:
-
-```bash
-fusion-attach
-```
-
-It starts `fusion.service` if needed, then tails `journalctl --user-unit fusion.service`. Do not make `fusion-attach` start another `fusion dashboard`; that creates duplicate dashboard instances, port conflicts on `4040`, and Fusion peer/service-name collisions.
-
-Trail tip for future agents: when upstream lands a real "connect to existing dashboard" or terminal UI attach command, replace `fusion-attach`'s journal tail with that command. Keep `fusion.service` as the single owner of the long-running dashboard/server process.
-
-Service logs are available with:
-
-```bash
-journalctl --user -u fusion.service -f
-```
-
-Fusion project state from `~/Sources/Fusion/*/*/.fusion` except `.fusion/backups`, and git worktrees from `~/Sources/Fusion/*/*/.worktrees`, are snapshotted daily at 06:00 to `~/.fusion-backup/snapshots/<timestamp>/projects`. `~/.fusion-backup/latest` points to the newest snapshot. Snapshots use hardlinks to the previous snapshot when possible, so deleted worktrees remain recoverable from older snapshots without duplicating unchanged files. Snapshots are rotated after 7 days.
-
-Fusion-generated `.fusion/backups` directories are kept outside snapshots and mirrored separately to `~/.fusion-backup/mirrors/projects` with `rsync --ignore-existing`, so backup files are not overwritten or removed by later runs.
-
-## Customization
-
-To customize a `.dotfile` you can write a corresponding `.dotfile_override`.
-
-## Commit Guidelines
-
-See `COMMIT_GUIDELINES.md`.
