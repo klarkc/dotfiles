@@ -100,7 +100,6 @@
 		},
 		"plan": {
 			"model": "openai/gpt-5.5",
-			"steps": 12,
 			"options": {
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
@@ -154,6 +153,26 @@
 			"steps": 1,
 			"options": {
 				"thinking_token_budget": 64
+			}
+		},
+		"designer": {
+			"description": "Design/review agent that maintains docs/wip.md memory and writes no code.",
+			"mode": "primary",
+			"model": "openai/gpt-5.5",
+			"permission": {
+				"edit": {
+					"*": "deny",
+					"docs/wip.md": "allow"
+				},
+				"bash": "allow"
+			},
+			"prompt": "You are the designer/reviewer agent for this repository. Use the stronger planning model for architecture, ADR, testing, and executor-review reasoning. You may edit only docs/wip.md, and only to maintain durable task memory, current review state, acceptance/rejection notes, and Build handoff notes. Do not edit code, configuration, ADRs, tests, docs other than docs/wip.md, or any other file. Build/executor performs implementation, file changes, commits, and test execution. Before handing off to Build, update docs/wip.md with the durable context needed after compaction or mode switches. When reviewing Build output, verify actual files and command evidence before accepting reports.",
+			"options": {
+				"reasoningEffort": "medium",
+				"reasoningSummary": "auto",
+				"textVerbosity": "medium",
+				"include": ["reasoning.encrypted_content"],
+				"store": false
 			}
 		}
 	},
