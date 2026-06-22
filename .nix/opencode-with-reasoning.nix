@@ -22,9 +22,19 @@ let
     postPatch = ''
       node -e '
         const fs = require("fs")
-        const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"))
-        delete pkg.overrides
-        fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n")
+
+        function stripOverrides(path) {
+          if (!fs.existsSync(path)) return
+          const data = JSON.parse(fs.readFileSync(path, "utf8"))
+          delete data.overrides
+          if (data.packages && data.packages[""]) {
+            delete data.packages[""].overrides
+          }
+          fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n")
+        }
+
+        stripOverrides("package.json")
+        stripOverrides("package-lock.json")
       '
     '';
 
