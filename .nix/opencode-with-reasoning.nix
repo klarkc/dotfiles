@@ -38,7 +38,7 @@ let
       '
     '';
 
-    npmDepsHash = pkgs.lib.fakeHash;
+    npmDepsHash = "sha256-YioaOUkDoC9j/vwtQ+tlg8vBCTobM0rlbiBvqyMUNpA=";
 
     installPhase = ''
       runHook preInstall
@@ -73,7 +73,12 @@ pkgs.symlinkJoin {
 
   postBuild = ''
     wrapProgram $out/bin/opencode \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.bun pkgs.nodejs ]} \
+      --prefix PATH : ${
+        pkgs.lib.makeBinPath [
+          pkgs.bun
+          pkgs.nodejs
+        ]
+      } \
       --run 'mkdir -p "$HOME/.config/opencode/plugins"' \
       --run 'ln -sfn ${codexAuthPluginLoader} "$HOME/.config/opencode/plugins/openai-codex-auth.js"'
   '';
