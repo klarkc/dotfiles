@@ -63,6 +63,45 @@ let
   };
 
   codexAuthPluginUrl = "file://${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist";
+  injectCodexAuthPlugin = pkgs.writeText "opencode-inject-codex-auth-plugin.sh" ''
+    if [ -z "''${OPENCODE_CONFIG_CONTENT:-}" ]; then
+      config_dir="''${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+      config_path="''${OPENCODE_CONFIG:-$config_dir/opencode.json}"
+
+      if [ -f "$config_path" ]; then
+        export OPENCODE_CONFIG_CONTENT="$(${pkgs.python3}/bin/python3 - "$config_path" "${codexAuthPluginUrl}" <<'PY'
+    import json
+    import sys
+    from pathlib import Path
+
+    config_path = Path(sys.argv[1])
+    plugin_url = sys.argv[2]
+
+    with config_path.open("r", encoding="utf-8") as handle:
+        config = json.load(handle)
+
+    plugins = config.get("plugin") or []
+    if isinstance(plugins, str):
+        plugins = [plugins]
+
+    plugins = [
+        plugin
+        for plugin in plugins
+        if plugin != "opencode-openai-codex-auth"
+        and not (
+            isinstance(plugin, str)
+            and plugin.startswith("file:///home/")
+            and plugin.endswith("/openai-codex-auth")
+        )
+    ]
+
+    config["plugin"] = [plugin_url] + [plugin for plugin in plugins if plugin != plugin_url]
+    print(json.dumps(config, separators=(",", ":")))
+    PY
+    )"
+      fi
+    fi
+  '';
 in
 pkgs.symlinkJoin {
   name = "${opencodeBase.name}-with-codex-auth";
@@ -77,31 +116,6 @@ pkgs.symlinkJoin {
           pkgs.nodejs
         ]
       } \
-      --run 'if [ -z "''${OPENCODE_CONFIG_CONTENT:-}" ]; then config_path="''${OPENCODE_CONFIG:-''${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}/opencode.json}"; if [ -f "$config_path" ]; then export OPENCODE_CONFIG_CONTENT="$(${pkgs.python3}/bin/python3 - "$config_path" "${codexAuthPluginUrl}" <<'\''PY'\''
-import json
-import sys
-from pathlib import Path
-
-config_path = Path(sys.argv[1])
-plugin_url = sys.argv[2]
-
-with config_path.open("r", encoding="utf-8") as handle:
-    config = json.load(handle)
-
-plugins = config.get("plugin") or []
-if isinstance(plugins, str):
-    plugins = [plugins]
-
-plugins = [
-    plugin
-    for plugin in plugins
-    if plugin != "opencode-openai-codex-auth"
-    and not (isinstance(plugin, str) and plugin.startswith("file:///home/") and plugin.endswith("/openai-codex-auth"))
-]
-
-config["plugin"] = [plugin_url] + [plugin for plugin in plugins if plugin != plugin_url]
-print(json.dumps(config, separators=(",", ":")))
-PY
-)"; fi; fi'
+      --run '. ${injectCodexAuthPlugin}'
   '';
 }
