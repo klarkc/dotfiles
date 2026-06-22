@@ -187,6 +187,22 @@
         "type": "github"
       }
     },
+    "opencode-codex-auth-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1767967233,
+        "narHash": "sha256-Kz2n5BpHqirc2AxE4huJJ5LOPyy9jVOydQnqE+AlZOc=",
+        "owner": "numman-ali",
+        "repo": "opencode-openai-codex-auth",
+        "rev": "bec2ad69b252ef4ad7dd33b9532ff8b4fdb6d016",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numman-ali",
+        "repo": "opencode-openai-codex-auth",
+        "type": "github"
+      }
+    },
     "opencode-src": {
       "flake": false,
       "locked": {
@@ -212,6 +228,7 @@
         "kolu": "kolu",
         "nix-fast-build": "nix-fast-build",
         "nixpkgs": "nixpkgs",
+        "opencode-codex-auth-src": "opencode-codex-auth-src",
         "opencode-src": "opencode-src",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils"
