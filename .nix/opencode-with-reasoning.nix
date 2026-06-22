@@ -64,18 +64,26 @@ let
 
   codexAuthPluginUrl = "file://${codexAuthPlugin}/lib/node_modules/opencode-openai-codex-auth/dist";
   injectCodexAuthPlugin = pkgs.writeText "opencode-inject-codex-auth-plugin.sh" ''
-    if [ -z "''${OPENCODE_CONFIG_CONTENT:-}" ]; then
-      config_dir="''${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
-      config_path="''${OPENCODE_CONFIG:-$config_dir/opencode.json}"
+    config_dir="''${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+    config_path="''${OPENCODE_CONFIG:-$config_dir/opencode.json}"
 
-      if [ -f "$config_path" ]; then
-        export OPENCODE_CONFIG_CONTENT="$(${pkgs.python3}/bin/python3 - "$config_path" "${codexAuthPluginUrl}" <<'PY'
+    # Remove stale generated local plugin links from older versions of this wrapper.
+    rm -f "$HOME/.config/opencode/plugins/openai-codex-auth"
+    rm -f "$HOME/.config/opencode/plugins/openai-codex-auth.js"
+
+    if [ -z "''${OPENCODE_CONFIG_CONTENT:-}" ] && [ -f "$config_path" ]; then
+      runtime_root="''${XDG_RUNTIME_DIR:-''${TMPDIR:-/tmp}}/opencode"
+      mkdir -p "$runtime_root"
+      injected_config="$runtime_root/opencode-codex-auth-config.json"
+
+      ${pkgs.python3}/bin/python3 - "$config_path" "$injected_config" "${codexAuthPluginUrl}" <<'PY'
     import json
     import sys
     from pathlib import Path
 
     config_path = Path(sys.argv[1])
-    plugin_url = sys.argv[2]
+    injected_config = Path(sys.argv[2])
+    plugin_url = sys.argv[3]
 
     with config_path.open("r", encoding="utf-8") as handle:
         config = json.load(handle)
@@ -96,10 +104,10 @@ let
     ]
 
     config["plugin"] = [plugin_url] + [plugin for plugin in plugins if plugin != plugin_url]
-    print(json.dumps(config, separators=(",", ":")))
+    injected_config.write_text(json.dumps(config, separators=(",", ":")) + "\n", encoding="utf-8")
     PY
-    )"
-      fi
+
+      export OPENCODE_CONFIG="$injected_config"
     fi
   '';
 in
