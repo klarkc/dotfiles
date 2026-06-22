@@ -20,7 +20,7 @@ let
     src = opencode-codex-auth-src;
 
     postPatch = ''
-      node -e '
+      ${pkgs.nodejs}/bin/node -e '
         const fs = require("fs")
 
         function stripOverrides(path) {
