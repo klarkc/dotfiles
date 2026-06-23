@@ -18,9 +18,7 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": [
-					"reasoning.encrypted_content"
-				],
+				"include": ["reasoning.encrypted_content"],
 				"store": false
 			},
 			"models": {
@@ -31,13 +29,8 @@
 						"output": 128000
 					},
 					"modalities": {
-						"input": [
-							"text",
-							"image"
-						],
-						"output": [
-							"text"
-						]
+						"input": ["text", "image"],
+						"output": ["text"]
 					},
 					"variants": {
 						"none": {
@@ -112,9 +105,7 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": [
-					"reasoning.encrypted_content"
-				],
+				"include": ["reasoning.encrypted_content"],
 				"store": false
 			}
 		},
@@ -181,9 +172,7 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": [
-					"reasoning.encrypted_content"
-				],
+				"include": ["reasoning.encrypted_content"],
 				"store": false
 			}
 		}
