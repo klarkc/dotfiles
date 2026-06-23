@@ -5,7 +5,7 @@
     nix-fast-build.url = "github:Mic92/nix-fast-build";
     nix-fast-build.inputs.nixpkgs.follows = "nixpkgs";
     nix-fast-build.inputs.treefmt-nix.follows = "treefmt-nix";
-    git-hooks.url = "github:cachix/git-hooks.nix";
+    git-hooks.url = "github:klarkc/git-hooks.nix/add-flake-follows-hook";
     git-hooks.inputs.nixpkgs.follows = "nixpkgs";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
@@ -52,24 +52,6 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
-          formatFlakeFollows = pkgs.writeShellApplication {
-            name = "format-flake-follows";
-            runtimeInputs = [ pkgs.flake-edit ];
-            text = ''
-              set -euo pipefail
-
-              if [ ! -f flake.nix ] || [ ! -f flake.lock ]; then
-                exit 0
-              fi
-
-              flake-edit \
-                --flake flake.nix \
-                --lock-file flake.lock \
-                --no-lock \
-                --non-interactive \
-                follow >/dev/null
-            '';
-          };
           treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
             projectRootFile = "flake.nix";
 
@@ -78,14 +60,6 @@
             programs.prettier.enable = true;
             programs.shfmt.enable = true;
             programs.taplo.enable = true;
-
-            settings.formatter.flake-follows = {
-              command = pkgs.lib.getExe formatFlakeFollows;
-              includes = [
-                "flake.nix"
-                "flake.lock"
-              ];
-            };
 
             settings.formatter.prettier.excludes = [
               ".github/workflows/dependency-monitor.yml"
@@ -113,6 +87,7 @@
           };
           pre-commit-check = inputs.git-hooks.lib.${system}.run {
             src = ./.;
+            hooks.flake-follows.enable = true;
             hooks.treefmt = {
               enable = true;
               package = treefmtEval.config.build.wrapper;
@@ -130,7 +105,6 @@
           devShells.default = pkgs.mkShell {
             inherit (pre-commit-check) shellHook;
             buildInputs = pre-commit-check.enabledPackages ++ [
-              pkgs.flake-edit
               treefmtEval.config.build.wrapper
             ];
           };
