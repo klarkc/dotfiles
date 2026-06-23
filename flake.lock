@@ -78,15 +78,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1778507602,
-        "narHash": "sha256-kTwur1wV+01SdqskVMSo6JMEpg71ps3HpbFY2GsflKs=",
-        "owner": "cachix",
+        "lastModified": 1782247942,
+        "narHash": "sha256-WJ/gMaUc+Wp6G9JpIU25E7mel1+ZM0dwRy6oiMZgabY=",
+        "owner": "klarkc",
         "repo": "git-hooks.nix",
-        "rev": "61ab0e80d9c7ab14c256b5b453d8b3fb0189ba0a",
+        "rev": "05fea5dac4b884b015519b4e28c6fb9b12bde270",
         "type": "github"
       },
       "original": {
-        "owner": "cachix",
+        "owner": "klarkc",
+        "ref": "add-flake-follows-hook",
         "repo": "git-hooks.nix",
         "type": "github"
       }
