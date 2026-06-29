@@ -93,6 +93,7 @@ pkgs.stdenvNoCC.mkDerivation {
         export PIP_NO_CACHE_DIR=1
 
         ${pythonWithPip}/bin/python3.12 -m pip install \
+          --pre \
           --no-index \
           --find-links ${wheelhouse} \
           --target "$out/lib/python3.12/site-packages" \
