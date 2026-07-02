@@ -59,4 +59,24 @@ start_notification_daemon() {
 
 start_notification_daemon
 
+configure_idle_timeout() {
+  if command -v xset >/dev/null 2>&1; then
+    xset s 600 60 || true
+    xset dpms 0 0 900 || true
+    xset s on +dpms || true
+  fi
+}
+
+configure_idle_timeout
+
+start_lock_screen() {
+  if command -v xss-lock >/dev/null 2>&1; then
+    if ! pgrep -x -u "$(id -u)" xss-lock >/dev/null 2>&1; then
+      xss-lock --transfer-sleep-lock -- "$HOME/.local/bin/lock-screen" &
+    fi
+  fi
+}
+
+start_lock_screen
+
 exec xmonad

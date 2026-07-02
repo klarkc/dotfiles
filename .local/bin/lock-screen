@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+# Exit early if already locked to avoid killing the active locker
+if pgrep -x -u "$(id -u)" i3lock >/dev/null 2>&1; then
+  exit 0
+fi
+
+exec i3lock -n -c 1a1a2e
