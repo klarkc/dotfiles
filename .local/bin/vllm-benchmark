@@ -1,13 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-find_nix() {
-  for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do
-    [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
-  done
-  echo "nix executable not found" >&2
-  return 127
+usage() {
+  cat <<'EOF'
+Usage: vllm-benchmark [--check]
+
+Runs lightweight target-aware HTTP benchmarks against the active vLLM
+OpenAI-compatible chat endpoint. Start a model first with vllm-config.
+
+Environment overrides:
+  VLLM_BENCHMARK_ENV  Path to benchmark.env from a vLLM runtime cache
+  SMALL_PROMPTS       Default: 4
+  SMALL_INPUT_LEN     Default: 1024
+  SMALL_OUTPUT_LEN    Default: 32
+  MEDIUM_PROMPTS      Default: 4
+  MEDIUM_INPUT_LEN    Default: 4096
+  MEDIUM_OUTPUT_LEN   Default: 64
+  LONG_PROMPTS        Default: 2
+  LONG_INPUT_LEN      Default: 48000
+  LONG_OUTPUT_LEN     Default: 64
+EOF
 }
+
+check_only=0
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  --check) check_only=1 ;;
+  "") ;;
+  *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+esac
 
 find_benchmark_env() {
   local latest
@@ -20,7 +41,7 @@ find_benchmark_env() {
     printf '%s\n' "$latest"
     return 0
   fi
-  echo "No vLLM benchmark.env found. Start a model first with: vllm-config qwen3.6-27B" >&2
+  echo "No vLLM benchmark.env found. Start a model first with: vllm-config qwen3.6-35B-a3b" >&2
   return 1
 }
 
@@ -51,66 +72,66 @@ redact_file() {
 }
 
 metric_value() {
-  local label="$1"
+  local key="$1"
   local file="$2"
-  awk -F: -v label="$label" '$1 == label {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; found=1} END {if (!found) exit 1}' "$file" 2>/dev/null | tail -n 1 || true
+  python3 - "$key" "$file" <<'PY'
+import json, sys
+key, path = sys.argv[1:]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+value = data.get(key, '')
+print(value if value is not None else '')
+PY
 }
 
 write_summary() {
   local name="$1"
   local slug="$2"
-  local file="$artifact_dir/${slug}.log"
+  local file="$artifact_dir/${slug}.json"
   local out="$artifact_dir/${slug}.summary.env"
-  local duration input_tokens output_tokens req_tps output_tps total_tps mean_ttft median_ttft p99_ttft mean_tpot mean_itl prefill_tps
+  local duration input_tokens output_tokens req_tps prefill_tps decode_tps total_tps mean_ttft p99_ttft mean_tpot failed
 
-  duration="$(metric_value 'Benchmark duration (s)' "$file")"
-  input_tokens="$(metric_value 'Total input tokens' "$file")"
-  output_tokens="$(metric_value 'Total generated tokens' "$file")"
-  req_tps="$(metric_value 'Request throughput (req/s)' "$file")"
-  output_tps="$(metric_value 'Output token throughput (tok/s)' "$file")"
-  total_tps="$(metric_value 'Total Token throughput (tok/s)' "$file")"
-  mean_ttft="$(metric_value 'Mean TTFT (ms)' "$file")"
-  median_ttft="$(metric_value 'Median TTFT (ms)' "$file")"
-  p99_ttft="$(metric_value 'P99 TTFT (ms)' "$file")"
-  mean_tpot="$(metric_value 'Mean TPOT (ms)' "$file")"
-  mean_itl="$(metric_value 'Mean ITL (ms)' "$file")"
-
-  prefill_tps=""
-  if [ -n "$duration" ] && [ -n "$input_tokens" ]; then
-    prefill_tps="$(awk -v tokens="$input_tokens" -v seconds="$duration" 'BEGIN {if (seconds > 0) printf "%.2f", tokens / seconds}')"
-  fi
+  duration="$(metric_value duration_s "$file")"
+  input_tokens="$(metric_value total_prompt_tokens "$file")"
+  output_tokens="$(metric_value total_completion_tokens "$file")"
+  req_tps="$(metric_value request_tps "$file")"
+  prefill_tps="$(metric_value prefill_tps "$file")"
+  decode_tps="$(metric_value decode_tps "$file")"
+  total_tps="$(metric_value total_tps "$file")"
+  mean_ttft="$(metric_value mean_ttft_ms "$file")"
+  p99_ttft="$(metric_value p99_ttft_ms "$file")"
+  mean_tpot="$(metric_value mean_tpot_ms "$file")"
+  failed="$(metric_value failed_requests "$file")"
 
   {
     echo "name=$name"
     echo "served_model=$MODEL"
-    echo "tokenizer=$TOKENIZER"
     echo "base_url=$BASE_URL"
     echo "max_concurrency=2"
     echo "duration_s=$duration"
     echo "input_tokens=$input_tokens"
     echo "output_tokens=$output_tokens"
+    echo "failed_requests=$failed"
     echo "request_tps=$req_tps"
     echo "prefill_tps=$prefill_tps"
-    echo "decode_tps=$output_tps"
+    echo "decode_tps=$decode_tps"
     echo "total_tps=$total_tps"
     echo "mean_ttft_ms=$mean_ttft"
-    echo "median_ttft_ms=$median_ttft"
     echo "p99_ttft_ms=$p99_ttft"
     echo "mean_tpot_ms=$mean_tpot"
-    echo "mean_itl_ms=$mean_itl"
   } > "$out"
 
   cat <<EOF
 
 --- $name metrics ---
+failed_requests=${failed:-n/a}
 request_tps=${req_tps:-n/a}
 prefill_tps=${prefill_tps:-n/a}
-decode_tps=${output_tps:-n/a}
+decode_tps=${decode_tps:-n/a}
 total_tps=${total_tps:-n/a}
 mean_ttft_ms=${mean_ttft:-n/a}
 p99_ttft_ms=${p99_ttft:-n/a}
 mean_tpot_ms=${mean_tpot:-n/a}
-mean_itl_ms=${mean_itl:-n/a}
 EOF
 }
 
@@ -121,10 +142,7 @@ capture_metadata() {
     echo "instance=$instance"
     echo "instance_env=$instance_env"
     echo "served_model=$MODEL"
-    echo "tokenizer=$TOKENIZER"
     echo "base_url=$BASE_URL"
-    echo "runtime=$runtime"
-    echo "vllm_nix_config=$VLLM_NIX_CONFIG"
     echo "max_concurrency=2"
     echo "small_requests=prompts:${SMALL_PROMPTS},input:${SMALL_INPUT_LEN},output:${SMALL_OUTPUT_LEN}"
     echo "medium_requests=prompts:${MEDIUM_PROMPTS},input:${MEDIUM_INPUT_LEN},output:${MEDIUM_OUTPUT_LEN}"
@@ -132,19 +150,18 @@ capture_metadata() {
   } > "$artifact_dir/metadata.env"
 
   systemctl --user --no-pager -l status "vllm@${instance}.service" fusion.service > "$artifact_dir/systemd-status.txt" 2>&1 || true
-  journalctl --user-unit "vllm@${instance}.service" -n 500 --no-pager -o short-iso > "$artifact_dir/journal-vllm.txt" 2>&1 || true
+  journalctl --user-unit "vllm@${instance}.service" -n 700 --no-pager -o short-iso > "$artifact_dir/journal-vllm.txt" 2>&1 || true
   journalctl --user-unit fusion.service -n 300 --no-pager -o short-iso > "$artifact_dir/journal-fusion.txt" 2>&1 || true
   nvidia-smi > "$artifact_dir/nvidia-smi.txt" 2>&1 || true
   ps -eo pid,ppid,stat,pcpu,pmem,rss,vsz,args | grep -E 'vllm|fusion|tmux' | grep -v grep > "$artifact_dir/processes.txt" 2>&1 || true
-  printf '%s\n' "$runtime" > "$artifact_dir/vllm-runtime-path.txt"
   [ ! -r "$HOME/.cache/vllm-${instance}/runtime_command.sh" ] || cp "$HOME/.cache/vllm-${instance}/runtime_command.sh" "$artifact_dir/runtime_command.sh"
   redact_file "$benchmark_env" "$artifact_dir/benchmark.env"
   redact_file "$instance_env" "$artifact_dir/model.env"
 }
 
 finish_archive() {
-  local status="$1"
-  echo "$status" > "$artifact_dir/status.txt"
+  local run_status="$1"
+  echo "$run_status" > "$artifact_dir/status.txt"
   capture_metadata
   tar -C "$artifact_root" -czf "$archive" "$(basename "$artifact_dir")"
   echo
@@ -157,26 +174,155 @@ run_case() {
   local num_prompts="$3"
   local input_len="$4"
   local output_len="$5"
+  local json_file="$artifact_dir/${slug}.json"
   local log_file="$artifact_dir/${slug}.log"
 
   echo
   echo "=== $name ==="
-  echo "served_model=$MODEL tokenizer=$TOKENIZER base_url=$BASE_URL prompts=$num_prompts concurrency=2 input=$input_len output=$output_len"
+  echo "served_model=$MODEL base_url=$BASE_URL prompts=$num_prompts concurrency=2 input=$input_len output=$output_len"
   set +e
-  "$runtime/bin/vllm" bench serve \
-    --backend openai-chat \
-    --base-url "$BASE_URL" \
-    --endpoint /v1/chat/completions \
-    --dataset-name random \
-    --model "$MODEL" \
-    --tokenizer "$TOKENIZER" \
-    --num-prompts "$num_prompts" \
-    --max-concurrency 2 \
-    --random-input-len "$input_len" \
-    --random-output-len "$output_len" \
-    --temperature 0 \
-    "${auth_args[@]}" 2>&1 | tee "$log_file"
-  rc="${PIPESTATUS[0]}"
+  python3 - "$BASE_URL" "$MODEL" "${VLLM_API_KEY:-}" "$num_prompts" "$input_len" "$output_len" "$json_file" <<'PY' 2>&1 | tee "$log_file"
+import concurrent.futures
+import json
+import statistics
+import sys
+import time
+import urllib.error
+import urllib.request
+
+base_url, model, api_key, prompts, input_len, output_len, out_path = sys.argv[1:]
+prompts = int(prompts)
+input_len = int(input_len)
+output_len = int(output_len)
+max_workers = min(2, prompts)
+unit = 'Benchmark token. '
+prompt = (unit * ((input_len // 3) + 2))[: input_len * 6]
+
+def percentile(values, pct):
+    if not values:
+        return None
+    values = sorted(values)
+    index = min(len(values) - 1, max(0, int(round((pct / 100) * (len(values) - 1)))))
+    return values[index]
+
+def request_one(index):
+    payload = {
+        'model': model,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0,
+        'max_tokens': output_len,
+        'stream': True,
+        'stream_options': {'include_usage': True},
+    }
+    req = urllib.request.Request(
+        base_url.rstrip('/') + '/chat/completions',
+        data=json.dumps(payload).encode(),
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + api_key,
+        },
+    )
+    t0 = time.perf_counter()
+    first = None
+    chunks = 0
+    chars = 0
+    usage = {}
+    try:
+        with urllib.request.urlopen(req, timeout=3600) as response:
+            for raw in response:
+                if not raw.startswith(b'data: '):
+                    continue
+                data = raw[6:].strip()
+                if data == b'[DONE]':
+                    break
+                obj = json.loads(data)
+                if obj.get('usage'):
+                    usage = obj['usage']
+                choices = obj.get('choices') or []
+                if not choices:
+                    continue
+                delta = choices[0].get('delta') or {}
+                text = (
+                    delta.get('content')
+                    or delta.get('reasoning_content')
+                    or delta.get('reasoning')
+                    or delta.get('tool_calls')
+                    or ''
+                )
+                if text:
+                    if first is None:
+                        first = time.perf_counter()
+                    chunks += 1
+                    chars += len(text) if isinstance(text, str) else len(json.dumps(text))
+        t1 = time.perf_counter()
+        completion_tokens = usage.get('completion_tokens') or max(1, chars // 4)
+        prompt_tokens = usage.get('prompt_tokens') or input_len
+        return {
+            'request': index,
+            'ok': True,
+            'prompt_tokens': prompt_tokens,
+            'completion_tokens': completion_tokens,
+            'ttft_s': None if first is None else first - t0,
+            'total_s': t1 - t0,
+            'chunks': chunks,
+        }
+    except Exception as exc:
+        t1 = time.perf_counter()
+        return {
+            'request': index,
+            'ok': False,
+            'error': repr(exc),
+            'total_s': t1 - t0,
+        }
+
+start = time.perf_counter()
+with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+    results = list(pool.map(request_one, range(1, prompts + 1)))
+end = time.perf_counter()
+
+ok = [r for r in results if r.get('ok')]
+failed = [r for r in results if not r.get('ok')]
+duration = end - start
+prompt_tokens = sum(int(r.get('prompt_tokens') or 0) for r in ok)
+completion_tokens = sum(int(r.get('completion_tokens') or 0) for r in ok)
+ttfts = [float(r['ttft_s']) * 1000 for r in ok if r.get('ttft_s') is not None]
+tpots = []
+for r in ok:
+    ttft = r.get('ttft_s')
+    total = float(r.get('total_s') or 0)
+    completion = int(r.get('completion_tokens') or 0)
+    if ttft is not None and completion > 1 and total > ttft:
+        tpots.append(((total - ttft) / max(1, completion - 1)) * 1000)
+
+summary = {
+    'model': model,
+    'num_prompts': prompts,
+    'max_concurrency': max_workers,
+    'requested_input_len': input_len,
+    'requested_output_len': output_len,
+    'duration_s': round(duration, 3),
+    'successful_requests': len(ok),
+    'failed_requests': len(failed),
+    'total_prompt_tokens': prompt_tokens,
+    'total_completion_tokens': completion_tokens,
+    'request_tps': round(len(ok) / max(0.001, duration), 4),
+    'prefill_tps': round(prompt_tokens / max(0.001, duration), 2),
+    'decode_tps': round(completion_tokens / max(0.001, duration), 2),
+    'total_tps': round((prompt_tokens + completion_tokens) / max(0.001, duration), 2),
+    'mean_ttft_ms': None if not ttfts else round(statistics.mean(ttfts), 2),
+    'p99_ttft_ms': None if not ttfts else round(percentile(ttfts, 99), 2),
+    'mean_tpot_ms': None if not tpots else round(statistics.mean(tpots), 2),
+    'results': results,
+}
+with open(out_path, 'w', encoding='utf-8') as f:
+    json.dump(summary, f, indent=2)
+    f.write('\n')
+print(json.dumps({k: v for k, v in summary.items() if k != 'results'}, indent=2))
+if failed:
+    print('Failed requests:', json.dumps(failed[:3], indent=2), file=sys.stderr)
+    raise SystemExit(1)
+PY
+  local rc="${PIPESTATUS[0]}"
   set -e
   echo "$rc" > "$artifact_dir/${slug}.exit-code"
   if [ "$rc" -eq 0 ]; then
@@ -193,27 +339,28 @@ load_env_key "$benchmark_env" VLLM_API_KEY
 instance="$(basename "$(dirname "$benchmark_env")")"
 instance="${instance#vllm-}"
 instance_env="$HOME/.config/vllm/${instance}.env"
-if [ -r "$instance_env" ]; then
-  load_env_key "$instance_env" TOKENIZER
-  if [ -z "${TOKENIZER:-}" ]; then
-    load_env_key "$instance_env" MODEL
-    TOKENIZER="$MODEL"
-    load_env_key "$benchmark_env" MODEL
-  fi
-fi
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000/v1}"
 BASE_URL="${BASE_URL%/}"
-BASE_URL="${BASE_URL%/v1}"
 MODEL="${MODEL:-}"
-TOKENIZER="${TOKENIZER:-$MODEL}"
 if [ -z "$MODEL" ]; then
   echo "MODEL missing from $benchmark_env" >&2
   exit 1
 fi
-if [ -z "$TOKENIZER" ]; then
-  echo "TOKENIZER missing; expected MODEL in $instance_env" >&2
-  exit 1
+
+if [ "$check_only" -eq 1 ]; then
+  python3 - "$BASE_URL" "${VLLM_API_KEY:-}" <<'PY'
+import json, sys, urllib.request
+base_url, api_key = sys.argv[1:]
+req = urllib.request.Request(
+    base_url.rstrip('/') + '/models',
+    headers={'Authorization': 'Bearer ' + api_key},
+)
+with urllib.request.urlopen(req, timeout=30) as response:
+    data = json.load(response)
+print(json.dumps(data, indent=2)[:2000])
+PY
+  exit 0
 fi
 
 SMALL_PROMPTS="${SMALL_PROMPTS:-4}"
@@ -226,20 +373,6 @@ LONG_PROMPTS="${LONG_PROMPTS:-2}"
 LONG_INPUT_LEN="${LONG_INPUT_LEN:-48000}"
 LONG_OUTPUT_LEN="${LONG_OUTPUT_LEN:-64}"
 
-auth_args=()
-if [ -n "${VLLM_API_KEY:-}" ]; then
-  auth_args+=(--header "Authorization=Bearer $VLLM_API_KEY")
-fi
-
-nix_bin="$(find_nix)"
-VLLM_NIX_CONFIG="${VLLM_NIX_CONFIG:-$HOME/.config/nix/vllm-runtime.nix}"
-runtime="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "$VLLM_NIX_CONFIG")"
-
-if ! "$runtime/bin/vllm" bench serve --help >/dev/null 2>&1; then
-  echo "Pinned vLLM runtime does not expose: vllm bench serve" >&2
-  exit 1
-fi
-
 timestamp="$(date +%Y%m%d-%H%M%S)"
 artifact_root="$HOME/.cache/vllm-benchmarks"
 artifact_dir="$artifact_root/${timestamp}-${instance}"
@@ -251,7 +384,6 @@ redact_file "$benchmark_env" "$artifact_dir/benchmark.env"
 redact_file "$instance_env" "$artifact_dir/model.env"
 
 echo "Using benchmark env: $benchmark_env"
-echo "Using vLLM runtime: $runtime"
 echo "Benchmark artifact directory: $artifact_dir"
 
 status=success
