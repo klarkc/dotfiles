@@ -204,7 +204,7 @@ systemctl --user is-enabled vllm-qwen3.6-35B-a3b.target
 systemctl --user is-enabled vllm-qwen3.6-27B.target
 ```
 
-The selected target should be `enabled`; the other target should be `disabled`.
+The selected target should be `enabled`; the other targets should be `disabled`. The legacy single-model `vllm.service` is obsolete; `vllm-config` stops and disables it when switching models.
 
 User systemd services start when the user manager starts. To start the selected vLLM target after reboot before an interactive login, enable lingering once:
 
@@ -232,5 +232,13 @@ journalctl --user-unit vllm-qwen3.6-35B-a3b.target -f
 journalctl --user-unit vllm@qwen3.6-35B-a3b.service -f
 journalctl --user-unit fusion.service -f
 ```
+
+Run the maintained vLLM benchmark wrapper against the active target:
+
+```bash
+vllm-benchmark
+```
+
+Benchmark artifacts are written below `~/.cache/vllm-benchmarks/`.
 
 For the 27B target, replace `35B-a3b` with `27B` in the commands above.

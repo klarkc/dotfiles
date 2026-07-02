@@ -72,7 +72,7 @@ The `vllm-patch-model-defaults` script maintains this file and the Pi registry w
 
 ## systemd user environment imports
 
-`fusion.service`, `vllm.service`, and `vllm@.service` use `PassEnvironment`. That means variables are passed only if they already exist in the systemd user manager environment.
+`fusion.service` and `vllm@.service` use `PassEnvironment`. That means variables are passed only if they already exist in the systemd user manager environment. The old single-model `vllm.service` is obsolete; use `vllm-config` and the target-based `vllm@...service` instances.
 
 Import the required variables from an interactive shell before restarting services:
 
@@ -108,6 +108,44 @@ Check whether a running service inherited a variable:
 pid="$(systemctl --user show -p MainPID --value fusion.service)"
 tr '\0' '\n' < "/proc/$pid/environ" | grep -q '^VLLM_API_KEY=' && echo present || echo missing
 ```
+
+## vLLM benchmarks and 35B baseline
+
+Use `vllm-benchmark` for maintained target-aware benchmarks. The older `bench-vllm` helper was removed with the legacy single-model `vllm.service` path.
+
+The 35B interactive baseline is tuned for opencode-style local use with frequent compaction. It keeps full context and two concurrent sequences while enabling MTP2 speculative decoding with extra runtime VRAM headroom:
+
+```env
+MAX_MODEL_LEN=49152
+MAX_NUM_SEQS=2
+MAX_NUM_BATCHED_TOKENS=3072
+GPU_MEMORY_UTILIZATION=0.93
+SPECULATIVE_CONFIG_B64=eyJtZXRob2QiOiJtdHAiLCJudW1fc3BlY3VsYXRpdmVfdG9rZW5zIjoyfQ==
+```
+
+The speculative config decodes to:
+
+```json
+{"method":"mtp","num_speculative_tokens":2}
+```
+
+Benchmark summaries from the tuning session:
+
+| Profile | Status | GPU util | MTP tokens | Context | Max seqs | Batched tokens | Notes |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 35B no-MTP baseline | success | 0.94 | none | 49152 | 2 | 3072 | Historical baseline; best 48k long-context throughput. |
+| 35B MTP2 initial | failed | 0.94 | 2 | 49152 | 2 | 3072 | Medium benchmark failed with HTTP 500 from CUDA OOM / EngineDeadError. |
+| 35B MTP2 tuned | success | 0.93 | 2 | 49152 | 2 | 3072 | Default interactive baseline for opencode. |
+
+| Case | no-MTP decode tok/s | tuned MTP2 decode tok/s | no-MTP TPOT ms | tuned MTP2 TPOT ms | tuned MTP2 result |
+|---|---:|---:|---:|---:|---|
+| Small, 4x 1k input / 32 output / concurrency 2 | 2.25 | 9.65 | 916.05 | 212.5 | faster |
+| Medium, 4x 4k input / 64 output / concurrency 2 | 8.34 | 10.72 | 243.14 | 188.84 | faster |
+| Long, 2x 48k input / 64 output / concurrency 2 | 1.38 | 1.23 | 1470.91 | 1646.69 | slower |
+
+Tuned MTP2 startup reported `109,320` GPU KV-cache tokens and `2.22x` maximum concurrency for 49,152-token requests. Speculative decoding acceptance was generally healthy during testing, with mean acceptance length around `2.48-2.91` and average draft acceptance around `73.9%-95.5%`.
+
+Reasoning: opencode with frequent compaction is usually dominated by small/medium interactive requests, where tuned MTP2 substantially improves latency. The 48k long-context regression is accepted for the interactive default. If long-context throughput becomes the dominant workload, manually retest the historical no-MTP settings by clearing `SPECULATIVE_CONFIG_B64` and restoring `GPU_MEMORY_UTILIZATION=0.94`.
 
 ## Verification
 

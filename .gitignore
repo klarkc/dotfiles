@@ -96,7 +96,10 @@
 !/.pi/agent/models.json
 
 # vllm
-!/.local/bin/bench-vllm
+!/.config/vllm
+/.config/vllm/*
+!/.config/vllm/qwen3.6-35B-a3b.env
+!/.config/vllm/qwen3.6-27B.env
 
 # opencode
 !/.config/opencode
