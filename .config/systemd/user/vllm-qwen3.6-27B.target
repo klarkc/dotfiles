@@ -1,7 +1,7 @@
 [Unit]
 Description=vLLM Qwen3.6 27B + Fusion
 Requires=vllm@qwen3.6-27B.service
-Conflicts=vllm-qwen3.6-35B-a3b.target vllm@qwen3.6-35B-a3b.service
+Conflicts=vllm.service vllm-qwen3.6-35B-a3b.target vllm@qwen3.6-35B-a3b.service
 After=network-online.target
 
 [Install]
