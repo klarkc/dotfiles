@@ -136,6 +136,8 @@
                 herdr
               ];
           };
+
+          packages.alacritty = alacrittyWithLigatures;
         }
       );
 }
