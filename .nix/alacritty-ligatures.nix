@@ -12,6 +12,7 @@ pkgs.rustPlatform.buildRustPackage {
     cmake
     fontconfig
     freetype
+    makeWrapper
     pkg-config
     python3
   ];
@@ -37,6 +38,18 @@ pkgs.rustPlatform.buildRustPackage {
     install -Dm644 extra/completions/alacritty.bash "$out/share/bash-completion/completions/alacritty"
     install -Dm644 extra/completions/_alacritty "$out/share/zsh/site-functions/_alacritty"
     install -Dm644 extra/completions/alacritty.fish "$out/share/fish/vendor_completions.d/alacritty.fish"
+    wrapProgram "$out/bin/alacritty" \
+      --prefix LD_LIBRARY_PATH : "${
+        pkgs.lib.makeLibraryPath [
+          pkgs.libglvnd
+          pkgs.libxkbcommon
+          pkgs.wayland
+          pkgs.xorg.libX11
+          pkgs.xorg.libXcursor
+          pkgs.xorg.libXi
+          pkgs.xorg.libXrandr
+        ]
+      }"
   '';
 
   meta = with pkgs.lib; {
