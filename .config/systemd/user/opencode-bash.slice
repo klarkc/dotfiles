@@ -1,0 +1,17 @@
+[Unit]
+Description=Soft-QoS slice for opencode Bash tool commands
+Documentation=https://www.freedesktop.org/software/systemd/man/latest/systemd.slice.html
+
+[Slice]
+# Soft CPU weight — biases scheduler away from this slice under contention
+# Default is 100; lower = less CPU share when contended.
+CPUWeight=100
+
+# Soft memory throttling — triggers reclaim pressure at this threshold
+# but does NOT kill processes. Processes can still allocate beyond this
+# if physical RAM is available; they'll just be slower.
+MemoryHigh=4G
+
+# Soft IO weight — biases IO scheduler away from this slice under contention
+# Default is 100; lower = less IO bandwidth when contended.
+IOWeight=100

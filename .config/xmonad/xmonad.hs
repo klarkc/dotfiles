@@ -96,7 +96,7 @@ myConfig =
                         ("<XF86MonBrightnessUp>", spawn "brightnessctl set +10%"),
                         ("<XF86MonBrightnessDown>", spawn "brightnessctl set 10%-"),
                         ("M-C-l", spawn "~/.local/bin/lock-screen")
-                       ]
+                      ]
 
 myLayout = layoutHints $ tiled ||| full ||| mirror ||| tabbed
   where
