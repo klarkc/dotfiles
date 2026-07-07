@@ -1,4 +1,8 @@
-{ pkgs, alacritty-ligatures-src, alacrittyDeps }:
+{
+  pkgs,
+  alacritty-ligatures-src,
+  alacrittyDeps,
+}:
 
 pkgs.rustPlatform.buildRustPackage {
   pname = "alacritty";
