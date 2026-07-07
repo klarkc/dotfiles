@@ -42,8 +42,41 @@
           ...
         }@ctx:
         let
+          alacrittyDeps = {
+            nativeBuildInputs = with pkgs; [
+              cmake
+              fontconfig
+              freetype
+              makeWrapper
+              pkg-config
+              python3
+            ];
+            buildInputs = with pkgs; [
+              expat
+              fontconfig
+              freetype
+              libGL
+              libxkbcommon
+              wayland
+              libx11
+              libxcursor
+              libxi
+              libxrandr
+            ];
+            runtimeLibs = with pkgs; [
+              libglvnd
+              libxkbcommon
+              wayland
+              libx11
+              libxcursor
+              libxi
+              libxrandr
+            ];
+          };
+
           alacrittyWithLigatures = pkgs.callPackage ./.nix/alacritty-ligatures.nix {
             alacritty-ligatures-src = inputs.alacritty-ligatures-src;
+            alacrittyDeps = alacrittyDeps;
           };
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
