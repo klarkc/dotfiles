@@ -20,6 +20,10 @@
       url = "github:anomalyco/opencode/pull/30477/head";
       flake = false;
     };
+    nixGL = {
+      url = "github:nix-community/nixGL";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -78,6 +82,17 @@
             alacritty-ligatures-src = inputs.alacritty-ligatures-src;
             alacrittyDeps = alacrittyDeps;
           };
+
+          alacrittyWithHostGL =
+            pkgs.runCommand "alacritty-host-gl"
+              {
+                nativeBuildInputs = [ pkgs.makeWrapper ];
+              }
+              ''
+                mkdir -p $out/bin
+                makeWrapper "${alacrittyWithLigatures}/bin/alacritty" "$out/bin/alacritty" \
+                  --prefix LD_LIBRARY_PATH : "/usr/lib"
+              '';
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
           };
@@ -152,7 +167,7 @@
                   mkdir -p $out/etc/profile.d
                   cp ${nixProfile} $out/etc/profile.d/nix.sh
                 '')
-                alacrittyWithLigatures
+                alacrittyWithHostGL
                 direnv
                 nixos-rebuild
                 nix-output-monitor
