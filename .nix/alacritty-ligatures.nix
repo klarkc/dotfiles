@@ -1,4 +1,4 @@
-{ pkgs, alacritty-ligatures-src }:
+{ pkgs, alacritty-ligatures-src, alacrittyDeps }:
 
 pkgs.rustPlatform.buildRustPackage {
   pname = "alacritty";
@@ -8,27 +8,8 @@ pkgs.rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = "${alacritty-ligatures-src}/Cargo.lock";
 
-  nativeBuildInputs = with pkgs; [
-    cmake
-    fontconfig
-    freetype
-    makeWrapper
-    pkg-config
-    python3
-  ];
-
-  buildInputs = with pkgs; [
-    expat
-    fontconfig
-    freetype
-    libGL
-    libxkbcommon
-    wayland
-    xorg.libX11
-    xorg.libXcursor
-    xorg.libXi
-    xorg.libXrandr
-  ];
+  nativeBuildInputs = alacrittyDeps.nativeBuildInputs;
+  buildInputs = alacrittyDeps.buildInputs;
 
   buildAndTestSubdir = "alacritty";
 
@@ -39,17 +20,7 @@ pkgs.rustPlatform.buildRustPackage {
     install -Dm644 extra/completions/_alacritty "$out/share/zsh/site-functions/_alacritty"
     install -Dm644 extra/completions/alacritty.fish "$out/share/fish/vendor_completions.d/alacritty.fish"
     wrapProgram "$out/bin/alacritty" \
-      --prefix LD_LIBRARY_PATH : "${
-        pkgs.lib.makeLibraryPath [
-          pkgs.libglvnd
-          pkgs.libxkbcommon
-          pkgs.wayland
-          pkgs.xorg.libX11
-          pkgs.xorg.libXcursor
-          pkgs.xorg.libXi
-          pkgs.xorg.libXrandr
-        ]
-      }"
+      --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath alacrittyDeps.runtimeLibs}"
   '';
 
   meta = with pkgs.lib; {
