@@ -17,7 +17,7 @@
       flake = false;
     };
     opencode-src = {
-      url = "github:anomalyco/opencode/pull/30477/head";
+      url = "github:anomalyco/opencode";
       flake = false;
     };
     nixGL = {
