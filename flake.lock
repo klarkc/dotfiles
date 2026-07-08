@@ -230,16 +230,15 @@
     "opencode-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1780977848,
-        "narHash": "sha256-HHma3aRxdPINCiWyKm86jqNgnXhGeuy39K1e0zJ3tRQ=",
+        "lastModified": 1783486648,
+        "narHash": "sha256-V+UgFj42mIFP7YERgpwg2r3XJZ5KKqjp5xrdsusarMU=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "ceea4f95361d1f1b3c30a6db6ee5c6321809a447",
+        "rev": "77429f59823c8c6df9cfee95d4c663043b017f46",
         "type": "github"
       },
       "original": {
         "owner": "anomalyco",
-        "ref": "pull/30477/head",
         "repo": "opencode",
         "type": "github"
       }

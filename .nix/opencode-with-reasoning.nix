@@ -6,7 +6,7 @@ let
 
     node_modules = old.node_modules.overrideAttrs (_: {
       src = opencode-src;
-      outputHash = "sha256-4yjQlxN+U4CKwA/hE8gACuvA4bBeTrX0ACVBIK4UQCg=";
+      outputHash = "sha256-9oSXcvvISB6WAqI6f/GBZ3i9IBwYrRQvKs82SLibJNo=";
     });
   });
 
