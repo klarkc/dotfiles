@@ -23,7 +23,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-qsyPFXynzEVd3bfkvBoYbCMb5BKAxs3aA2bD14PVBEg=";
+    outputHash = "sha256-GLYqpAxBcyxW7P+I+AK+L1HFPVbTAJGX8uA2b3X8Rrs=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
