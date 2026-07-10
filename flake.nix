@@ -21,7 +21,7 @@
       flake = false;
     };
     nixGL = {
-      url = "github:nix-community/nixGL";
+      url = "git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -83,6 +83,15 @@
             alacrittyDeps = alacrittyDeps;
           };
 
+          nixGLPkgs = import inputs.nixGL {
+            pkgs = import inputs.nixpkgs {
+              inherit system;
+              config.allowUnfree = true;
+            };
+            nvidiaVersion = "610.43.02";
+            nvidiaHash = "sha256-MDSgVLtM33dS/43CclZMsQVROAS/9TU4lFkBsWyndGM=";
+          };
+
           alacrittyWithHostGL =
             pkgs.runCommand "alacritty-host-gl"
               {
@@ -90,8 +99,8 @@
               }
               ''
                 mkdir -p $out/bin
-                makeWrapper "${alacrittyWithLigatures}/bin/alacritty" "$out/bin/alacritty" \
-                  --prefix LD_LIBRARY_PATH : "/usr/lib"
+                makeWrapper "${nixGLPkgs.nixGLNvidia}/bin/nixGLNvidia-610.43.02" "$out/bin/alacritty" \
+                  --add-flags "${alacrittyWithLigatures}/bin/alacritty"
               '';
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
