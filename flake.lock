@@ -198,17 +198,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1762090880,
-        "narHash": "sha256-fbRQzIGPkjZa83MowjbD2ALaJf9y6KMDdJBQMKFeY/8=",
-        "owner": "nix-community",
-        "repo": "nixGL",
-        "rev": "b6105297e6f0cd041670c3e8628394d4ee247ed5",
-        "type": "github"
+        "lastModified": 1778180494,
+        "narHash": "sha256-1Uwu4lN15xfjn0o5cFjdLH+w2CHqLlV+YkKZXTGWeSQ=",
+        "ref": "refs/pull/223/head",
+        "rev": "e0fbb55ff50d0f1fc7b55f34035dfb04f199a2fb",
+        "revCount": 184,
+        "type": "git",
+        "url": "https://github.com/nix-community/nixGL"
       },
       "original": {
-        "owner": "nix-community",
-        "repo": "nixGL",
-        "type": "github"
+        "ref": "refs/pull/223/head",
+        "type": "git",
+        "url": "https://github.com/nix-community/nixGL"
       }
     },
     "nixpkgs": {
