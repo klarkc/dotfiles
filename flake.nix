@@ -46,6 +46,9 @@
           ...
         }@ctx:
         let
+          nvidiaVersion = "610.43.03";
+          nvidiaHash = "sha256-ReLUwTSiPDXlDyU6SqY+fl6NF+PRhdSgfIpY6WEu05I=";
+
           alacrittyDeps = {
             nativeBuildInputs = with pkgs; [
               cmake
@@ -88,20 +91,44 @@
               inherit system;
               config.allowUnfree = true;
             };
-            nvidiaVersion = "610.43.02";
-            nvidiaHash = "sha256-MDSgVLtM33dS/43CclZMsQVROAS/9TU4lFkBsWyndGM=";
+            inherit nvidiaVersion nvidiaHash;
           };
 
+          nixGLNvidiaDrv = nixGLPkgs.nixGLNvidia;
+
           alacrittyWithHostGL =
-            pkgs.runCommand "alacritty-host-gl"
-              {
-                nativeBuildInputs = [ pkgs.makeWrapper ];
-              }
-              ''
-                mkdir -p $out/bin
-                makeWrapper "${nixGLPkgs.nixGLNvidia}/bin/nixGLNvidia-610.43.02" "$out/bin/alacritty" \
-                  --add-flags "${alacrittyWithLigatures}/bin/alacritty"
+            pkgs.writeShellApplication {
+              name = "alacritty";
+              runtimeInputs = [ nixGLNvidiaDrv alacrittyWithLigatures ];
+              text = ''
+                # Guardrail: check host NVIDIA driver version matches the pinned nixGL version
+                if [[ -f /proc/modules ]]; then
+                  host_version=$(modinfo -F version nvidia 2>/dev/null || true)
+                  if [[ -z "$host_version" ]]; then
+                    echo "[alacritty] WARNING: unable to detect NVIDIA driver version (modinfo failed)."
+                    echo "[alacritty] If you have an NVIDIA GPU, ensure the kernel module is loaded:"
+                    echo "[alacritty]   sudo modprobe nvidia"
+                  elif [[ "$host_version" != "${nvidiaVersion}" ]]; then
+                    echo "[alacritty] ERROR: NVIDIA driver version mismatch!"
+                    echo ""
+                    echo "  Expected (pinned): ${nvidiaVersion}"
+                    echo "  Detected (host):   $host_version"
+                    echo ""
+                    echo "Alacritty will likely crash with a cryptic GLX error."
+                    echo "Fix one of:"
+                    echo "  1. Upgrade your host driver to ${nvidiaVersion}:"
+                    echo "     yay -S nvidia-open"
+                    echo "  2. Pin nixGL to your current host driver version:"
+                    echo "     nix-prefetch-url download https://international.download.nvidia.com/XFree86/Linux-x86_64/${nvidiaVersion}/NVIDIA-Linux-x86_64-${nvidiaVersion}.run"
+                    echo ""
+                    echo "After changing either side, rebuild with: nix profile install '${self}'#"
+                    exit 1
+                  fi
+                fi
+
+                exec "${nixGLNvidiaDrv}/bin/nixGLNvidia-${nvidiaVersion}" "${alacrittyWithLigatures}/bin/alacritty" "$@"
               '';
+            };
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
           };
