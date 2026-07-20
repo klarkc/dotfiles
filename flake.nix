@@ -96,39 +96,40 @@
 
           nixGLNvidiaDrv = nixGLPkgs.nixGLNvidia;
 
-          alacrittyWithHostGL =
-            pkgs.writeShellApplication {
-              name = "alacritty";
-              runtimeInputs = [ nixGLNvidiaDrv alacrittyWithLigatures ];
-              text = ''
-                # Guardrail: check host NVIDIA driver version matches the pinned nixGL version
-                if [[ -f /proc/modules ]]; then
-                  host_version=$(modinfo -F version nvidia 2>/dev/null || true)
-                  if [[ -z "$host_version" ]]; then
-                    echo "[alacritty] WARNING: unable to detect NVIDIA driver version (modinfo failed)."
-                    echo "[alacritty] If you have an NVIDIA GPU, ensure the kernel module is loaded:"
-                    echo "[alacritty]   sudo modprobe nvidia"
-                  elif [[ "$host_version" != "${nvidiaVersion}" ]]; then
-                    echo "[alacritty] ERROR: NVIDIA driver version mismatch!"
-                    echo ""
-                    echo "  Expected (pinned): ${nvidiaVersion}"
-                    echo "  Detected (host):   $host_version"
-                    echo ""
-                    echo "Alacritty will likely crash with a cryptic GLX error."
-                    echo "Fix one of:"
-                    echo "  1. Upgrade your host driver to ${nvidiaVersion}:"
-                    echo "     yay -S nvidia-open"
-                    echo "  2. Pin nixGL to your current host driver version:"
-                    echo "     nix-prefetch-url download https://international.download.nvidia.com/XFree86/Linux-x86_64/${nvidiaVersion}/NVIDIA-Linux-x86_64-${nvidiaVersion}.run"
-                    echo ""
-                    echo "After changing either side, rebuild with: nix profile install '${self}'#"
-                    exit 1
-                  fi
+          alacrittyWithHostGL = pkgs.writeShellApplication {
+            name = "alacritty";
+            runtimeInputs = [ nixGLNvidiaDrv alacrittyWithLigatures ];
+            text = ''
+              # Guardrail: check host NVIDIA driver version matches the pinned nixGL version
+              if [[ -f /proc/modules ]]; then
+                host_version=$(modinfo -F version nvidia 2>/dev/null || true)
+                if [[ -z "$host_version" ]]; then
+                  host_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | tr -d ' ')
                 fi
+                if [[ -z "$host_version" ]]; then
+                  echo "[alacritty] WARNING: unable to detect NVIDIA driver version (modinfo and nvidia-smi both failed)."
+                  echo "[alacritty] Proceeding anyway — if Alacritty crashes with a GLX error, check your NVIDIA driver."
+                elif [[ "$host_version" != "${nvidiaVersion}" ]]; then
+                  echo "[alacritty] ERROR: NVIDIA driver version mismatch!"
+                  echo ""
+                  echo "  Expected (pinned): ${nvidiaVersion}"
+                  echo "  Detected (host):   $host_version"
+                  echo ""
+                  echo "Alacritty will likely crash with a cryptic GLX error."
+                  echo "Fix one of:"
+                  echo "  1. Upgrade your host driver to ${nvidiaVersion}:"
+                  echo "     yay -S nvidia-open"
+                  echo "  2. Pin nixGL to your current host driver version:"
+                  echo "     nix store prefetch-file --hash-type sha256 --json \"https://us.download.nvidia.com/XFree86/Linux-x86_64/$host_version/NVIDIA-Linux-x86_64-$host_version.run\""
+                  echo ""
+                  echo "After changing either side, rebuild with: cd /home/klarkc && nix profile upgrade klarkc"
+                  exit 1
+                fi
+              fi
 
-                exec "${nixGLNvidiaDrv}/bin/nixGLNvidia-${nvidiaVersion}" "${alacrittyWithLigatures}/bin/alacritty" "$@"
-              '';
-            };
+              exec "${nixGLNvidiaDrv}/bin/nixGLNvidia-${nvidiaVersion}" "${alacrittyWithLigatures}/bin/alacritty" "$@"
+            '';
+          };
           opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
             opencode-src = inputs.opencode-src;
           };
