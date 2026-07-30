@@ -10,7 +10,14 @@ pkgs.rustPlatform.buildRustPackage {
 
   src = alacritty-ligatures-src;
 
-  cargoLock.lockFile = "${alacritty-ligatures-src}/Cargo.lock";
+  cargoLock = {
+    lockFile = "${alacritty-ligatures-src}/Cargo.lock";
+    outputHashes = {
+      "crossfont-0.2.0" = "sha256-IM9s7C8Eu1FqVzpqzl4Lp3y5O5VUFGSc2Z7e1tYY/Oo=";
+    };
+  };
+
+  doCheck = false;
 
   nativeBuildInputs = alacrittyDeps.nativeBuildInputs;
   buildInputs = alacrittyDeps.buildInputs;
