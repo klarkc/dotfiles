@@ -6,7 +6,7 @@
 
 pkgs.rustPlatform.buildRustPackage {
   pname = "alacritty";
-  version = "0.14.0-dev-ligatures";
+  version = "0.8.0-dev-ligatures";
 
   src = alacritty-ligatures-src;
 

@@ -13,7 +13,7 @@
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
     alacritty-ligatures-src = {
-      url = "github:ink-splatters/alacritty-ligatures/master";
+      url = "github:ink-splatters/alacritty-ligatures/ligature";
       flake = false;
     };
     opencode-src = {
@@ -66,6 +66,7 @@
               libxkbcommon
               wayland
               libx11
+              libxcb
               libxcursor
               libxi
               libxrandr
@@ -98,13 +99,13 @@
 
           alacrittyWithHostGL = pkgs.writeShellApplication {
             name = "alacritty";
-            runtimeInputs = [ nixGLNvidiaDrv alacrittyWithLigatures ];
             text = ''
               # Guardrail: check host NVIDIA driver version matches the pinned nixGL version
               if [[ -f /proc/modules ]]; then
                 host_version=$(modinfo -F version nvidia 2>/dev/null || true)
                 if [[ -z "$host_version" ]]; then
-                  host_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | tr -d ' ')
+                  host_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null || true)
+                  host_version="''${host_version// /}"
                 fi
                 if [[ -z "$host_version" ]]; then
                   echo "[alacritty] WARNING: unable to detect NVIDIA driver version (modinfo and nvidia-smi both failed)."

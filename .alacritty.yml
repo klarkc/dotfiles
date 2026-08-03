@@ -1,0 +1,32 @@
+# Alacritty config for the ink-splatters/alacritty-ligatures fork (0.8-era).
+# The fork parses YAML only; .alacritty.toml is ignored by this version.
+# It does NOT support a top-level `env:` block, so child-shell env vars
+# (e.g. LD_LIBRARY_PATH) cannot be set here. Sanitization must happen in the
+# wrapper script (alacrittyWithHostGL) if needed.
+
+font:
+  size: 14.0
+
+  normal:
+    family: Fira Code
+    style: Regular
+
+  bold:
+    family: Fira Code
+    style: Bold
+
+  italic:
+    family: Fira Code
+    style: Italic
+
+  bold_italic:
+    family: Fira Code
+    style: Bold Italic
+
+  ligatures: true
+
+window:
+  padding:
+    x: 0
+    y: 0
+  dynamic_padding: false
