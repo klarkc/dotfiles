@@ -3,16 +3,16 @@
     "alacritty-ligatures-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1721328738,
-        "narHash": "sha256-9h7BASr3BSoUoc35C0PU5pgT/4l2qlIeBWwoWGGjrX8=",
+        "lastModified": 1612842776,
+        "narHash": "sha256-1dGk4ORzMSUQhuKSt5Yo7rOJCJ5/folwPX2tLiu0suA=",
         "owner": "ink-splatters",
         "repo": "alacritty-ligatures",
-        "rev": "c3075f189c2d8148c70a82f176565ea8e420b49f",
+        "rev": "3ed043046fc74f288d4c8fa7e4463dc201213500",
         "type": "github"
       },
       "original": {
         "owner": "ink-splatters",
-        "ref": "master",
+        "ref": "ligature",
         "repo": "alacritty-ligatures",
         "type": "github"
       }
