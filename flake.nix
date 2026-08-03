@@ -147,6 +147,7 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
+
           azure-ai-inference-pkg = pkgs.python3Packages.buildPythonPackage {
             pname = "azure-ai-inference";
             version = "1.0.0b9";
