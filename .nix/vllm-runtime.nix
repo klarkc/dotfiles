@@ -1,17 +1,5 @@
+{ pkgs, version }:
 let
-  nixpkgs = builtins.fetchTree {
-    type = "github";
-    owner = "NixOS";
-    repo = "nixpkgs";
-    rev = "ed67bc86e84e51d4a88e73c7fd36006dc876476f";
-    narHash = "sha256-62EWg6lI0qyzm7oAx5cAnGkLutvJsRBe0KkEW2JDZCE=";
-  };
-
-  pkgs = import nixpkgs {
-    system = builtins.currentSystem;
-    config.allowUnfree = true;
-  };
-
   python = pkgs.python312;
   pythonWithPip = python.withPackages (
     ps: with ps; [
@@ -36,7 +24,7 @@ let
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
     pname = "vllm-wheelhouse";
-    version = "0.20.1-cu130";
+    inherit version;
 
     nativeBuildInputs = with pkgs; [
       cacert
@@ -45,7 +33,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-zUSyblyIwYrHwZzTXs/aS5AjjaayRYsFKK7C+ySK3pQ=";
+    outputHash = "sha256-/q1l/qMNmCgPHxiksUQMzBfZHjNzQ2RXxcK9y6IXSWc=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
@@ -75,7 +63,7 @@ let
 in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "vllm-runtime";
-  version = "0.20.1-cu130";
+  inherit version;
 
   nativeBuildInputs = with pkgs; [
     makeWrapper
