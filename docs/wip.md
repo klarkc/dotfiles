@@ -1,303 +1,1337 @@
-# WIP: Alacritty host GL via nixGL
+# WIP: vLLM/Fusion conditional restart + profile-managed runtimes
 
-## Status: ✅ RESOLVED + Guardrail Patched
+## 2026-08-06 Build handoff: deterministic runtime packaging in progress
 
-nixGL-based Alacritty host-GL wrapper is working. The ligatures `wrapProgram --prefix LD_LIBRARY_PATH` is retained (required for `dlopen`-resolved libs), and child-shell environment is sanitized via `.alacritty.toml` `[env] LD_LIBRARY_PATH = ""`.
+Build attempted the deterministic refactor and hit blockers. Status:
 
-**2026-07-20**: Bumped nixGL from `610.43.02` → `610.43.03`, centralized `nvidiaVersion`/`nvidiaHash` in `flake.nix`, and added a launch-time guardrail that compares the host driver version against the pinned version. On mismatch, the guard prints a diagnostic with a corrected rebuild command (`nix profile upgrade klarkc`) and a prefetch URL using the detected host version. Includes `nvidia-smi` fallback when `modinfo` fails. See review fixes below.
+### Done in this session
+- Added generic coupled dependency bump policy to `AGENTS.md`.
+- Added local `# Bump note:` comments next to Fusion/vLLM versions in `flake.nix` and `.nix/fusion-npm.nix`.
+- Switched Fusion/QMD packaging to upstream source tags via new flake inputs:
+  - `fusion-src = "github:Runfusion/Fusion/v0.73.0"`
+  - `qmd-src = "github:tobi/qmd/v2.1.0"`
+- Replaced `npm install --global` / `npm rebuild --global` with `pkgs.fetchPnpmDeps` + `pnpmConfigHook` + `pnpm_10` against the upstream `pnpm-lock.yaml`.
+- Iteratively derived the qmd-cli pnpm-deps hash: `sha256-Xaj82yrKh8oPPzhkrQaoIjSRaK9NJvP/udFXdc1UQzc=`.
+- `flake.lock` regenerated to track the new source inputs.
 
-## 2026-07-20: Guardrail review fixes
+### Current blocker (paused here)
+- `pkgs.fetchPnpmDeps { fetcherVersion = 3; ... }` produced an offline store that **did not include platform-specific/optional deps** (e.g. `@modelcontextprotocol/sdk-1.29.0`). Subsequent `pnpm install --frozen-lockfile --offline` in the build phase fails with `ERR_PNPM_NO_OFFLINE_TARBALL`.
+- Identical failure happens for both `fusion-cli-pnpm-deps` and `qmd-cli-pnpm-deps`. QMD is smaller but exhibits the same error.
 
-Applied five review findings from post-commit verification:
+### Suggested next steps for the next agent
+1. Try `fetcherVersion = 4`. v3 was introduced to produce a reproducible tarball; v4 dumps the SQLite DB to SQL text. Either may include a different set of optional packages. Inspect `pkgs/development/tools/pnpm/generic.nix` to compare.
+2. If still incomplete, try setting `pnpmInstallFlags = [ "--force" ]` on the `fetchPnpmDeps` call so pnpm fetches all transitive entries including platform-specific ones (still done once, locked via hash).
+3. If still incomplete, the alternative is `fetcherVersion = 2` was deprecated; otherwise look at how other large pnpm monorepos in nixpkgs handle this (e.g. search `pkgs/development/node-packages/overrides.nix` and `pkgs/applications/networking/browsers/firefox.nix`).
+4. The Fusion source build itself has not yet been exercised. After pnpm-deps are reproducible, expect additional work to make the build of `packages/cli` succeed in a sandboxed build environment; consider using `FUSION_CLI_FULL_PACKAGE=1` to match what was previously installed from the published npm tarball.
+5. vLLM deterministic refactor remains TODO. vLLM 0.20.1 + CUDA 13.0 wheels must be packaged as Nix packages; do not reintroduce `pip download`/`pip install`.
 
-1. **High — Mismatch remediation command**: Replaced `nix profile install '${self}'#` with `cd /home/klarkc && nix profile upgrade klarkc`. The former used an immutable store path (`${self}`) and `nix profile install` fails to update an already-installed profile entry.
-2. **High — Prefetch URL uses pinned version**: Changed from `${nvidiaVersion}` to `$host_version` so the diagnostic URL reflects the detected host driver, not the stale pinned version. Also switched from `nix-prefetch-url download` to `nix store prefetch-file --hash-type sha256 --json` (more idiomatic).
-3. **Medium — Missing `nvidia-smi` fallback**: When `modinfo -F version nvidia` fails (empty result), the guard now falls back to `nvidia-smi --query-gpu=driver_version --format=csv,noheader`. If both fail, it warns and proceeds rather than silently blocking.
-4. **Medium — Dirty working tree**: Formatting normalization in `alacrittyWithHostGL` block (indentation aligned with committed baseline). No semantic change.
-5. **Low — Stale `docs/wip.md`**: Updated to reflect the guardrail implementation and review fixes.
+### Files modified in this session (uncommitted)
+- `AGENTS.md` (policy)
+- `flake.nix` (new inputs + bump notes + `fusionRuntime` args)
+- `flake.lock` (new inputs)
+- `.nix/fusion-npm.nix` (deterministic refactor; **build currently fails** at `fetchPnpmDeps`)
+- `docs/wip.md` (this section)
 
-### Diff highlights (`flake.nix`)
-- `nvidiaVersion = "610.43.03"` + `nvidiaHash = "sha256-ReLUwTSiPDXlDyU6SqY+fl6NF+PRhdSgfIpY6WEu05I="` centralized in let block
-- `modinfo` fallback → `nvidia-smi` → warn-and-proceed (instead of hard-block)
-- Diagnostic: `nix profile upgrade klarkc` instead of `nix profile install '${self}'#`
-- Prefetch: `nix store prefetch-file --hash-type sha256 --json "https://us.download.nvidia.com/.../$host_version/..."` instead of `nix-prefetch-url download https://international.download.nvidia.com/.../${nvidiaVersion}/...`
+### Files unchanged from prior work
+- `.config/systemd/user/fusion.service`
+- `.config/systemd/user/vllm@.service`
+- `.local/bin/vllm-config`
+- `.local/bin/vllm-serve-pure`
+- `.nix/vllm-runtime.nix` (still uses live `pip download`; needs the same deterministic refactor)
+- `.nix/opencode-with-codex-auth.nix` (renamed from `opencode-with-reasoning.nix`)
 
-## 2026-07-17 follow-up: Alacritty fails again after host driver drift
+### 2026-08-06 Design review of Build progress
 
-Finding: this is not caused by the ligatures test or `.alacritty.toml`. `alacritty --config-file /dev/null -vv` still fails after GLX setup with:
+Direction is broadly correct: source tags + `fetchPnpmDeps`/`pnpmConfigHook` are the right path for Fusion/QMD because the published npm tarballs do not include `pnpm-lock.yaml`. The generic `AGENTS.md` policy and local bump notes are also correct.
+
+Implementation issues Build should fix before continuing:
+
+1. `.nix/fusion-npm.nix` currently has `fusionCli.pnpmDeps.hash = ""` (line ~49). This is only acceptable during hash discovery; final code must pin the reported `sha256-...` hash.
+2. `fusionCli.nativeBuildInputs` currently includes `pnpmConfigHook` but not `pnpm_10`. The hook explicitly requires a `pnpm` binary in PATH; QMD has `pnpm_10`, Fusion should too.
+3. Both derivations call `pnpm install --frozen-lockfile --offline` in `buildPhase` after `pnpmConfigHook` already performs the offline install in `postConfigureHooks`. Prefer the standard helper pattern: let `pnpmConfigHook` install dependencies, then build only (`pnpm --filter @runfusion/fusion build...` / `pnpm run build`). If another install is required, document why.
+4. The observed QMD failure is from `pnpmConfigHook`'s install step, before `buildPhase`. The hook unpacks the fixed `pnpmDeps` store and then runs `pnpm install --offline --ignore-scripts --frozen-lockfile`. The failing missing package is a **direct QMD dependency** (`@modelcontextprotocol/sdk@1.29.0`), not merely an optional/platform package. Treat this as a pnpm-deps/store-generation mismatch until proven otherwise.
+5. Next likely fix: add `pnpmInstallFlags = [ "--force" ];` to the `fetchPnpmDeps` call **and** expose matching flags to `pnpmConfigHook` if needed (the hook appends `pnpmInstallFlags` to its install). If that changes output, discover and pin the new hash. Trying `fetcherVersion = 4` is also reasonable, but the key is that fetch and hook install flags must be consistent enough that the offline install consumes only the generated store.
+6. Fusion source build should probably use the publish/full package mode (`FUSION_CLI_FULL_PACKAGE=1` or `pnpm --filter @runfusion/fusion build:package`) unless Build proves the reduced `build` output matches the old published npm tarball runtime surface. The old package installed a published tarball with `dist/client`, `dist/plugins`, migrations, skill assets, etc.
+7. QMD install assumption needs verification after build succeeds: upstream `package.json` declares `bin.qmd = "bin/qmd"`, while `build` writes `dist/cli/qmd.js`. Ensure `bin/qmd` exists in source/tag and resolves to the built CLI after install, or wrap the actual built `dist/cli/qmd.js` directly.
+
+Do not proceed to vLLM until `nix build .#fusion-runtime`, `fusion --version`, `fn --help`, and `qmd --help` pass.
+
+### 2026-08-07 Design review after `fusion-runtime.nix` rename
+
+Direction remains correct, and the rename to `.nix/fusion-runtime.nix` plus the generic `<tool>-runtime.nix` AGENTS policy are good. `nix build .#fusion-runtime --no-sandbox` now succeeds with source-tag pnpm builds, `fetcherVersion = 4`, and pinned hashes:
+
+- Fusion pnpm deps: `sha256-owdk5R1fzfK+2/dxp3dQElTcY9Uko+aHJAanDPhd3YY=`
+- QMD pnpm deps: `sha256-6lqkDOjY7C+l9M/Mas7wyXBQFbuO3/YH1s06Olp94oQ=`
+
+Blocking runtime issue found by verification:
+
+- `./result/bin/fusion --version` fails with `ERR_MODULE_NOT_FOUND` for `@earendil-works/pi-coding-agent` imported from `.../lib/node_modules/@runfusion/fusion/dist/bin.js`.
+- `./result/bin/qmd --help` fails with `ERR_MODULE_NOT_FOUND` for `fast-glob` imported from `.../lib/node_modules/@tobilu/qmd/dist/cli/qmd.js`.
+- Evidence from output layout: `result/lib/node_modules/@runfusion/fusion` contains only package files (`agent-browser.mjs`, `bin.mjs`, `dist`, `package.json`, etc.); there is no usable installed dependency tree under `result/lib/node_modules`.
+
+Root cause:
+
+- `pnpmConfigHook` installs dependencies into the build source tree, but the current `installPhase` copies only package source/build artifacts into `$out/lib/node_modules/...`; it does **not** copy the generated `node_modules` / `.pnpm` tree into `$out`.
+- `NODE_PATH` is not enough here: these are ESM imports, and Node resolves packages by walking ancestor `node_modules` directories from the importing file. The required packages must exist under an ancestor such as `$out/lib/node_modules/<dep>` with the `.pnpm` backing tree available.
+
+Recommended next Build fix:
+
+1. In each derivation's `installPhase`, copy the pnpm-installed dependency tree into `$out/lib/node_modules` before/alongside copying the package directory, for example conceptually:
+   ```sh
+   mkdir -p "$out/lib/node_modules"
+   cp -R node_modules/. "$out/lib/node_modules/"
+   mkdir -p "$out/lib/node_modules/@runfusion/fusion"
+   cp -R packages/cli/{bin.mjs,agent-browser.mjs,dist,skill,package.json,README.md} \
+     "$out/lib/node_modules/@runfusion/fusion/"
+   ```
+   For QMD, same idea: copy `node_modules/.` to `$out/lib/node_modules/`, then copy QMD package files into `$out/lib/node_modules/@tobilu/qmd/`.
+2. Preserve `.pnpm` and symlink structure; use a copy mode that does not flatten symlinks incorrectly. If Nix fixup reports references to the build dir, adjust copy strategy.
+3. Add `pnpmInstallFlags = [ "--force" ];` as a top-level derivation attr if Build wants the hook install flags to match the fetcher flags. Currently it is only passed to `fetchPnpmDeps`; the build succeeded, but consistency is safer and easier to reason about.
+4. Re-run:
+   - `nix build .#fusion-runtime --no-sandbox`
+   - `./result/bin/fusion --version`
+   - `./result/bin/fn --help`
+   - `./result/bin/qmd --help`
+
+Do not start vLLM until the runtime dependency tree is copied correctly and the Fusion/QMD CLI smoke checks pass.
+
+### 2026-08-07 Design review after latest `node_modules` copy change
+
+Progress is still directionally correct, but Fusion remains blocked at runtime.
+
+Verification run:
+
+```sh
+nix build .#fusion-runtime --no-sandbox
+./result/bin/fusion --version
+```
+
+Build result:
+
+- `nix build .#fusion-runtime --no-sandbox` succeeds.
+- `./result/bin/qmd --help` succeeds.
+- `./result/bin/fusion --version` and `./result/bin/fn --help` still fail with:
+  ```text
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@earendil-works/pi-coding-agent'
+  imported from .../lib/node_modules/@runfusion/fusion/dist/bin.js
+  ```
+
+Evidence from the latest output layout:
+
+- Latest Fusion output has only `lib/node_modules` under `$out/lib`; it does **not** have top-level `$out/lib/node_modules/@earendil-works`.
+- The required package exists under pnpm's hoisted alias area / store:
+  ```text
+  $out/lib/node_modules/.pnpm/@earendil-works+pi-coding-agent@...
+  ```
+  but Node does not search `node_modules/.pnpm/node_modules` automatically for bare ESM imports.
+
+Root cause:
+
+- Copying `node_modules` to `$out/lib/` preserves pnpm's `.pnpm` store, but it does not expose every package as a top-level `node_modules/<name>` / `node_modules/@scope/<name>` entry.
+- The previous attempt to copy `.pnpm/node_modules/.` into top-level `node_modules` preserved pnpm's internal symlink targets verbatim, which made links like `@earendil-works/pi-coding-agent -> ../../@earendil-works+...` resolve outside `.pnpm` and become broken in `$out`.
+
+Recommended Build fix:
+
+1. Keep copying the whole `node_modules` tree to `$out/lib/node_modules` so the `.pnpm` store stays intact.
+2. After replacing `$out/lib/node_modules/@runfusion/fusion` with the real built package directory, synthesize **top-level package aliases** that point into `.pnpm/node_modules`, instead of copying `.pnpm/node_modules` symlinks verbatim.
+
+Conceptual shell:
+
+```sh
+aliases="$out/lib/node_modules/.pnpm/node_modules"
+top="$out/lib/node_modules"
+
+for entry in "$aliases"/*; do
+  name="$(basename "$entry")"
+  case "$name" in
+    @*)
+      mkdir -p "$top/$name"
+      for scoped in "$entry"/*; do
+        scoped_name="$(basename "$scoped")"
+        # Preserve real shipped package dirs such as @runfusion/fusion.
+        [ "$name/$scoped_name" = "@runfusion/fusion" ] && continue
+        rm -f "$top/$name/$scoped_name"
+        ln -s "../.pnpm/node_modules/$name/$scoped_name" "$top/$name/$scoped_name"
+      done
+      ;;
+    *)
+      rm -f "$top/$name"
+      ln -s ".pnpm/node_modules/$name" "$top/$name"
+      ;;
+  esac
+done
+```
+
+For QMD, the same alias-synthesis pattern is safer than copying `.pnpm/node_modules/.` verbatim, but QMD currently passes `qmd --help` even with the less-clean layout.
+
+3. Avoid `dontFixup = true` if possible. It hides broken symlinks. Once aliases are synthesized correctly, re-enable fixup or at least run an explicit check that the key aliases resolve:
+   ```sh
+   test -e "$out/lib/node_modules/@earendil-works/pi-coding-agent/package.json"
+   test -e "$out/lib/node_modules/@runfusion/fusion/dist/bin.js"
+   ```
+   If full `noBrokenSymlinks` still fails because unused workspace plugin symlinks remain, remove only those unused workspace symlinks rather than disabling all fixup.
+
+4. Re-run mandatory smoke checks:
+   ```sh
+   nix build .#fusion-runtime --no-sandbox
+   ./result/bin/fusion --version
+   ./result/bin/fn --help
+   ./result/bin/qmd --help
+   ```
+
+Do not proceed to vLLM until these checks pass.
+
+### 2026-08-07 Design correction: avoid hand-editing pnpm internals
+
+User concern is valid: manually copying `.pnpm/node_modules` and synthesizing symlinks is too invasive and brittle. It relies on pnpm's internal node_modules layout and can easily break across pnpm versions or lockfile structure changes.
+
+Preferred Build direction now:
+
+1. Keep using Nix's pnpm helpers for deterministic dependency fetching/install:
+   - `pkgs.fetchPnpmDeps`
+   - `pkgs.pnpmConfigHook`
+   - pinned `pnpmDeps.hash`
+2. Do **not** hand-copy `.pnpm/node_modules` internals or synthesize pnpm symlinks unless all higher-level options fail.
+3. Let pnpm produce a portable package output after the hook-installed workspace is available. First candidate:
+   ```sh
+   pnpm --filter @runfusion/fusion deploy --prod --legacy --config.node-linker=hoisted "$out/lib/node_modules/@runfusion/fusion"
+   ```
+   Then copy/overlay the built `dist` if `deploy` does not include it, and wrap:
+   ```sh
+   makeWrapper "$out/lib/node_modules/@runfusion/fusion/bin.mjs" "$out/bin/fusion" ...
+   makeWrapper "$out/lib/node_modules/@runfusion/fusion/bin.mjs" "$out/bin/fn" ...
+   ```
+4. For QMD, try the analogous higher-level packaging path before manual symlink logic:
+   ```sh
+   pnpm deploy --prod --legacy --config.node-linker=hoisted "$out/lib/node_modules/@tobilu/qmd"
+   ```
+   If `pnpm deploy` is workspace-only and QMD does not support it directly, prefer a documented pnpm-supported alternative (`pnpm pack` + install/copy from the package output) before touching `.pnpm` internals.
+5. The `pnpm deploy` command must still run offline against the already fetched `pnpmDeps` store. It is acceptable under AGENTS policy only if it does not resolve/download; it is a packaging/copy step over the lockfile-installed dependency graph.
+
+Why this is better:
+
+- `pnpmConfigHook` handles the deterministic install in the build tree.
+- `pnpm deploy` is pnpm's supported way to materialize a deployable package from a workspace with the correct production dependency layout.
+- The Nix derivation no longer depends on implementation details like relative symlink targets inside `.pnpm/node_modules`.
+
+Current locked nixpkgs note:
+
+- This nixpkgs revision exposes `fetchPnpmDeps` and `pnpmConfigHook`, but not a top-level `buildPnpmPackage` helper. Therefore Build still needs custom `buildPhase`/`installPhase`, but the install phase should delegate dependency layout to pnpm (`deploy`) rather than reconstructing pnpm internals by hand.
+
+Suggested rollback from current Build attempt:
+
+- Remove manual `.pnpm` copying/symlink synthesis from `.nix/fusion-runtime.nix`.
+- Remove `dontFixup = true` if `deploy` produces a clean tree. If broken workspace symlinks remain, fix/remove only those specific unused links and keep Nix's broken-symlink check active where possible.
+- Re-run:
+  ```sh
+  nix build .#fusion-runtime --no-sandbox
+  ./result/bin/fusion --version
+  ./result/bin/fn --help
+  ./result/bin/qmd --help
+  ```
+
+### 2026-08-07 pnpm helper research
+
+User asked whether a higher-level helper exists and whether bumping nixpkgs is worth it.
+
+Findings:
+
+- There is no top-level `pkgs.buildPnpmPackage` in the locked nixpkgs currently used by this repo.
+- A nixpkgs bump is **not required** to get the relevant newer pnpm build helper: locked nixpkgs already exposes `pkgs.pnpmBuildHook` (`nix eval ... pkgs ? pnpmBuildHook` returned `yes`).
+- Upstream nixpkgs master documents the supported pnpm pattern as:
+  - `fetchPnpmDeps` to create a fixed-output pnpm store;
+  - `pnpmConfigHook` to configure/install that store offline;
+  - optional `pnpmBuildHook` to run `pnpm run <script>` instead of writing a custom build phase.
+- `pnpmBuildHook` only replaces the build phase. It does **not** solve the runtime packaging/install layout problem by itself.
+- pnpm's own supported solution for a deployable workspace runtime is `pnpm deploy`:
+  - docs: “Deploy a package from a workspace”; files and all dependencies, including workspace deps, are installed inside an isolated `node_modules` directory at the target; target is portable and executable without additional steps.
+  - use `--legacy` when `inject-workspace-packages=true` is not configured.
+
+Recommended Build direction after this research:
+
+1. Do **not** bump nixpkgs just looking for `buildPnpmPackage`; the current lock already has the pieces we need (`fetchPnpmDeps`, `pnpmConfigHook`, `pnpmBuildHook`, `pnpm_11`).
+2. Replace manual build phase with `pnpmBuildHook` where straightforward:
+   ```nix
+   nativeBuildInputs = [ nodejs pnpmConfigHook pnpmBuildHook pnpm_11 makeWrapper ];
+   pnpmWorkspaces = [ "@runfusion/fusion" ];
+   pnpmBuildScript = "build";
+   ```
+   If Fusion needs a custom build command/env, a custom `buildPhase` is still acceptable, but `pnpmBuildHook` is preferred for the plain `pnpm --filter ... build` case.
+3. Replace invasive install layout logic with `pnpm deploy` for Fusion:
+   ```sh
+   pnpm --filter @runfusion/fusion --prod deploy --legacy "$out/lib/node_modules/@runfusion/fusion"
+   ```
+   Run this after build so `dist` is included. If `deploy --prod` omits generated files, copy/overlay `packages/cli/dist` and other expected package files afterward.
+4. For QMD (not a workspace package), `pnpm deploy` may not apply. First try a supported package output path:
+   - `pnpm pack --pack-destination "$TMPDIR"`
+   - unpack the resulting `.tgz` into `$out/lib/node_modules/@tobilu/qmd`
+   - ensure production dependencies are available through a supported `pnpm install --prod --offline --config.node-linker=hoisted` inside that output if needed.
+   Avoid manual `.pnpm` symlink reconstruction unless no supported pnpm packaging path works.
+5. Keep `pnpmInstallFlags = [ "--force" ];` coupled between `fetchPnpmDeps` and the derivation hook if it is needed for store completeness.
+6. Re-enable normal fixup/no-broken-symlink checks if `deploy`/`pack` creates a clean portable tree.
+
+### 2026-08-07 Nixpkgs pnpm docs/examples research — helper-only path
+
+Research source: locked nixpkgs docs and package examples under `/nix/store/swsq9fz5xzbzqd2864z9k0xkq009cpg6-source` plus current upstream nixpkgs docs.
+
+Findings from Nixpkgs docs:
+
+- Locked nixpkgs documents pnpm packaging in `doc/languages-frameworks/javascript.section.md`:
+  - use `fetchPnpmDeps` to create a fixed-output pnpm store;
+  - use `pnpmConfigHook` to configure/install that pre-fetched store offline;
+  - pin a pnpm major (`pnpm_10`, `pnpm_11`, etc.) and pass the same pnpm to `fetchPnpmDeps`;
+  - `pnpmInstallFlags` can be passed to both `fetchPnpmDeps` and the derivation hook, with documented example `pnpmInstallFlags = [ "--shamefully-hoist" ];`;
+  - `pnpmWorkspaces` can scope dependency fetch/install for workspaces.
+- Locked nixpkgs also documents `pnpmBuildHook` in `doc/hooks/pnpm.section.md`; this hook overrides the build phase and runs a pnpm build script using helper-controlled variables (`pnpmBuildScript`, `pnpmBuildFlags`, `pnpmWorkspaces`, `pnpmRoot`).
+- There is **no** `buildPnpmPackage` in locked nixpkgs, and upstream master research did not identify a top-level full pnpm app builder. A nixpkgs bump is therefore not justified just to find `buildPnpmPackage`.
+- There is also no documented `pnpmInstallHook`. For app installation, nixpkgs examples either write custom install phases or combine pnpm setup with `npmHooks.npmInstallHook`.
+
+Relevant nixpkgs examples:
+
+- `pkgs/by-name/zi/zigbee2mqtt/package.nix` combines:
+  - `fetchPnpmDeps`
+  - `pnpmConfigHook`
+  - `pnpm_10`
+  - `npmHooks.npmInstallHook`
+  - `dontNpmPrune = true`
+  This is important because `npmInstallHook` is a Nixpkgs helper that knows how to package Node apps into `$out/lib/node_modules/<package-name>` and install bin entries, while pnpm provided the already-installed dependency tree.
+- `pkgs/by-name/as/astro-language-server/package.nix` and `pkgs/by-name/ze/zenn-cli/package.nix` show the common workspace pattern, but they still use direct `pnpm` commands in custom phases. Under this repo's stricter invariant, treat those as prior art for flags/layout only, not as an acceptable direct-command pattern.
+- `pkgs/by-name/ag/agent-browser/package.nix` shows a pnpm workspace frontend build with `pnpmWorkspaces`, but again uses a custom direct `pnpm --filter ... build`; for this repo prefer `pnpmBuildHook` when possible.
+
+Helper-only Build path to try next:
+
+1. Replace custom Fusion/QMD `buildPhase` direct `pnpm ... build` with `pkgs.pnpmBuildHook`:
+   ```nix
+   nativeBuildInputs = [ nodejs pnpmConfigHook pnpmBuildHook pnpm_11 makeWrapper ];
+   pnpmWorkspaces = [ "@runfusion/fusion" ];
+   pnpmBuildScript = "build";
+   ```
+   If the hook's exact invocation cannot express Fusion's build, document why before falling back.
+2. Add `pnpmInstallFlags = [ "--shamefully-hoist" ];` (or a smaller documented hoist setting if enough) to both:
+   - the derivation attributes consumed by `pnpmConfigHook`;
+   - `fetchPnpmDeps` via `inherit (finalAttrs) pnpmInstallFlags;`.
+   This is the documented Nixpkgs-supported way to change pnpm's node_modules layout; do not synthesize `.pnpm` symlinks manually.
+3. Try `npmHooks.npmInstallHook` as the install helper, following `zigbee2mqtt`:
+   - add `npmHooks.npmInstallHook` to `nativeBuildInputs`;
+   - set `dontNpmPrune = true` initially to avoid npm pruning/resolution;
+   - for Fusion workspace packaging, test whether `npmWorkspace = "packages/cli"` is sufficient. If the hook's `packageOut` uses the root package name unexpectedly, use a minimal helper-driven install wrapper that changes directory to `packages/cli` and calls `npmInstallHook`, rather than invoking npm/pnpm commands directly.
+4. For QMD, because it is not a workspace package, `npmHooks.npmInstallHook` should be simpler: after `pnpmConfigHook` + `pnpmBuildHook`, let `npmInstallHook` package `@tobilu/qmd` and install its `bin.qmd` entry. Keep `dontNpmPrune = true` unless pruning is proven offline/safe.
+5. Re-enable normal fixup if helper-generated output has no broken symlinks. If broken links remain, prefer documented hoist/install flags over manual deletion/synthesis.
+
+Research conclusion:
+
+- Do not bump nixpkgs just for pnpm helpers at this point.
+- The best helper-only path available in the current lock is: `fetchPnpmDeps` + `pnpmConfigHook` + `pnpmBuildHook` + `npmHooks.npmInstallHook`, with documented `pnpmInstallFlags` such as `--shamefully-hoist` to make runtime layout packageable.
+- If that cannot express Fusion's workspace runtime without custom package-manager commands, the remaining strict-policy option is a generated Nix dependency graph (dream2nix/node2nix/pnpm-lock importer style) or an explicit policy exception.
+
+### 2026-08-07 Design review of latest helper-only Build attempt
+
+Current state reviewed from `.nix/fusion-runtime.nix` and a fresh build:
+
+```sh
+nix build .#fusion-runtime --no-sandbox
+```
+
+Result: still failing, but the failure moved forward. `pnpmConfigHook` and `pnpmBuildHook` are now active, hashes are pinned, and the build reaches Fusion's `tsup` build. The latest hard failure is:
 
 ```text
-Error: Error { raw_code: Some(2), raw_os_message: Some("BadValue (integer parameter out of range for operation)"), kind: BadAttribute }
+packages/desktop/node_modules/electron/package.json: ENOENT
+@fusion/desktop@0.73.0 build: `tsx scripts/build.ts`
+Error: pnpm --filter @fusion/desktop build exited with code 1
+@runfusion/fusion@0.73.0 build: `tsup`
 ```
 
-Current host NVIDIA stack is `610.43.03`:
+Key finding:
+
+- Build set `env.CI = "true"` to avoid pnpm prompts, but Fusion's `packages/cli/tsup.config.ts` treats `CI=true` as a request for the **full publish package**. `wantsFullCliPackage()` returns true when `env.CI === "true" || env.CI === "1"`, unless `FUSION_CLI_FULL_PACKAGE=0|false` is explicitly set first.
+- That is why the CLI build now tries to build `@fusion/desktop`, which then fails because desktop/electron dependencies are not installed in the filtered workspace output.
+
+Recommended next Build fix:
+
+1. Do not rely on `CI=true` alone for noninteractive pnpm behavior. Either remove `env.CI = "true"` or explicitly force Fusion's local/default package mode:
+   ```nix
+   env.FUSION_CLI_FULL_PACKAGE = "0";
+   ```
+   Because Fusion's config checks `FUSION_CLI_FULL_PACKAGE` before `CI`, setting it to `0` should prevent the desktop/full-publish branch even if `CI=true` remains needed for pnpm.
+2. Prefer removing `CI=true` if `confirm-modules-purge=false` / documented install flags are sufficient. The goal is to avoid accidentally enabling upstream CI-only/full-release behavior.
+3. Current `prePnpmInstall` runs direct `pnpm config set ...` commands. Under the stricter user policy this is only tolerable as a temporary workaround; prefer the documented Nix helper variable `pnpmInstallFlags` if possible.
+4. Likely way to make `pnpmInstallFlags` work correctly: set
+   ```nix
+   __structuredAttrs = true;
+   strictDeps = true;
+   pnpmInstallFlags = [
+     "--shamefully-hoist"
+     "--config.confirmModulesPurge=false"
+   ];
+   ```
+   in each derivation, matching the `pnpmBuildHook` documentation example. Without structured attrs, the Nix list was observed to collapse into one shell argument (`'shamefully-hoist --config.confirmModulesPurge'`). Structured attrs are likely the intended way for hook arrays such as `pnpmInstallFlags`, `pnpmBuildFlags`, and `pnpmWorkspaces` to survive as arrays.
+5. If structured attrs fixes hook flag passing, remove `prePnpmInstall` entirely and pass the same `pnpmInstallFlags` to `fetchPnpmDeps` with `inherit (finalAttrs) pnpmInstallFlags;`.
+6. Be cautious with `pnpmWorkspaces`: `pnpmBuildHook` runs the build script for every filtered workspace. Adding many workspace names can build more than needed. The immediate desktop failure is from Fusion's `CI=true` full-package path, not from `pnpmWorkspaces` containing desktop (it does not). After disabling full package mode, reassess whether the workspace list can be reduced to the packages actually needed by CLI build.
+
+Do not start vLLM until Fusion/QMD reaches:
+
+```sh
+nix build .#fusion-runtime --no-sandbox
+./result/bin/fusion --version
+./result/bin/fn --help
+./result/bin/qmd --help
+```
+
+### 2026-08-07 Design correction: stricter no package-manager phases
+
+User rejected the `pnpm deploy` / `pnpm pack` direction because it still relies on explicit package-manager commands in repo-maintained build phases. This is a valid stricter interpretation of the determinism invariant.
+
+Updated rule for this work:
+
+- Repo-maintained derivation phases should not call `pnpm`, `npm`, `bun`, `pip`, etc. directly.
+- It is acceptable to use Nixpkgs-provided hooks/build helpers that encapsulate package-manager behavior for deterministic dependency materialization, but custom `buildPhase`/`installPhase` shell should not invoke package-manager CLIs.
+- If Nixpkgs does not provide a helper for a required package-manager operation (for example `pnpm deploy`), do not reimplement that operation manually by poking `.pnpm` internals.
+
+Consequences for Fusion/QMD:
+
+- Current `.nix/fusion-runtime.nix` direction is no longer acceptable as-is because it has direct `pnpm` calls in `buildPhase`, and the suggested `pnpm deploy` install path is rejected.
+- `pnpmConfigHook` and `pnpmBuildHook` are still candidates because they are Nixpkgs helpers; however, this locked nixpkgs does not expose an install/deploy hook that creates a portable runtime tree.
+- Since there is no `buildPnpmPackage`/`pnpmInstallHook` in the locked nixpkgs, Build should not keep iterating on direct pnpm commands or manual `.pnpm` symlink manipulation.
+
+Preferred paths now, in order:
+
+0. **Read Nix/Nixpkgs pnpm packaging documentation first**
+   - Before choosing a Nix implementation strategy, inspect the Nixpkgs JavaScript/pnpm packaging docs and hook docs for the supported way to build/package pnpm projects in Nix.
+   - Relevant Nix docs to review include the JavaScript `pnpm` section, `fetchPnpmDeps`, `pnpmConfigHook`, `pnpmBuildHook`, `pnpmWorkspaces`, `pnpmInstallFlags`, `pnpmRoot`/`sourceRoot`, and examples of packaging pnpm workspaces/apps in nixpkgs.
+   - Use those Nix docs and in-tree nixpkgs examples to decide what helper/generator path to use. Do not infer or reconstruct `.pnpm` layout manually from pnpm internals.
+
+1. **Find/use an existing Nixpkgs package/helper for this exact packaging shape**
+   - Search nixpkgs and upstream for existing Fusion/QMD packages or a newer Nixpkgs helper that provides a full pnpm app build+install abstraction (not just `pnpmBuildHook`).
+   - If such a helper exists in a newer nixpkgs revision, evaluate a targeted nixpkgs bump only if it materially reduces repo-maintained package-manager shell logic and does not destabilize unrelated packages.
+2. **Generate a Nix dependency graph from the upstream lockfile**
+   - Use a generator-style solution where the package-manager resolver is run outside the Nix build to produce checked-in/generated Nix metadata, and the build consumes only Nix fetchers/links.
+   - Examples to investigate: pnpm-lock-to-Nix tooling, dream2nix, node2nix-style approaches, or any maintained Nixpkgs-supported pnpm lock importer.
+   - Generated metadata must be committed/locked and have local bump notes explaining how to regenerate and verify.
+3. **Escalate/accept exception explicitly**
+   - If neither a Nix helper nor generated Nix metadata can package Fusion/QMD pragmatically, the remaining choices are either keep the old live package-manager derivation as an explicit policy exception or defer Fusion/QMD packaging until a suitable helper exists. Do not silently weaken the invariant.
+
+Immediate Build recommendation:
+
+- Stop implementing the direct `pnpm deploy` / manual `.pnpm` layout path.
+- Preserve only the naming/policy/bump-note changes that are independently useful.
+- Reassess with a fresh design pass focused on generator/helper options before making more packaging changes.
+
+## 2026-07-28 request: only restart Fusion from vLLM when Fusion is enabled
+
+User direction:
+
+1. `vllm-config`/`vllm@.service` must only restart `fusion.service` when `fusion.service` is **enabled** in the user systemd manager.
+2. Every dependency in this repo must be declared as a flake input. No `builtins.fetchTree` for `nixpkgs`.
+3. `fusion.service` and `vllm@.service` must consume runtimes from the installed `klarkc` profile (`nix profile upgrade klarkc`), not build during service startup.
+
+## Architecture after this work
 
 ```text
-nvidia-smi --query-gpu=driver_version,name --format=csv,noheader -> 610.43.03, NVIDIA GeForce RTX 3060
-modinfo -F version nvidia -> 610.43.03
-/usr/lib/libGLX_nvidia.so.0 -> /usr/lib/libGLX_nvidia.so.610.43.03
+$HOME (= repo root, this dotfiles checkout, %h)
+├── flake.nix
+│   - packages.fusion-runtime = callPackage ./.nix/fusion-npm.nix { version = "0.73.0"; }
+│   - packages.vllm-runtime   = callPackage ./.nix/vllm-runtime.nix { version = "0.20.1-cu130"; }
+│   - packages.default (buildEnv "klarkc-dotfiles_profile") now includes
+│       fusionRuntime + vllmRuntime along with the existing entries.
+└── nix profile upgrade klarkc
+    -> installs /nix/store/.../bin/fusion (+ /nix/store/.../bin/fn)
+    -> installs /nix/store/.../bin/vllm
+    -> symlinks into %h/.nix-profile/bin/
+
+systemd user manager:
+- fusion.service        -> ExecStart runs %h/.nix-profile/bin/fusion dashboard ...
+- vllm@<model>.service  -> ExecStart runs %h/.local/bin/vllm-serve-pure
+                            (script resolves %h/.nix-profile/bin/vllm; no nix build)
+                            -> after readiness, conditional Fusion restart only if enabled.
 ```
 
-Committed `flake.nix` still pins nixGL to `610.43.02` and wraps `nixGLNvidia-610.43.02` (`flake.nix:91-103`). This mismatch is the likely cause of the GLX/X11 startup failure.
+## Implementation (✅ DONE — 2026-08-06)
 
-Prefetched NVIDIA `610.43.03` installer hash:
+### `.nix/fusion-npm.nix`
 
-```text
-nix store prefetch-file --hash-type sha256 --json "https://us.download.nvidia.com/XFree86/Linux-x86_64/610.43.03/NVIDIA-Linux-x86_64-610.43.03.run"
-hash: sha256-ReLUwTSiPDXlDyU6SqY+fl6NF+PRhdSgfIpY6WEu05I=
-```
+- Refactored to function form: `{ pkgs, version }: ...`. No more `builtins.fetchTree`.
+- `version = "0.73.0"`.
+- `fusionNpmPayload` `outputHash` pinned: `sha256-3Dpcx4PL08Q/Ki1msYiMmz9jET3IW0Au55eWRx26lh8=` (recursive sha256). Re-pinned because the npm registry tree hash differs between runs (transitive deps like `electron` install scripts).
+- `fusion-runtime` `nativeBuildInputs` extended with `cacert`, and `NODE_EXTRA_CA_CERTS=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt` exported in `installPhase`, so the `electron` postinstall (new transitive dep in 0.73.0) can verify GitHub releases TLS during `npm rebuild`.
 
-Next implementation step: update `flake.nix` explicit nixGL params and wrapper binary from `610.43.02` to `610.43.03`, then rebuild/install the profile and rerun `alacritty --config-file /dev/null -vv` and normal `alacritty -vv`.
+### `.nix/vllm-runtime.nix`
 
-Recommended guardrail for future system builds: add a host preflight target/script used by `make nix.Profile` before `nix profile install .` / `nix profile upgrade ...`. Pure `nix flake check` cannot reliably inspect the host NVIDIA kernel module, so this should be an explicit impure host check that:
+- Refactored to function form: `{ pkgs, version }: ...`. No more `builtins.fetchTree`.
+- `wheelhouse` `outputHash` pinned: `sha256-NFCLSOvtThz1xbCU1l2MCBJqH6Sl/f85dhYmpSzTUug=`.
+- `version` passed in from the flake (`"0.20.1-cu130"`).
 
-1. reads host version from `modinfo -F version nvidia` (preferred) or `nvidia-smi --query-gpu=driver_version --format=csv,noheader`,
-2. reads the pinned `nvidiaVersion` from `flake.nix`,
-3. fails before build/install if they differ,
-4. prints both versions plus the exact fields to update (`nvidiaVersion`, `nvidiaHash`, and `nixGLNvidia-${version}` wrapper path),
-5. optionally prints a prefetch command for the new installer URL.
+### `flake.nix`
 
-Acceptance criteria for the guardrail:
+- Two new outputs:
+  ```nix
+  packages.fusion-runtime = fusionRuntime;
+  packages.vllm-runtime  = vllmRuntime;
+  ```
+- `packages.default.paths` now includes `fusionRuntime` and `vllmRuntime` so `nix profile upgrade klarkc` builds/installs them.
 
-- mismatch example reports: `host NVIDIA driver: 610.43.03`, `flake nixGL NVIDIA: 610.43.02`, and exits non-zero before invoking `nix profile install`;
-- match example allows the existing Nix build/install path to continue;
-- `flake.nix` should centralize the NVIDIA version string once if possible, so the wrapper binary name derives from the same value and cannot drift independently.
+### `.config/systemd/user/vllm@.service`
 
-User constraint: routine system upgrades are done with `yay`, which does not run the Nix profile install target or `Makefile`. Therefore the build/install preflight is insufficient by itself.
+- `VLLM_NIX_CONFIG` / `VLLM_RUNTIME_REF` env vars and `%h/Sources/Fusion/klarkc/dotfiles`-style paths are gone.
+- `ExecStartPost=/bin/sh -c 'systemctl --user is-enabled --quiet fusion.service && systemctl --user restart fusion.service || true'` — Fusion restart only happens when `fusion.service` is enabled.
+- `ReadOnlyPaths` reduced to `~/.config/vllm/%i.env`, `vllm-patch-model-defaults`, `vllm-serve-pure`, `vllm-wait-ready` — service no longer needs flake files or `.nix/*.nix`.
+- `ExecStart=%h/.local/bin/vllm-serve-pure` unchanged (template instance name still selects the env file + runtime dir, but the same shared wrapper is used).
 
-Revised guardrail design, with user preference:
+### `.local/bin/vllm-serve-pure`
 
-1. **Preferred**: add a launch-time guard to the generated Alacritty host-GL wrapper. This is better than relying on `Makefile` or pacman hooks because it runs exactly when the stale nixGL pin would cause a cryptic GLX failure.
-2. The guard should compare the live host driver (`modinfo -F version nvidia`, fallback to `nvidia-smi`) against the pinned nixGL `nvidiaVersion`.
-3. On mismatch, print a prominent diagnostic with the host version, flake version, fields to update (`nvidiaVersion`, `nvidiaHash`, and `nixGLNvidia-${version}` unless derived), and the `nix store prefetch-file` command for the new NVIDIA `.run` URL; then exit non-zero before invoking nixGL/Alacritty.
-4. Optional later enhancement: add a pacman hook under `/etc/pacman.d/hooks/` to warn after `yay`/pacman upgrades `nvidia`, `nvidia-dkms`, `nvidia-open`, `nvidia-utils`, or related packages, but do not make this the primary solution.
-5. Keep any Nix/Make preflight only as a secondary guard for manual profile rebuilds; it does not cover the normal `yay` workflow.
+- `find_nix`, `nix build`, `--print-out-paths`, `VLLM_RUNTIME_REF` removed.
+- Resolves vLLM runtime from the installed profile:
+  ```bash
+  vllm_bin="${VLLM_BIN:-$HOME/.nix-profile/bin/vllm}"
+  if [ ! -x "$vllm_bin" ]; then
+    echo "vLLM binary not found in klarkc profile: $vllm_bin" >&2
+    echo "Run: nix profile upgrade klarkc" >&2
+    exit 127
+  fi
+  runtime="$(dirname "$(dirname "$(readlink -f "$vllm_bin")")")"
+  ```
+  Then reuses the existing `$runtime/lib`, `$runtime/bin/vllm`, and `$runtime/nix-support/ld-library-path` logic with no other behavioral change.
 
-Acceptance criteria for the preferred launch-time guard:
+### `.config/systemd/user/fusion.service`
 
-- after `yay -Syu` upgrades NVIDIA from `610.43.02` to `610.43.03`, launching `alacritty` reports that host NVIDIA is `610.43.03` while nixGL is pinned to `610.43.02`;
-- the wrapper exits before invoking `nixGLNvidia-*`, avoiding cryptic GLX `BadValue`/`BadAttribute` failures;
-- if versions match, the wrapper execs the existing nixGL command unchanged;
-- diagnostic includes a ready-to-run `nix store prefetch-file --hash-type sha256 --json "https://us.download.nvidia.com/XFree86/Linux-x86_64/<version>/NVIDIA-Linux-x86_64-<version>.run"` command;
-- `flake.nix` centralizes the NVIDIA version string once, so the wrapper binary name derives from the same `nvidiaVersion` value.
+- `FUSION_NIX_CONFIG` / `FUSION_RUNTIME_REF` / `WorkingDirectory=%h/Sources/Fusion/klarkc/dotfiles` removed.
+- `ExecStart` now resolves the profile-installed CLI directly:
+  ```sh
+  cli=""
+  for candidate in "$HOME/.nix-profile/bin/fusion" "$HOME/.nix-profile/bin/fn"; do
+    [ -x "$candidate" ] && { cli="$candidate"; break; }
+  done
+  [ -z "$cli" ] && { echo "Fusion CLI not found in klarkc profile (looked for %h/.nix-profile/bin/fusion and .../fn); run: nix profile upgrade klarkc" >&2; exit 127; }
+  exec "$cli" dashboard --host 0.0.0.0 --port 4040 --no-auth
+  ```
+- `ReadOnlyPaths` updated to point at the profile binary and SSH config; no flake paths.
 
-## 2026-07-09 follow-up: `nix` still fails in existing shell
+### `.local/bin/vllm-config`
 
-Finding: the current interactive shell can still have the old polluted environment even after the config fix. Evidence from review shell:
-
-```text
-LD_LIBRARY_PATH=</nix/store/...libglvnd...:/nix/store/...libxkbcommon...:/usr/lib>
-nix --version -> segmentation fault
-```
-
-Also found the installed profile `~/.nix-profile/bin/alacritty` still points at the previous `/usr/lib` fallback wrapper:
-
-```text
-/home/klarkc/.nix-profile/bin/alacritty -> /nix/store/jmf7...-alacritty-host-gl/bin/alacritty
-wrapper prefixes LD_LIBRARY_PATH=/usr/lib
-```
-
-The newly built `./result/bin/alacritty` points at the intended nixGL wrapper, while new Alacritty child shells are sanitized by `.alacritty.toml`:
-
-```text
-TERM=xterm-256color
-LD_LIBRARY_PATH=<>
-```
-
-Action needed outside code changes: refresh the installed profile to the newly built flake output and restart existing Alacritty/tmux/shell sessions, or temporarily run `unset LD_LIBRARY_PATH` / `env -u LD_LIBRARY_PATH nix ...` in already-open polluted shells.
-
-## Current request
-
-User selected **Option B**: continue pursuing an actual nixGL-based Alacritty host-GL wrapper instead of the known-working `/usr/lib` fallback.
-
-## Current repository evidence
-
-- `flake.nix` currently imports nixGL manually with explicit `nvidiaVersion = "610.43.02"` and `nvidiaHash = "sha256-MDSgVLtM33dS/43CclZMsQVROAS/9TU4lFkBsWyndGM="`.
-- `flake.nix` keeps `nixGL.inputs.nixpkgs.follows = "nixpkgs"`; `flake.lock` shows nixGL revision `b6105297e6f0cd041670c3e8628394d4ee247ed5` and follows the root nixpkgs.
-- Current uncommitted `flake.nix` diff wraps `${nixGLPkgs.nixGLNvidia}/bin/nixGLNvidia-610.43.02`, but still prefixes `LD_LIBRARY_PATH=/usr/lib`; this violates the nixGL-only acceptance goal and should be removed.
-- Reported latest evaluation failure: `nix flake check --no-build` fails with `function 'anonymous lambda' called with unexpected argument 'kernel'` from nixpkgs `nvidia-x11/generic.nix`.
-
-## nixGL source facts
-
-From nixGL upstream `default.nix` and `nixGL.nix`:
-
-- `default.nix` accepts explicit `nvidiaVersion` and `nvidiaHash` arguments.
-- If `nvidiaVersion` is `null`, nixGL auto-detection creates `impure-nvidia-version-file` with `builtins.currentTime`, which fails pure flake evaluation.
-- If `nvidiaVersion` is non-null, nixGL returns versioned packages from `top.nvidiaPackages`, including a binary named `nixGLNvidia-${version}`.
-- The generic flake package `packages.${system}.nixGLNvidia` uses auto-detection and is therefore expected to fail pure evaluation here.
-
-## Known failed approaches
-
-1. `inputs.nixGL.outputs.packages.${system}.nixGLNvidia`
-   - Fails with `attribute 'currentTime' missing` in pure eval because it uses auto-detection.
-2. Manual import without passing `pkgs`
-   - Fails pure eval via `import <nixpkgs>`.
-3. Manual import with mismatched nixpkgs revisions
-    - Fails inside `nvidia-x11/generic.nix` with unexpected `kernel` argument.
-4. Manual import with current nixGL `main` plus root nixpkgs-unstable
-   - Fails because nixGL revision `b6105297` still calls `linuxPackages.nvidia_x11.override { }`, while current nixpkgs requires the NVIDIA package call chain to handle kernel-module arguments differently.
-
-## Upstream status
-
-- nixGL PR #223 (`Update nixGL for latest nixpkgs: nvidia kernel modules and package deprecations`) is open and directly related to recent nixpkgs NVIDIA package changes.
-- PR #223 also replaces deprecated `xorg.*` references with top-level libraries.
-- Because it is unmerged, using upstream `main` with root nixpkgs-unstable remains risky without an overlay/patch.
-
-## Proposed implementation path
-
-Use manual nixGL import with explicit NVIDIA params **and** pass a nixpkgs instance compatible with the root flake's pinned nixpkgs:
-
-```nix
-nixGLPkgs = import inputs.nixGL {
-  pkgs = import inputs.nixpkgs {
-    inherit system;
-    config.allowUnfree = true;
-  };
-  nvidiaVersion = "610.43.02";
-  nvidiaHash = "sha256-MDSgVLtM33dS/43CclZMsQVROAS/9TU4lFkBsWyndGM=";
-};
-```
-
-Then wrap the versioned nixGL binary, not the auto package:
-
-```nix
-alacrittyWithHostGL = pkgs.runCommand "alacritty-host-gl" {
-  nativeBuildInputs = [ pkgs.makeWrapper ];
-} ''
-  mkdir -p $out/bin
-  makeWrapper "${nixGLPkgs.nixGLNvidia}/bin/nixGLNvidia-610.43.02" "$out/bin/alacritty" \
-    --add-flags "${alacrittyWithLigatures}/bin/alacritty"
-'';
-```
-
-Important: verify the actual binary name under `${nixGLPkgs.nixGLNvidia}/bin` after build/eval. Upstream source indicates `nixGLNvidia-${version}` for explicit imports.
-
-Recommended next step: do **not** add another raw `/usr/lib` fallback. Instead, test a minimal nixGL source patch/overlay based on upstream PR #223 plus any additional local fix required for the current nixpkgs NVIDIA `kernel` API. If that patch is too invasive, prefer temporarily reverting to the already-known-working `/usr/lib` wrapper only as an explicit fallback decision.
-
-## Lock/input design
-
-Preferred first attempt:
-
-- Restore `nixGL.inputs.nixpkgs.follows = "nixpkgs"` in `flake.nix`.
-- Regenerate/restore `flake.lock` so root `nixpkgs` remains the project nixpkgs and nixGL follows it.
-- The explicit `nvidiaVersion` should avoid the `builtins.currentTime` auto-detection path even with follows enabled.
-
-If the `kernel` argument mismatch persists, the root nixpkgs revision may be incompatible with nixGL's current `linuxPackages.nvidia_x11` override pattern. In that case, either:
-
-- pin nixGL to a revision compatible with the project's nixpkgs, or
-- pin root nixpkgs to a revision where nixGL's NVIDIA package build works, after checking broader package impact.
-
-Do not leave a separate unused nixGL nixpkgs node in `flake.lock` unless nixGL is actually isolated and used successfully.
+- `fusion_enabled` detection via `systemctl --user is-enabled --quiet fusion.service` (line 72-75).
+- All Fusion-related operations (stop, reset-failed, status, log follow, wait loop) gate on `$fusion_enabled`.
+- Upfront notice printed when Fusion is disabled (line 78-80).
+- Wait loop and error paths correctly branch on `$fusion_enabled` so a vLLM or target failure does not query Fusion status when Fusion is disabled.
+- `bash -n` passes.
 
 ## Acceptance criteria
 
-| Criterion | Status |
-|-----------|--------|
-| No `/usr/lib` GL fallback in `alacrittyWithHostGL` | ✅ Removed |
-| `alacrittyWithHostGL` runs `nixGLNvidia-610.43.02` | ✅ Verified |
-| `packages.default` includes `alacrittyWithHostGL` | ✅ Unchanged |
-| `packages.alacritty` remains `alacrittyWithLigatures` | ✅ Unchanged |
-| `nix flake check --no-build` passes | ✅ Passes |
-| `nix build '.#'` passes | ✅ Builds (~5 min) |
-| `nix profile install '.#'` succeeds | ✅ Installed |
-| `alacritty -vv` — NVIDIA GL renderer | ✅ RTX 3060, OpenGL 3.3.0 NVIDIA 610.43.02 |
-| Ligatures wrapper retains `LD_LIBRARY_PATH` for `dlopen` | ✅ Retained (RPATH insufficient) |
-| Child shell has clean `LD_LIBRARY_PATH` | ✅ Set to `""` in `.alacritty.toml` |
-| `.alacritty.toml` `[env]` has both `TERM` and `LD_LIBRARY_PATH` | ✅ Restored |
+`vllm-config`:
 
-## Changes made
+- With `fusion.service` enabled:
+  - stops Fusion, switches vLLM model, restarts Fusion after vLLM is ready, exits when both are active.
+  - failed Fusion restart still produces non-zero exit.
+- With `fusion.service` disabled:
+  - does not stop/start/restart Fusion.
+  - does not include Fusion in status / log follow.
+  - prints the upfront note.
+  - exits as soon as the selected `vllm@...service` is active.
+  - failure diagnostics do not call `systemctl status fusion.service`.
 
-1. **Pinned nixGL to PR #223 HEAD** (`e0fbb55ff50d0f1fc7b55f34035dfb04f199a2fb`) via `git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head` — resolves the `unexpected argument 'kernel'` breakage from nixpkgs NVIDIA API changes.
-2. **Removed `--prefix LD_LIBRARY_PATH : "/usr/lib"`** from `alacrittyWithHostGL` — nixGL now fully supplies the GL library path; no host-fallback needed.
-3. **Updated `flake.lock`** — nixGL input updated from `github:nix-community/nixGL/b610529` → `git+.../e0fbb55`.
-4. **Retained ligatures `wrapProgram --prefix LD_LIBRARY_PATH`** — required because `xkbcommon-dl` uses `dlopen()` which ignores ELF RPATH.
-5. **Added `LD_LIBRARY_PATH = ""`** to `[env]` in `.alacritty.toml` — sanitizes child-shell environment.
+`fusion.service`:
 
-## Resolution: wrapper retained, child-shell sanitized
+- Starts by execing `%h/.nix-profile/bin/fusion dashboard ...` (or `fn` fallback if Fusion shipped `fn` as primary).
+- If the runtime is not installed in the klarkc profile, the unit fails fast with a clear pointer to `nix profile upgrade klarkc` (no Nix build is performed at service start).
 
-Final approach: keep the ligatures `wrapProgram` (necessary because `xkbcommon-dl` uses `dlopen`, which ignores ELF RPATH) and sanitize child shells via `.alacritty.toml` `[env] LD_LIBRARY_PATH = ""`.
+`vllm@.service` / `vllm-serve-pure`:
 
-Verification results:
-- `env -u LD_LIBRARY_PATH result/bin/alacritty -vv -e true` — launches cleanly, OpenGL 3.3.0 NVIDIA 610.43.02, no config errors
-- `env -u LD_LIBRARY_PATH result/bin/alacritty -e 'printenv LD_LIBRARY_PATH'` — child shell reports empty `LD_LIBRARY_PATH`
-- `nix flake check --no-build` — passes
-- `nix build '.#'` — passes
+- Starts the model server by execing the profile-installed `vllm` (resolved via `%h/.nix-profile/bin/vllm`).
+- After vLLM is ready, conditional Fusion restart only when `fusion.service` is enabled.
+- If vLLM is not installed, the wrapper exits non-zero and tells the user to run `nix profile upgrade klarkc`.
+- vLLM unit template substitution `%i` continues to drive configuration and runtime dir; the wrapper binary does not change per instance.
 
-### Why wrapper stays (vs RPATH/patchelf)
+Dependency surface:
 
-`xkbcommon-dl` loads `libxkbcommon-x11.so` via `dlopen()`. Unlike direct ELF linking, `dlopen()` does **not** consult RPATH — it only searches standard system paths and `LD_LIBRARY_PATH`. Therefore RPATH cannot substitute for the wrapper's `--prefix LD_LIBRARY_PATH`. The correct design is:
+- No `builtins.fetchTree` of `nixpkgs` anywhere under `.nix/`.
+- No `nix build`, `nix-build`, `--file`, or `--print-out-paths` in `vllm-config`, `vllm-serve-pure`, `fusion.service`, `vllm@.service`, or any helper invoked from a systemd user unit.
+- All nixpkgs dependencies flow through the flake `nixpkgs` input.
 
-1. **Alacritty process**: gets `LD_LIBRARY_PATH` from `wrapProgram` (allows `dlopen` to find runtime libs)
-2. **Child shells**: get `LD_LIBRARY_PATH = ""` from `.alacritty.toml` `[env]` (prevents leakage into tmux, nix, devenv, etc.)
+## Verified
 
-## Changes made (final)
+- `bash -n .local/bin/vllm-config` ✓
+- `bash -n .local/bin/vllm-serve-pure` ✓
+- `nix flake check --no-build` ✓ (all packages green)
+- `nix build .#fusion-runtime --no-sandbox` ✓ (Fusion CLI reports `0.73.0`)
+- `nix build .#vllm-runtime --no-sandbox` ✓ (vllm wrapper present)
+- `nix build .#default --no-sandbox` ✓ (`/nix/store/...-klarkc-dotfiles_profile` produced; profile bin contains `fusion`, `fn`, `vllm`).
+- Direct runtime resolution in `vllm-serve-pure` style: `runtime` derives correctly from `%h/.nix-profile/bin/vllm` symlink — `/nix/store/...-vllm-runtime-0.20.1-cu130`, with `bin/vllm`, `lib/`, and `nix-support/ld-library-path` all present.
 
-1. **Kept** `wrapProgram --prefix LD_LIBRARY_PATH` in `.nix/alacritty-ligatures.nix` — required for `dlopen`-resolved libs.
-2. **Added** `LD_LIBRARY_PATH = ""` to `[env]` in `.alacritty.toml` — sanitizes child-shell environment.
-3. **Fixed** duplicate `LD_LIBRARY_PATH` entry in `.alacritty.toml` (was listed twice, caused config parse error).
-4. **Restored** `TERM = "xterm-256color"` in `.alacritty.toml` `[env]` — was accidentally replaced by `LD_LIBRARY_PATH = ""` in step 2.
+## Risks / follow-ups
 
-## Review: inherited `LD_LIBRARY_PATH` regression
+1. **`outputHash` non-determinism for `fusionNpmPayload`** — the npm install output hash varies between runs because the upstream npm tree differs. The current pinned hash matches a recent run; if a re-build produces a mismatch, re-pin with the freshly-printed hash. Mitigation options for a future iteration: pin specific tarball URLs (`tarballHash` per package), or use `npm ci` with a checked-in lockfile.
+2. **Service template `%i` does not currently change anything about the runtime binary** — confirmed; this is intentional. Different models select different `~/.config/vllm/<i>.env` files and different cache dirs, but always run the same `vllm` from the klarkc profile.
+3. **`packages.default` is now larger** — `nix profile upgrade klarkc` will pull in `fusion-runtime` and `vllm-runtime` (vLLM is ~hundreds of MB). If that is undesirable, move them out of `packages.default` and require an explicit `nix profile install .#fusion-runtime` and `nix profile install .#vllm-runtime`, then have the services still consume those profile entries directly.
 
-The nixGL build/runtime work above fixed the `/usr/lib` fallback in `flake.nix`, but the current Alacritty design still has a separate environment-leak problem that can break Determinate Nix.
+## Current Build handoff — deterministic runtime packaging
 
-### Findings
+Design status: service/runtime integration is implemented and verified, but two repo-maintained Nix derivations still violate the new deterministic-build invariant by resolving package-manager graphs during builds. Build should fix these before final merge if the invariant must be true immediately.
 
-1. **Critical — Alacritty ligatures wrapper exported `LD_LIBRARY_PATH` into every shell spawned by Alacritty.**
-   - ~~Evidence~~: `.nix/alacritty-ligatures.nix:26-27` wrapped `$out/bin/alacritty` with:
+### 1. Fusion/QMD: build from upstream pnpm-locked source tags
+
+Primary recommendation:
+
+- Add flake inputs for upstream source tags:
+  ```nix
+  fusion-src = {
+    url = "github:Runfusion/Fusion/v0.73.0";
+    flake = false;
+  };
+
+  qmd-src = {
+    url = "github:tobi/qmd/v2.1.0";
+    flake = false;
+  };
+  ```
+- Refactor `.nix/fusion-npm.nix` to consume `{ fusion-src, qmd-src, ... }`.
+- Use locked nixpkgs `pkgs.pnpm_10.fetchDeps` + `pkgs.pnpm_10.configHook` with each upstream repo's committed `pnpm-lock.yaml`.
+- Remove live `npm install --global` and `npm rebuild --global` entirely.
+- Preserve documented external runtime tools in `runtimePath` (for example `docker-client`, `tmux`, `git`, `gh`, `openssh`, `python3`, `uv`) as Nix runtime dependencies/wrapper PATH entries. These are not npm dependencies and do not need npm graph entries unless Fusion upstream declares them as packages.
+- Do not keep extra ad hoc npm top-level installs for packages Fusion already declares itself:
+  - `@runfusion/fusion@0.73.0` `packages/cli/package.json` declares `node-pty` as `npm:@homebridge/node-pty-prebuilt-multiarch@^0.13.1` and `dockerode` as `^4.0.12`.
+  - The workspace also declares `node-pty` in engine/dashboard packages and `dockerode` in core, confirming these are upstream-managed package dependencies when building from source/lockfile.
+  - Therefore Build should let the upstream `pnpm-lock.yaml` materialize those packages rather than installing separate top-level `node-pty`/`dockerode` entries with potentially different versions.
+- `send` is different: quick checks of the Fusion 0.73.0 README/docs/manifests found no direct `send` package declaration; occurrences in docs are ordinary text/CLI verbs (for example message send). Treat `send` as transitive-only if pulled by another package (e.g. Express stack), and do not add it as a top-level npm dependency unless Build finds a concrete runtime import/failure requiring it.
+
+Code-annotation requirement for Build:
+
+- When refactoring `.nix/fusion-npm.nix`, add a short comment near the Nix `runtimePath` list explaining that entries such as `docker-client`, `tmux`, `git`, `gh`, `openssh`, `python3`, and `uv` are external runtime tools exposed on Fusion's wrapper `PATH`, not npm dependencies.
+- Add a short comment near the pnpm package build/install logic explaining that Fusion's upstream manifests/lockfile own npm packages such as `node-pty` and `dockerode`; do not add separate top-level npm installs for them unless a future upstream/runtime change provides concrete evidence.
+- If `send` is intentionally added later, include a code comment with the exact upstream import/runtime failure that justified promoting it from transitive dependency to explicit top-level dependency.
+
+Acceptance:
+
+- No `npm install`, `npm ci`, or `npm rebuild` in `.nix/fusion-npm.nix`.
+- `nix build .#fusion-runtime` succeeds.
+- Result/profile provides `fusion`, `fn`, and `qmd`.
+- `fusion --version` reports `0.73.0`; `qmd --help` works.
+
+### 2. vLLM: prefer a declared wheelhouse artifact, not a live pip resolver
+
+Evidence:
+
+- Locked nixpkgs `python312Packages.vllm` is `0.16.0`; the repo currently targets `vllm==0.20.1` with PyTorch CUDA 13.0 wheels.
+- The locked nixpkgs expression is source-oriented and tailored to `0.16.0` (`pkgs/development/python-modules/vllm/default.nix`, `version = "0.16.0"`), so blindly overriding it to `0.20.1` is likely high-risk.
+- PyPI metadata for `vllm==0.20.1` publishes `cp38-abi3-manylinux_2_35_{x86_64,aarch64}` wheels plus sdist. For this repo's current Linux x86_64/Python 3.12 path, an x86_64 ABI3 wheel should be usable.
+- PyTorch CUDA 13.0 index has `torch-2.11.0+cu130-cp312-cp312-manylinux_2_28_x86_64.whl` and matching Python variants.
+
+Primary recommendation:
+
+1. Generate the full resolved wheelhouse outside the Nix build, once, for the target platform/interpreter:
+   - Python: CPython 3.12
+   - Platform: Linux x86_64
+   - Requirements:
+     - `torch==2.11.0+cu130`
+     - `torchvision==0.26.0+cu130`
+     - `torchaudio==2.11.0+cu130`
+     - `vllm==0.20.1`
+   - Extra index: `https://download.pytorch.org/whl/cu130`
+2. Publish or store that wheelhouse as a single immutable archive artifact, with an adjacent manifest containing all wheel filenames + hashes.
+3. Add the archive as a `flake = false` input, for example:
+   ```nix
+   vllm-wheelhouse = {
+     url = "https://.../vllm-0.20.1-cu130-cp312-manylinux-x86_64-wheelhouse.tar.zst";
+     flake = false;
+   };
+   ```
+   If there is no suitable artifact host, the fallback is one flake input per wheel/sdist URL.
+4. Refactor `.nix/vllm-runtime.nix` to accept `vllm-wheelhouse` and unpack/copy it into a local `$wheelhouse` directory.
+5. Delete the `wheelhouse = pkgs.stdenvNoCC.mkDerivation { ... pip download ... }` derivation.
+6. Keep only offline installation in the runtime derivation, with network disabled by construction:
+   ```bash
+   python3.12 -m pip install \
+     --no-index \
+     --find-links "$wheelhouse" \
+     --target "$out/lib/python3.12/site-packages" \
+     torch==2.11.0+cu130 \
+     torchvision==0.26.0+cu130 \
+     torchaudio==2.11.0+cu130 \
+     vllm==0.20.1
+   ```
+   This is allowed by the invariant because pip is not resolving/downloading; it is installing from an artifact declared in `flake.lock`.
+
+Rejected/secondary option:
+
+- Do not switch to nixpkgs `python312Packages.vllm` unless the user accepts a downgrade to `0.16.0` or Build carries a full nixpkgs-style update for `0.20.1` and all dependency/API changes. That is a much larger maintenance surface than the current profile-runtime goal.
+
+Acceptance:
+
+- No `pip download` in `.nix/vllm-runtime.nix`.
+- Any `pip install` is strictly `--no-index --find-links` against flake input artifact(s).
+- No live package index URLs in build phases.
+- `nix build .#vllm-runtime` succeeds.
+- Result/profile provides `vllm`; `vllm --version` reports `0.20.1`.
+
+Alternative: full nixpkgs-helper/source package update
+
+- It is possible to avoid the offline wheelhouse approach by packaging vLLM with nixpkgs Python helpers (`buildPythonPackage`, declared `dependencies`, `pythonRelaxDepsHook`/patches as needed), ideally by updating/overriding the existing nixpkgs vLLM expression.
+- This would be cleaner from a Nix packaging perspective because there would be no `pip install` at all in `.nix/vllm-runtime.nix`.
+- Current evidence makes this a larger/high-risk change, not the smallest safe refactor:
+  - Locked nixpkgs `python312Packages.vllm` is `0.16.0`.
+  - Locked nixpkgs `python312Packages.torch` is `2.12.0` and `cudaPackages.cudaMajorMinorVersion` is `12.9`.
+  - The current repo runtime intentionally installs PyTorch CUDA wheel versions `torch==2.11.0+cu130`, `torchvision==0.26.0+cu130`, `torchaudio==2.11.0+cu130`, plus `vllm==0.20.1`.
+  - vLLM 0.20.1 PyPI metadata pins `torch==2.11.0`, `torchaudio==2.11.0`, and `torchvision==0.26.0` and adds several newer runtime dependencies (`flashinfer-python`, `flashinfer-cubin`, `tilelang`, `apache-tvm-ffi`, `nvidia-cudnn-frontend`, etc.) that may not already exist in the locked nixpkgs Python set at compatible versions.
+- Therefore, if Build chooses the nixpkgs-helper route, acceptance should include proving one of these explicitly:
+  1. A nixpkgs-style vLLM 0.20.1 package builds and runs against Nix-provided Torch/CUDA, and the user accepts any CUDA/Torch version difference; or
+  2. Nix expressions package the required `+cu130` PyTorch wheel stack and all vLLM dependencies with declared sources/hashes, without live pip resolution.
+- Recommendation remains: use the declared wheelhouse artifact for this iteration unless the user explicitly wants the larger nixpkgs-style package update.
+
+### 2026-08-07 Final design review of helper-only Fusion/QMD packaging
+
+Direction is now correct and the build passes the smoke checks:
+
+```sh
+$ ./result/bin/fusion --version
+0.73.0
+
+$ ./result/bin/fn --help
+fn — AI-orchestrated task board
+Usage: ...
+
+$ ./result/bin/qmd --help
+qmd — Quick Markdown Search
+Usage: ...
+```
+
+What the working path uses:
+
+- `pkgs.fetchPnpmDeps` (fixed-output store) for both Fusion and QMD.
+- `pnpmConfigHook` (offline install against that store).
+- `pnpmBuildHook` to run the workspace build via the documented
+  `pnpmBuildScript` / `pnpmWorkspaces` mechanism. The `...` workspace suffix
+  (`pnpmWorkspaces = [ "@runfusion/fusion..." ];`) was the key to pull in
+  Fusion's workspace dep closure without manually listing every package.
+- `__structuredAttrs = true; strictDeps = true;` so the derivation's
+  `pnpmInstallFlags` list survives as a real shell array in the hook.
+- Documented pnpm 10 hoist flag (`--shamefully-hoist`) plus
+  `--config.confirmModulesPurge=false` so the offline install works without
+  TTY prompts.
+- `env.FUSION_CLI_FULL_PACKAGE = "0"` to stop Fusion's tsup config from
+  taking the full publish/desktop branch when `CI=true` is set for pnpm.
+- Custom `installPhase` modeled after `pkgs/by-name/t3/t3code/package.nix`,
+  not `npmInstallHook`. The latter is npm-workspace-oriented and fails
+  with `npm pack --workspace=...` on pnpm-managed repos.
+- The custom install phase is mechanical (cp, chmod, patchShebangs,
+  makeWrapper) and does **not** touch `.pnpm` symlinks or other pnpm
+  internals.
+
+Notes for future work:
+
+1. The `agent-browser` binary requires `chmod +x` on a sub-binary at runtime
+   (`agent-browser-linux-x64`); this fails with `EPERM` in the Nix store.
+   Upstream check: latest Fusion on npm is `0.75.1` and still depends on
+   `agent-browser = 0.26.0`. Latest `agent-browser` on npm is `0.33.2`, but
+   both `0.26.0` and `0.33.2` ship `bin/agent-browser-linux-x64` with mode
+   `0644` and `bin/agent-browser.js` still calls `chmodSync(binaryPath,
+   0o755)` with the same "Cannot make binary executable" error path. So this
+   does not appear fixed upstream by a Fusion bump or an `agent-browser` bump.
+   User chose to keep and patch `agent-browser`. Build should pre-chmod the
+   platform binary in `.nix/fusion-runtime.nix` during `fusionCli.installPhase`,
+   after copying `node_modules` / staging `@runfusion/fusion` and before
+   `find "$out/lib" -xtype l -delete` / wrapper creation:
+   ```sh
+   find "$out/lib/node_modules" \
+     -path '*/agent-browser/bin/agent-browser-linux-x64' \
+     -exec chmod 755 {} +
+   ```
+   Then verify:
+   ```sh
+   nix build .#fusion-runtime --no-sandbox
+   ./result/bin/fusion --version
+   ./result/bin/fn --help
+   ./result/bin/qmd --help
+   ./result/bin/agent-browser --help
+   ```
+   Current acceptance already has `fusion` / `fn` / `qmd` passing; this patch
+   extends acceptance to the upstream-exposed `agent-browser` wrapper.
+2. `vllm-runtime.nix` still uses live `pip download`; not part of this
+   refactor and is documented in `docs/wip.md` as the next item to
+   tackle. The user has not asked to refactor it yet.
+3. End-to-end `nix build .#default` and `nix flake check` were not
+   re-run after the Fusion/QMD refactor; recommended as final commit
+   verification step.
+
+Verdict: this refactor satisfies the stricter interpretation of the
+determinism invariant:
+
+- No `npm install` / `npm rebuild` / live package-manager resolution in
+  repo-maintained builds.
+- All dependencies go through `fetchPnpmDeps` (lockfile-pinned, hash-locked).
+- Only Nixpkgs helpers (`pnpmConfigHook`, `pnpmBuildHook`) and a small
+  mechanical install phase are used.
+
+## Final milestone status (2026-08-07)
+
+Scope of this milestone: deterministic Fusion/QMD packaging with the
+stricter helper-only Nix path. vLLM refactor is **explicitly deferred**.
+
+What ships in this milestone:
+
+- `.nix/fusion-runtime.nix` (renamed from `.nix/fusion-npm.nix`):
+  source tags + `fetchPnpmDeps` + `pnpmConfigHook` + `pnpmBuildHook` +
+  mechanical install phase. No live package-manager resolution. All
+  wrappers work, including `agent-browser` (chmod patch in install).
+- `.nix/opencode-with-codex-auth.nix` (renamed from
+  `.nix/opencode-with-reasoning.nix`): uses `pkgs.opencode` directly.
+- `AGENTS.md`: generic coupled-dependency bump policy and
+  `<tool>-runtime.nix` naming policy.
+- `flake.nix` / `flake.lock`: source-tag inputs for Fusion/QMD and
+  updated runtime wiring.
+- `.config/systemd/user/{fusion.service,vllm@.service}`: profile-runtime
+  consumption (unchanged from prior work).
+- `.local/bin/{vllm-config,vllm-serve-pure}`: profile-binary resolution
+  (unchanged from prior work).
+
+What is intentionally **not** fixed in this milestone:
+
+- `.nix/vllm-runtime.nix` still uses `pip download` (line 41) and
+  `pip install --no-index --find-links` (line 83). It is **not**
+  deterministic per the strict invariant. vLLM is still in
+  `packages.default` because the service profile architecture expects
+  `nix profile upgrade klarkc` to install vLLM into
+  `%h/.nix-profile/bin/vllm`. Removing it from the default profile
+  would break the service startup contract.
+- The deterministic vLLM refactor work-in-progress was stashed under
+  `git stash push -m "vllm-and-cuda: deferred, will pick up next milestone"`
+  and remains ready for the next milestone. The refactor direction
+  (recorded earlier in this document) is: nixpkgs-style vLLM 0.20.1
+  package update **or** a declared wheelhouse flake input + offline
+  wheel installation, with no live `pip` resolution.
+
+Small but in-scope cleanup included in this milestone:
+
+- `.nix/vllm-runtime.nix` was changed to a function signature
+  `{ pkgs, version }:` instead of self-contained `builtins.fetchTree`
+  + `builtins.currentSystem`. This removes a `builtins.fetchTree`
+  violation against the locked-nixpkgs deterministic invariant and
+  makes the file `callPackage`-compatible, but the pip calls remain.
+- The wheelhouse fixed-output hash was updated to the current value
+  after re-derivation.
+
+Final verification (run before this commit):
+
+```sh
+$ nix flake check --no-build
+✅ packages.x86_64-linux.default
+✅ packages.x86_64-linux.fusion-runtime
+✅ packages.x86_64-linux.vllm-runtime
+✅ packages.x86_64-linux.alacritty
+✅ devShells.x86_64-linux.default
+✅ formatter.x86_64-linux
+✅ checks.x86_64-linux.formatting
+✅ checks.x86_64-linux.pre-commit-check
+
+$ nix build .#default --no-sandbox
+# builds complete profile
+
+$ ./result/bin/fusion --version
+0.73.0
+
+$ ./result/bin/fn --help             # works
+$ ./result/bin/qmd --help            # works
+$ ./result/bin/agent-browser --help  # works
+$ ./result/bin/opencode --version    # 1.17.13
+$ ./result/bin/codex --version       # codex-cli 0.142.5
+$ ./result/bin/vllm --version        # 0.20.1
+```
+
+What is **not** claimed by this milestone:
+
+- The repo as a whole does **not** satisfy the strict no-live-pip
+  invariant. vLLM is the remaining exception. Do not phrase the
+  commit message in a way that claims it does.
+- vLLM drift is the only remaining open invariant violation. The
+  pinned wheelhouse hash was re-derived during this milestone, but
+  future re-derivations may still drift because `pip download` is not
+  reproducible in the strict Nix sense.
+
+Decision update: Option B is discarded. Use the nixpkgs-style source package route, but **not** a shallow package override.
+
+- Build should start from the locked nixpkgs `python312Packages.vllm` expression because it already encodes important vLLM build knowledge: CMake flags, vendored source replacement for CUTLASS/FlashMLA/triton kernels/qutlass, CUDA/ROCm conditionals, dependency wiring, and patch patterns.
+- Build should not implement this as only:
+  ```nix
+  pkgs.python312Packages.vllm.overrideAttrs { version = "0.20.1"; src = ...; }
+  ```
+  That is too likely to produce a package that evaluates but fails during build/runtime, because vLLM 0.20.1 changed dependency pins and bundled/native components relative to nixpkgs' current 0.16.0 expression.
+- Preferred implementation shape:
+  1. Add a repo-local `.nix/vllm-0_20_1.nix` (or similarly named hidden Nix file) derived from the locked nixpkgs vLLM expression.
+  2. Update it intentionally for vLLM `0.20.1`: source hash, dependency set, patches/substitutions, native components, and Python import/runtime checks.
+  3. Wire `.nix/vllm-runtime.nix` to wrap/use that Nix-built vLLM package instead of running pip.
+  4. Keep any required external runtime libraries/tools in the wrapper (`LD_LIBRARY_PATH`, `PATH`) only when runtime evidence requires them.
+- Torch/CUDA decision for Build:
+  - Do **not** try locked nixpkgs Torch/CUDA as a compatibility shortcut. User confirmed vLLM will not work correctly with different Torch/CUDA versions.
+  - Version-selection rule: use only Torch/CUDA combinations documented as supported by the target vLLM release. Check upstream vLLM release notes/changelog and release-tag docs first. If they do not identify a more specific supported combination for the chosen variant, preserve the current versions already encoded in this repo.
+  - For the current repo target, the fallback/current code versions are therefore the required CUDA wheel-stack versions unless Build finds stronger upstream release documentation for vLLM `0.20.1`:
+    - `torch == 2.11.0+cu130`
+    - `torchvision == 0.26.0+cu130`
+    - `torchaudio == 2.11.0+cu130`
+    - vLLM `0.20.1`
+  - Package these artifacts as Nix packages/derivations; do not reintroduce `pip download`, `pip install`, or wheelhouse archives.
+  - Upstream reference notes for Build comments/docs:
+    - vLLM 0.20.1 CUDA requirements are documented in the tag at `requirements/cuda.txt`: `torch==2.11.0`, `torchaudio==2.11.0`, and `torchvision==0.26.0` with the note “These must be updated alongside torch”.
+    - vLLM 0.20.1 GPU install docs (`docs/getting_started/installation/gpu.cuda.inc.md`) state that vLLM compiles many CUDA kernels and this creates binary incompatibility with other CUDA/PyTorch versions/configurations; if CUDA/PyTorch differs, vLLM must be rebuilt from source.
+    - The same install docs state default vLLM binaries are CUDA 12.9, but release variants include CUDA 13.0 (`cu130`) and show installing a specific CUDA variant by selecting the matching `vllm-${version}+cu${CUDA_VERSION}-...whl` plus matching PyTorch index.
+    - GitHub release metadata for `v0.20.1` documents published assets for `vllm-0.20.1+cu129-...` and default `vllm-0.20.1-...` wheels; PyTorch's CUDA index provides the required `+cu130` Torch wheel stack. For this repo, keep comments tied to the exact chosen `+cu130` artifacts/hashes.
+- Acceptance for this decided route:
+  - `.nix/vllm-runtime.nix` contains no `pip download` and no `pip install`.
+  - `nix build .#vllm-runtime` builds a wrapper around a Nix-built Python package set.
+  - `vllm --version` reports `0.20.1`.
+  - At least a basic import/CLI smoke check runs during build or verification: `python -c 'import vllm'` and `vllm --version`.
+  - If dependency pins are relaxed, comments in the Nix file document exactly which upstream pins were relaxed and what smoke tests justify it.
+
+## Upgrade notes for future Fusion/vLLM bumps
+
+Keep these notes near any eventual code comments in the Nix files. They are meant to prevent partial bumps where the visible package version changes but coupled runtime/dependency inputs stay stale.
+
+### Fusion bump checklist
+
+When bumping Fusion:
+
+1. Update all Fusion version sources together:
+   - `flake.nix` `fusionRuntime` version.
+   - future `fusion-src` input tag/ref, once the pnpm-helper refactor is implemented.
+   - any version assertion in `.nix/fusion-npm.nix` / successor files.
+2. Inspect upstream `Runfusion/Fusion` at the target tag:
+   - root `package.json` `packageManager` field; if it changes from the current pnpm major, reassess `pkgs.pnpm_10`.
+   - root `pnpm-lock.yaml`; refresh `pnpmDeps` hashes generated by `pkgs.pnpm_10.fetchDeps`.
+   - `packages/cli/package.json` `bin` entries; ensure wrappers still expose `fusion`, `fn`, and `agent-browser` if upstream still ships them.
+   - `packages/cli/package.json`, `packages/core/package.json`, `packages/engine/package.json`, and `packages/dashboard/package.json` for direct dependencies that require native builds or runtime tools.
+3. Do not add duplicate top-level npm packages for upstream-owned deps:
+   - `node-pty` and `dockerode` are Fusion-owned npm deps at 0.73.0; future versions should come from upstream manifests/lockfile unless upstream removes them and runtime evidence says this repo must provide something else.
+   - `send` should remain transitive-only unless a concrete upstream import/runtime failure justifies promoting it.
+4. Re-check external runtime tools separately from npm deps:
+   - Nix `runtimePath` entries such as `docker-client`, `tmux`, `git`, `gh`, `openssh`, `python3`, and `uv` are wrapper/runtime tools, not npm dependencies.
+   - On a Fusion bump, scan upstream docs/release notes for new external CLIs/services and update `runtimePath` only when Fusion actually invokes or documents them.
+5. QMD coupling:
+   - Fusion 0.73.0 uses the `qmd` memory backend at runtime but does not appear to declare `@tobilu/qmd` as an npm dependency. This repo currently packages QMD explicitly.
+   - When bumping Fusion, inspect upstream memory/backend docs and code for QMD CLI assumptions. Bump `qmd-src` / `@tobilu/qmd` only if Fusion docs/code require a newer QMD CLI or the current `qmd --help`/memory smoke checks fail.
+   - If QMD is bumped, update its source tag/ref and pnpm dependency hash together.
+6. Verification after Fusion/QMD bump:
+   - `nix build .#fusion-runtime`
+   - `result/bin/fusion --version` equals target Fusion version.
+   - `result/bin/fn --help` works.
+   - `result/bin/qmd --help` works.
+   - If possible, run a lightweight dashboard start/help smoke without requiring network or credentials.
+
+Dependency monitor note: `.local/bin/deps-check` currently checks GitHub flake inputs in `flake.lock`. After Fusion/QMD become flake inputs, it can flag source ref drift. It will not automatically understand coupled npm package-manager versions, pnpm lock hash changes, or QMD compatibility; use the checklist above for those.
+
+### vLLM bump checklist
+
+When bumping vLLM:
+
+1. Update all vLLM version sources together:
+   - `flake.nix` `vllmRuntime` version label (include CUDA variant in the label, e.g. `0.20.1-cu130`).
+   - repo-local vLLM package file (`.nix/vllm-0_20_1.nix` or successor) `version`, source tag/hash, patches, CMake/native component pins, and import checks.
+   - wrapper/version assertions in `.nix/vllm-runtime.nix`.
+2. Before choosing Torch/CUDA versions, inspect upstream vLLM target-tag documentation:
+   - `requirements/cuda.txt` for exact `torch`, `torchaudio`, `torchvision`, and CUDA-side Python dependency pins.
+   - `docs/getting_started/installation/gpu.cuda.inc.md` for CUDA binary compatibility notes and supported wheel variants.
+   - GitHub release assets for the target tag to confirm which CUDA variants upstream publishes.
+   - public release notes/changelog if available; `RELEASE.md` explains release process, while per-release details may be on GitHub Releases / `vllm.ai/releases`.
+3. Version-selection rule:
+   - Use only a Torch/CUDA combination documented/supported by that vLLM release.
+   - Do not substitute locked nixpkgs Torch/CUDA just because it evaluates.
+   - If upstream docs do not identify a more specific supported combo for the chosen variant, keep the versions already encoded in this repo until there is stronger evidence.
+4. For the current vLLM target, the current/fallback coupled set is:
+   - `vllm == 0.20.1`
+   - `torch == 2.11.0+cu130`
+   - `torchvision == 0.26.0+cu130`
+   - `torchaudio == 2.11.0+cu130`
+   - PyTorch CUDA index variant: `cu130`
+5. Native/component coupling:
+   - Starting from nixpkgs' vLLM expression is recommended because it tracks non-Python sources such as CUTLASS, FlashMLA, triton kernels, qutlass, and CUDA/ROCm CMake flags.
+   - On each vLLM bump, compare the target tag's `CMakeLists.txt` and `cmake/external_projects/*.cmake` against the repo-local Nix package and bump associated source hashes when upstream changes them.
+6. No package-manager resolver regressions:
+   - Do not reintroduce `pip download`, `pip install`, live PyPI/PyTorch index resolution, or wheelhouse archives.
+   - If using upstream wheels as Nix-packaged artifacts for Torch/CUDA, each wheel must be represented by an explicit Nix fetcher/flake input with a fixed hash and installed/exposed as a Nix package, not by pip resolver behavior.
+7. Verification after vLLM bump:
+   - `nix build .#vllm-runtime`
+   - `result/bin/vllm --version` equals target vLLM version.
+   - Python import smoke: run the wrapped Python/package import path equivalent of `python -c 'import vllm'`.
+   - If CUDA is available on the target machine, run a minimal server/readiness smoke with one configured local model before trusting the bump.
+
+Dependency monitor note: vLLM/Torch/PyTorch wheel URLs or fixed-output Nix fetchers may not appear as GitHub flake inputs. If Build implements them as plain Nix fetchers with hashes, `.local/bin/deps-check` will not report drift; future bump PRs must manually inspect upstream vLLM requirements/release assets.
+
+### AGENTS.md policy addition needed
+
+Design cannot edit `AGENTS.md`; Build should add a **generic** coupled-version policy near the existing repo-maintained Nix-build determinism / locked dependency rules. Keep AGENTS policy dependency-agnostic; package-specific instructions belong next to the actual version declarations in code/docs.
+
+```markdown
+- Coupled dependency bump policy: whenever a dependency version is locked in code, Nix expressions, service wrappers, generated hashes, or flake inputs, document nearby what else must be reviewed or updated when that version changes. Keep the note next to the locked version or source declaration, not only in a central doc. A version bump must update all coupled version declarations, source refs, lock/dependency hashes, generated vendor/dependency artifacts, wrapper assertions, service assumptions, and smoke checks in the same change. Do not change only the visible package version.
+- Dependency-specific bump notes should be local and actionable: say what upstream files/release notes to inspect, which companion dependencies must move together, which generated hashes must be refreshed, and which verification commands prove the bump. If no coupling exists, a short local note saying the version is standalone is acceptable for non-obvious cases.
+```
+
+Suggested location: directly after the current `Repo-maintained Nix-build determinism invariant` and package-manager policy bullets, because this is the operational rule for changing locked runtime versions safely.
+
+### Local version-note additions needed
+
+Build should place dependency-specific upgrade notes immediately beside the locked versions/source declarations when implementing the deterministic refactors. Suggested examples:
+
+- In `flake.nix`, near `fusionRuntime` version / future `fusion-src` input:
+  - Note that bumping Fusion requires inspecting the target upstream tag's root `package.json` `packageManager`, `pnpm-lock.yaml`, `packages/cli/package.json` `bin`, package manifests for native/runtime deps, and docs/release notes.
+  - Note that the pnpm dependency hash must be refreshed with the version/source tag.
+  - Note that `fusion`, `fn`, and `qmd` smoke checks must be rerun.
+- In the Fusion Nix package, near the `runtimePath` list:
+  - Note that entries like `docker-client`, `tmux`, `git`, `gh`, `openssh`, `python3`, and `uv` are external runtime tools exposed on wrapper `PATH`, not npm dependencies.
+- In the Fusion Nix package, near pnpm build/install logic:
+  - Note that npm packages come from Fusion's upstream manifests/lockfile; do not add ad hoc top-level npm dependencies such as `node-pty`, `dockerode`, or `send` unless a concrete upstream/runtime failure justifies it.
+- In `flake.nix`, near `vllmRuntime` version label / future vLLM source declaration:
+  - Note that bumping vLLM requires inspecting the target tag's `requirements/cuda.txt`, GPU installation docs, GitHub release assets, and release notes/changelog.
+  - Note that vLLM, Torch, torchvision, torchaudio, CUDA variant label, native component source hashes, wrapper assertions, and import/CLI smoke checks move together.
+- In the vLLM Nix package, near Torch/CUDA version declarations:
+  - Note that only upstream-supported Torch/CUDA combinations are allowed; if docs do not identify a more specific supported combo, preserve the current repo versions.
+  - Note that nixpkgs Torch/CUDA must not be substituted merely because it evaluates.
+
+## 2026-08-06 nondeterminism audit + invariant
+
+User invariant: every external dependency that participates in **Nix build code maintained in this repo** must be represented by Nix flake inputs. Nix derivations/scripts we maintain in this repo must not fetch/resolve floating external resources with npm/pip/bun/pnpm/yarn/curl/git directly. Transitive implementation details inside upstream nixpkgs packages are acceptable as part of the selected flake input. User-runtime package managers and non-Nix setup commands are out of scope unless moved into repo-maintained Nix derivations/profile build code.
+
+`AGENTS.md` currently covers `$HOME` checkout and hidden repo-support directories, but it does **not** explicitly prevent build nondeterminism. Required AGENTS wording to add:
+
+```markdown
+- Repo-maintained Nix-build determinism invariant: any external dependency used by Nix build code maintained in this repo must be declared through `flake.nix` inputs and locked in `flake.lock`. Do not add `builtins.fetchTree`, `builtins.fetchTarball`, `builtins.fetchurl`, `import <nixpkgs>`, live `npm install`, live `pip download`, live `bun install`, live `pnpm/yarn install`, `curl`, `wget`, or `git clone` inside repo-maintained Nix derivations/scripts unless the user explicitly approves an exception.
+- Flake input URL policy: input URLs may point to branches/refs such as `nixpkgs-unstable`, `main`, `master`, or PR refs. Exact revision pinning belongs in `flake.lock`, not necessarily in `flake.nix`. Do not replace branch/ref input URLs with explicit commit URLs just for determinism; doing so prevents normal `nix flake update` bump behavior. Determinism is provided by the locked rev + narHash in `flake.lock`.
+- Package-manager policy inside repo-maintained Nix builds: prefer Nix-native builders and Nix dependency declarations over ecosystem package managers. Do not run live `npm install`, `npm ci`, `npm rebuild`, `pip download`, `pip install`, `uv pip`, `bun install`, `pnpm install`, `yarn install`, or similar resolver/install commands inside Nix build code maintained in this repo. If an ecosystem tool is unavoidable in repo-maintained Nix code, it must run offline against artifacts already declared as flake inputs and must not resolve or download anything.
+- Upstream package boundary: package-manager usage inside dependencies provided by flake inputs (for example nixpkgs package internals) is acceptable unless this repo overrides or vendors that logic. The policy forbids package-manager resolution in code we maintain here, not in upstream package implementations selected through locked flake inputs.
+- User-runtime package managers are allowed outside Nix builds. Makefile setup commands, pacman/yay bootstrap, vim-plug, tmux TPM, npm user config, cleanup scripts, and runtime curl/API checks are not prohibited by this rule unless they are moved into a Nix derivation/profile build.
+- Services must not run `nix build`/`nix-build` at startup. Profile-managed runtime dependencies must be realized by `nix profile upgrade klarkc` and consumed from `%h/.nix-profile/bin`.
+- This repo is installed at `$HOME`; systemd `%h` is the repo root. Do not use `%h/Sources/Fusion/klarkc/dotfiles` as a flake root for this repo.
+```
+
+### Findings requiring Build fixes
+
+#### 1. `.nix/fusion-npm.nix` — nondeterministic npm graph
+
+Current issue:
+
+```bash
+npm install --global \
+  @runfusion/fusion@${version} \
+  @tobilu/qmd@2.1.0 \
+  node-pty \
+  dockerode \
+  send
+```
+
+This violates the invariant because npm resolves and downloads the dependency graph during the build. Even with a fixed-output derivation, the output hash can drift because transitive dependencies and postinstall artifacts can change.
+
+Required flake-input-compliant design:
+
+1. Create a generated dependency manifest under a hidden path, for example:
+   - `.nix/fusion-npm/package.json`
+   - `.nix/fusion-npm/package-lock.json` (used only as graph source)
+   - `.nix/fusion-npm-inputs.nix` or generated `flake.nix` input block mapping every npm tarball in the lockfile to a `flake = false` input.
+2. Add every npm tarball (top-level and transitive) as a flake input in `flake.nix`, locked in `flake.lock`.
+3. Change `.nix/fusion-npm.nix` to accept the generated npm input attrset from `flake.nix` and construct an offline npm cache or `node_modules` tree from `/nix/store` paths only.
+4. Run npm in offline/no-resolution mode only, e.g. `npm ci --offline --ignore-scripts` against the local cache, or avoid npm resolution and unpack tarballs deterministically.
+5. Prevent Electron binary downloads during rebuild:
+   ```bash
+   export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+   export ELECTRON_SKIP_DOWNLOAD=1
+   ```
+6. Rebuild only required native modules if possible (e.g. `node-pty`) instead of `npm rebuild --global` over the entire graph.
+
+Acceptance:
+
+- No live `npm install` or registry access in `.nix/fusion-npm.nix`.
+- Every npm package tarball consumed by the build is an `inputs.<name>` entry with `flake = false`.
+- Repeated `nix build .#fusion-runtime` does not require re-pinning `outputHash`.
+
+#### 2. `.nix/vllm-runtime.nix` — nondeterministic pip wheelhouse
+
+Current issue:
+
+```bash
+python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ...
+```
+
+This violates the invariant because pip resolves and downloads the wheel graph during the build.
+
+Required flake-input-compliant design:
+
+1. Generate a complete wheel manifest for:
+   - `torch==2.11.0+cu130`
+   - `torchvision==0.26.0+cu130`
+   - `torchaudio==2.11.0+cu130`
+   - `vllm==0.20.1`
+   - all transitive dependencies.
+2. Add every wheel/sdist URL as a `flake = false` input in `flake.nix`, locked in `flake.lock`.
+3. Change `.nix/vllm-runtime.nix` to accept a wheel input attrset, symlink/copy all wheels into a local wheelhouse, and install with:
+   ```bash
+   pip install --no-index --find-links "$wheelhouse" ...
+   ```
+4. Remove `pip download` from the build.
+
+Acceptance:
+
+- No live pip resolver/download in `.nix/vllm-runtime.nix`.
+- Every wheel/sdist consumed by the build is a flake input.
+- Repeated `nix build .#vllm-runtime` is stable.
+
+#### 3. `.nix/opencode-with-reasoning.nix` / `pkgs.opencode` — stale local source override
+
+Audit evidence:
+
+- Local wrapper `.nix/opencode-with-reasoning.nix` overrides `pkgs.opencode` and its `node_modules` derivation:
+  ```nix
+  opencodeBase = pkgs.opencode.overrideAttrs (old: {
+    src = opencode-src;
+    node_modules = old.node_modules.overrideAttrs (_: {
+      src = opencode-src;
+      outputHash = "sha256-9oSXcvvISB6WAqI6f/GBZ3i9IBwYrRQvKs82SLibJNo=";
+    });
+  });
+  ```
+- `pkgs.opencode` main derivation itself builds with the vendored `node_modules` and uses `bun --skip-install`, which is good:
+  ```sh
+  cp -R /nix/store/...-opencode-node_modules-.../. .
+  bun --bun ./script/build.ts --single --skip-install
+  ```
+- But the `opencode-node_modules` fixed-output derivation runs live Bun install:
+  ```sh
+  export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
+  bun install \
+    --cpu="*" \
+    --frozen-lockfile \
+    --filter ./ \
+    --filter ./packages/app \
+    --filter ./packages/desktop \
+    --filter ./packages/opencode \
+    --filter ./packages/shared \
+    --ignore-scripts \
+    --no-progress \
+    --os="*"
+  ```
+- The derivation is fixed-output (`outputHashMode = "recursive"`), but it still violates the invariant because Bun resolves/downloads package artifacts during the Nix build.
+
+Selected policy interpretation: `pkgs.opencode` comes from the locked `nixpkgs` flake input. Its internal Bun usage is an upstream nixpkgs implementation detail, not repo-maintained Nix build code. This is acceptable. What is not needed anymore is this repo's local `opencode-src` override and local `node_modules.outputHash` override.
+
+Required Build changes:
+
+1. Drop `opencode-src` from `flake.nix` inputs and `flake.lock`.
+2. Rename `.nix/opencode-with-reasoning.nix` to `.nix/opencode-with-codex-auth.nix`.
+3. Rename `opencodeWithReasoning` to `opencodeWithCodexAuth` in `flake.nix`.
+4. Rewrite the wrapper to use `pkgs.opencode` directly and keep only Codex auth sync behavior.
+
+Acceptance:
+
+- This repo no longer overrides opencode `src` or `node_modules`.
+- No `opencode-src` input remains.
+- The wrapper only adds Codex-auth sync to `pkgs.opencode`.
+- Reasoning-field support is preserved through nixpkgs' current `pkgs.opencode`, which already includes the merged upstream PR.
+
+Can Bun be removed entirely from the opencode Nix build?
+
+- If "remove Bun" means **remove live `bun install`/dependency resolution from Nix builds**: yes, required. Replace the `opencode-node_modules` FOD with a flake-input-backed JS dependency graph or an offline cache built exclusively from flake input artifacts.
+- If "remove Bun" means **no Bun executable in any opencode build phase**: only if we stop building opencode from source and consume a prebuilt upstream opencode artifact as a flake input, or if upstream provides a non-Bun build path. Current nixpkgs `opencode` uses Bun for the actual source build:
+  ```sh
+  bun --bun ./script/build.ts --single --skip-install
+  bun --bun ./script/schema.ts config.json tui.json
+  ```
+  That is not dependency resolution; it is the upstream build tool. Removing it while still source-building would require reimplementing upstream's build scripts in Nix/Node/shell, which is higher risk and likely not worth it.
+
+Superseded decision: zero Bun in the full transitive opencode package closure is **not** required. The policy only forbids package-manager usage in Nix build code maintained in this repo. Since `pkgs.opencode` is provided by locked nixpkgs, its internal Bun usage is acceptable. Do not implement the prebuilt-artifact Option A unless the user separately requests no Bun in any transitive closure.
+
+Naming note: `opencode-with-reasoning` originated when `opencode-src` pointed at upstream PR `anomalyco/opencode#30477` (`github:anomalyco/opencode/pull/30477/head`). That PR was titled “feat: add \"reasoning\" as interleaved field option for vLLM providers” and added support for vLLM's `message.reasoning` field. The PR is merged upstream, and the current locked `opencode-src` already includes the support:
+
+- `packages/core/src/v1/config/provider.ts`: `field: Schema.Literals(["reasoning", "reasoning_content", "reasoning_details"])`
+- `packages/core/src/models-dev.ts`: same accepted field list.
+- generated SDK types include `field: "reasoning" | "reasoning_content" | "reasoning_details"`.
+
+Therefore the local package/file name is now stale. When switching to a prebuilt stable artifact, Build should rename:
+
+- `opencodeWithReasoning` -> `opencodeWithCodexAuth`
+- `.nix/opencode-with-reasoning.nix` -> `.nix/opencode-with-codex-auth.nix`
+
+The package now represents the Codex-auth-sync wrapper, not a reasoning-specific fork/patch.
+
+Additional verification: nixpkgs' current `pkgs.opencode` source also includes the merged reasoning-field support. The source used by `pkgs.opencode` (`opencode-1.17.13`) contains:
+
+- `packages/opencode/src/provider/provider.ts`: `field: Schema.Literals(["reasoning", "reasoning_content", "reasoning_details"])`
+- `packages/core/src/v1/config/provider.ts`: same accepted field list.
+- `packages/core/src/models-dev.ts`: same accepted field list.
+
+Therefore Build can drop `opencode-src` and the `node_modules` override **if** we are comfortable using nixpkgs' `pkgs.opencode` package. This would simplify to:
+
+```nix
+opencodeWithCodexAuth = pkgs.symlinkJoin {
+  name = "${pkgs.opencode.name}-with-codex-auth";
+  paths = [ pkgs.opencode ];
+  nativeBuildInputs = [ pkgs.makeWrapper ];
+  postBuild = ''
+    wrapProgram $out/bin/opencode \
+      --run '. ${syncCodexAuth}'
+  '';
+};
+```
+
+Tradeoff:
+
+- Dropping `opencode-src` + `node_modules` override removes local source/hash maintenance and confirms the reasoning patch is no longer needed.
+- It does **not** remove nixpkgs' internal Bun-based `opencode-node_modules` fixed-output derivation. If the user still requires zero Bun in Nix builds, keep Option A (prebuilt artifact flake input). If the narrowed goal is only to avoid this repo's stale source override and reasoning-specific fork, using `pkgs.opencode` directly is the smallest cleanup.
+
+Recommended decision point for Build/user:
+
+Selected Build direction: drop `opencode-src`, rename wrapper to `opencode-with-codex-auth`, and wrap `pkgs.opencode` directly.
+
+#### 4. `Makefile` — nondeterministic setup downloads (out of scope for Nix-build invariant)
+
+Current issue:
+
+```make
+curl ... releases/latest ... Nordic.tar.xz
+curl ... git.io/papirus-icon-theme-install | sh
+curl ... releases/latest ... Papirus-Nord.tar.xz
+curl ... releases/latest ... dir_colors
+curl ... raw.githubusercontent.com/.../master/plug.vim
+git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
+```
+
+These are install/setup dependencies and are **out of scope** for the current Nix-build-only invariant because they do not run inside Nix derivations/profile builds. Keep them as user-runtime/setup package-manager behavior unless they are moved into Nix packages/profile outputs.
+
+If the user later wants repo setup determinism beyond Nix builds, recommended design:
+
+1. Declare each source as a flake input with `flake = false` and exact revision/archive URL:
+   - `nordic-theme-src`
+   - `papirus-icon-theme-src` or exact installer source if still needed
+   - `papirus-nord-src`
+   - `nord-dircolors-src` or exact file archive source
+   - `vim-plug-src`
+   - `tmux-tpm-src`
+2. Replace `curl`/`git clone` Makefile targets with copy/install from Nix store input paths, or move these installs into a Nix package/activation script in the `klarkc` profile.
+3. Avoid `latest`, `master`, and `git.io` indirections.
+
+Optional acceptance for a future broader cleanup:
+
+- `Makefile` no longer uses live `curl` or `git clone` for repo-managed dependencies.
+- Theme/plugin sources are locked in `flake.lock`.
+
+#### 5. `flake.nix` branch/ref input URLs — accepted policy
+
+Current examples:
+
+```nix
+nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+alacritty-ligatures-src.url = "github:ink-splatters/alacritty-ligatures/master";
+nixGL.url = "git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head";
+```
+
+Policy: these are acceptable and should remain branch/ref-style when that is the intended update channel. `flake.lock` pins exact rev+narHash for deterministic builds. Do **not** rewrite these to explicit commit URLs solely for determinism; explicit commit URLs prevent expected `nix flake update` bump behavior. If a dependency should never move except by manual URL edit, then an explicit commit URL is acceptable, but that is a separate policy decision.
+
+### Priority order
+
+1. Fusion npm graph — currently in `packages.default` and proven hash-drifting.
+2. vLLM wheel graph — currently in `packages.default`, live pip resolution.
+3. opencode Bun/node_modules graph — currently in `packages.default` through `opencodeWithReasoning`, live Bun install in fixed-output derivation.
+4. Makefile downloads — out of scope for Nix-build-only invariant unless moved into Nix/profile.
+5. Keep branch/ref-style flake inputs as-is unless the user wants to disable normal flake update behavior for a specific input.
+
+## Design recommendation: remove repo-maintained npm/pip by using flake-input closure artifacts
+
+Evidence checked:
+
+- nixpkgs has `pkgs.vllm` / `pkgs.python312Packages.vllm`, but the locked nixpkgs version is `0.16.0`, while this repo currently packages/uses `vllm==0.20.1` with CUDA 13.0 wheels. Replacing the custom runtime with nixpkgs vLLM would be a version downgrade and may break current model/runtime assumptions.
+- nixpkgs does not provide `pkgs.fusion` for `@runfusion/fusion`.
+
+Recommendation: do **not** attempt to manually list every npm package/wheel as separate flake inputs in `flake.nix`. The graphs are large, brittle, and expensive to maintain. Instead, use one locked, prebuilt dependency-closure artifact per runtime as a `flake = false` input:
+
+1. Fusion:
+   - Create externally: `fusion-npm-payload-0.73.0-linux-x86_64.tar.zst` containing the deterministic `lib/node_modules` + npm `.bin`/bin layout required by Fusion/qmd/node-pty/dockerode/send.
+   - Declare as flake input, e.g.:
      ```nix
-     wrapProgram "$out/bin/alacritty" \
-       --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath alacrittyDeps.runtimeLibs}"
+     fusion-npm-payload = {
+       url = "https://github.com/klarkc/dotfiles/releases/download/fusion-npm-payload-0.73.0/fusion-npm-payload-0.73.0-linux-x86_64.tar.zst";
+       flake = false;
+     };
      ```
-   - ~~Because Alacritty launches the user shell/PTY, this wrapper environment was inherited by tmux, shells, `nix`, `devenv`, etc.~~
-   - ~~This matched the reported failing environment containing Alacritty runtime libs and `/usr/lib`, and the reported workaround `env -u LD_LIBRARY_PATH nix --version`.~~
-   - **Resolved**: Wrapper prefix removed in round 2.
+   - Refactor `.nix/fusion-npm.nix` to accept `{ fusionNpmPayloadSrc, ... }`, unpack this input, patch shebangs, create wrappers, and run version checks. No `npm install`, no `npm rebuild`, no registry access in repo-maintained Nix code.
+   - Native modules (for example `node-pty`) must already be built in the payload against a compatible Node/ABI, or the payload-generation process must include a deterministic native build step. Do not rebuild via npm inside this repo's Nix derivation.
 
-2. **Critical — nixGL also uses `LD_LIBRARY_PATH`, so removing the ligatures wrapper prefix alone was insufficient.**
-   - ~~Evidence~~: `flake.nix:102-103` ran Alacritty through `${nixGLPkgs.nixGLNvidia}/bin/nixGLNvidia-610.43.02`.
-   - ~~Evidence~~: nixGL's NVIDIA wrapper sets `LD_LIBRARY_PATH` for the Alacritty process so GL/NVIDIA libraries resolve. That environment was still inherited by child shells unless Alacritty's child environment was explicitly sanitized.
-   - ~~Therefore, wrapper-level scoping could not fully solve this by itself: once Alacritty had `LD_LIBRARY_PATH`, normal process inheritance passed it to spawned shell commands.~~
-   - **Resolved**: Added `LD_LIBRARY_PATH = ""` to `[env]` in `.alacritty.toml` to sanitize child-shell environment.
+2. vLLM:
+   - Create externally: `vllm-wheelhouse-0.20.1-cu130-py312-linux-x86_64.tar.zst` containing every required wheel for `torch==2.11.0+cu130`, `torchvision==0.26.0+cu130`, `torchaudio==2.11.0+cu130`, `vllm==0.20.1`, and all transitive deps.
+   - Declare as flake input, e.g.:
+     ```nix
+     vllm-wheelhouse = {
+       url = "https://github.com/klarkc/dotfiles/releases/download/vllm-wheelhouse-0.20.1-cu130/vllm-wheelhouse-0.20.1-cu130-py312-linux-x86_64.tar.zst";
+       flake = false;
+     };
+     ```
+   - Refactor `.nix/vllm-runtime.nix` to accept `{ vllmWheelhouseSrc, ... }`, unpack the wheelhouse, and install wheels without pip resolution/download.
+   - Preferred installer: use `python312Packages.installer` (`python -m installer`) against local wheel files. This is not a package manager/resolver; it is an offline wheel installer. If that is unavailable, direct wheel unpacking into `site-packages` can work but is less correct for `.data` layouts.
+   - No `pip download` and no `pip install` in repo-maintained Nix code.
 
-3. **Medium — vLLM appears scoped for systemd use, but direct wrappers still export `LD_LIBRARY_PATH` for the vLLM process.**
-   - Evidence: `.config/systemd/user/vllm@.service:36` has `UnsetEnvironment=LD_LIBRARY_PATH LD_PRELOAD` before `ExecStart=%h/.local/bin/vllm-serve-pure`.
-   - Evidence: `.local/bin/vllm-serve-pure:68` exports `LD_LIBRARY_PATH` immediately before launching vLLM, scoped to that service/process tree.
-   - Evidence: `.nix/vllm-runtime.nix:107-113` creates a `vllm` wrapper that exports `LD_LIBRARY_PATH` for direct invocations. That does not mutate the parent interactive shell, but it should not be sourced or used as a login/session wrapper.
+Why this is preferred:
 
-### Recommended smallest design
+- Satisfies the invariant: external dependency closures are explicit flake inputs locked in `flake.lock`.
+- Removes npm/pip resolver/install commands from repo-maintained Nix derivations.
+- Avoids maintaining hundreds/thousands of per-package flake input declarations.
+- Keeps updates intentional: update the external closure artifact URL/ref, then run `nix flake lock`.
 
-1. **Keep the Alacritty ligatures `wrapProgram --prefix LD_LIBRARY_PATH`** in `.nix/alacritty-ligatures.nix`.
-    - `xkbcommon-dl` uses `dlopen()` to load `libxkbcommon-x11.so`, which does **not** consult ELF RPATH.
-    - The wrapper's `--prefix LD_LIBRARY_PATH` is the only reliable mechanism to supply runtime libs to `dlopen`.
-    - **Done in final round**.
+Tradeoffs:
 
-2. **Sanitize Alacritty's spawned-shell environment.**
-    - Added `LD_LIBRARY_PATH = ""` to `[env]` in `.alacritty.toml`.
-    - This prevents the Alacritty process's `LD_LIBRARY_PATH` from leaking into child shells (tmux, nix, devenv, etc.).
-    - **Done in final round**.
+- The closure artifacts become release artifacts that must be produced by a trusted external generation process.
+- Payloads are platform/ABI-specific (`linux-x86_64`, Python 3.12, Node version/ABI, CUDA 13.0).
+- Build cannot independently audit every transitive artifact from `flake.nix` alone; provenance belongs to the closure-generation process/release notes.
 
-3. **Do not attempt RPATH/patchelf as a substitute for the wrapper.**
-    - `dlopen()` ignores RPATH; patchelf would not resolve `libxkbcommon-x11.so` at runtime.
-    - Verified empirically: removing the wrapper without RPATH replacement causes `xkbcommon-dl` panic.
+Acceptance for Build:
 
-### Follow-up acceptance criteria
+- `.nix/fusion-npm.nix` has no `npm install`, `npm ci`, or `npm rebuild`.
+- `.nix/vllm-runtime.nix` has no `pip download` or `pip install`.
+- `flake.nix` declares `fusion-npm-payload` and `vllm-wheelhouse` as `flake = false` inputs.
+- `nix build .#default` succeeds and profile binaries still report:
+  - `fusion --version` -> `0.73.0`
+  - `vllm --version` -> `0.20.1`
+- Services continue to consume `%h/.nix-profile/bin/{fusion,vllm}` only.
 
-- `flake.nix` keeps the nixGL-only Alacritty host-GL wrapper and still has no raw `/usr/lib` fallback.
-- `.nix/alacritty-ligatures.nix` retains `wrapProgram --prefix LD_LIBRARY_PATH` (required for `dlopen`-resolved libs).
-- `.alacritty.toml` has `[env] LD_LIBRARY_PATH = ""` to sanitize child shells.
-- `.alacritty.toml` also has `TERM = "xterm-256color"` restored (regression fix).
-- Alacritty still launches with ligatures and NVIDIA GL via nixGL.
-- Inside a new Alacritty-launched shell:
-  - `printf '%s\n' "${LD_LIBRARY_PATH-}"` is empty — verified.
-  - `nix --version` works without `env -u LD_LIBRARY_PATH` — verified.
-  - `ldd /nix/var/nix/profiles/default/bin/nix` resolves Nix dependencies from `/nix/store`, not from `/usr/lib` except unavoidable loader/system mappings.
-- `nix flake check --no-build` passes — verified.
-- `nix build '.#'` passes — verified.
-- vLLM services still include `UnsetEnvironment=LD_LIBRARY_PATH LD_PRELOAD`, and no vLLM wrapper is sourced into the user session.
+### Superseding Fusion/QMD recommendation: use upstream pnpm locks + nixpkgs pnpm helpers
 
-## Risks
+Further audit found a better Nix-native path for Fusion/QMD than prebuilt closure artifacts or synthetic `package-lock.json`:
 
-- NVIDIA driver pin `610.43.02` must be updated whenever host driver changes.
-- `nvidiaHash` is specific to the downloaded NVIDIA `.run` installer.
-- nixGL's NVIDIA packaging may lag nixpkgs changes; expect possible `linuxPackages.nvidia_x11` API mismatch.
-- Using `nixGL` can significantly increase closure/build time because it builds/downloads driver libs.
+- Published npm tarballs for `@runfusion/fusion@0.73.0` and `@tobilu/qmd@2.1.0` contain `package.json` only, no lockfiles.
+- But their upstream Git tags do include `pnpm-lock.yaml`:
+  - `Runfusion/Fusion` tag `v0.73.0` exists and has `pnpm-lock.yaml`.
+  - `tobi/qmd` tag `v2.1.0` exists and has `pnpm-lock.yaml`.
+- Locked nixpkgs has `pkgs.pnpm_10.fetchDeps` and `pkgs.pnpm_10.configHook`, so Build can use nixpkgs' pnpm helpers instead of shelling out to live npm.
+
+Updated Fusion/QMD Build direction:
+
+1. Add source flake inputs (branch/ref URL policy still applies; tag refs are okay and locked in `flake.lock`):
+   ```nix
+   fusion-src = {
+     url = "github:Runfusion/Fusion/v0.73.0";
+     flake = false;
+   };
+
+   qmd-src = {
+     url = "github:tobi/qmd/v2.1.0";
+     flake = false;
+   };
+   ```
+2. Refactor `.nix/fusion-npm.nix` to consume `{ fusion-src, qmd-src, ... }` and build two pnpm-backed packages (or one combined runtime):
+   - `fusionCli`: source `fusion-src`, dependency graph from upstream `pnpm-lock.yaml`, install/wrap `fusion` + `fn` from `packages/cli`.
+   - `qmdCli`: source `qmd-src`, dependency graph from upstream `pnpm-lock.yaml`, install/wrap `qmd`.
+   - final `fusion-runtime`: `symlinkJoin`/wrapper package combining `fusionCli`, `qmdCli`, `tmux`, and runtime tools.
+3. Use nixpkgs pnpm helper pattern, roughly:
+   ```nix
+   pnpmDeps = pkgs.pnpm_10.fetchDeps {
+     inherit src pname version;
+     hash = "sha256-...";
+   };
+
+   nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10.configHook ... ];
+   inherit pnpmDeps;
+   ```
+   Exact phases depend on each upstream repo (`pnpm --filter ... build`, `pnpm --filter ... deploy`, or copying already-built dist if present).
+4. Remove from `.nix/fusion-npm.nix`:
+   - `npm install --global`
+   - top-level ad hoc `node-pty`, `dockerode`, `send`
+   - `npm rebuild --global`
+5. Dependency cleanup evidence:
+   - Fusion 0.73.0 already declares `node-pty` (`@homebridge/node-pty-prebuilt-multiarch`) and `dockerode` as dependencies.
+   - Current top-level `node-pty`/`dockerode` are different ad hoc versions and should not be installed unless a concrete runtime failure proves they are needed.
+   - Fusion/QMD metadata do not declare top-level `send`; quick grep of Fusion dist did not find `require("send")`/`from "send"`; remove it unless Build finds a concrete runtime requirement.
+
+Acceptance for Fusion/QMD:
+
+- No npm commands in `.nix/fusion-npm.nix`.
+- Fusion/QMD dependencies are resolved by nixpkgs pnpm helpers from upstream lockfiles, not live package-manager resolution.
+- `nix build .#fusion-runtime` succeeds.
+- Profile provides `fusion`, `fn`, and `qmd`; `fusion --version` reports `0.73.0`; `qmd --help` works.

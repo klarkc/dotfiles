@@ -1,15 +1,6 @@
-{ pkgs, opencode-src }:
+{ pkgs }:
 
 let
-  opencodeBase = pkgs.opencode.overrideAttrs (old: {
-    src = opencode-src;
-
-    node_modules = old.node_modules.overrideAttrs (_: {
-      src = opencode-src;
-      outputHash = "sha256-9oSXcvvISB6WAqI6f/GBZ3i9IBwYrRQvKs82SLibJNo=";
-    });
-  });
-
   opencodeCodexAuthImport = pkgs.callPackage ./opencode-codex-auth-tools.nix { };
 
   syncCodexAuth = pkgs.writeText "opencode-sync-codex-auth.sh" ''
@@ -23,8 +14,8 @@ let
   '';
 in
 pkgs.symlinkJoin {
-  name = "${opencodeBase.name}-with-codex-auth";
-  paths = [ opencodeBase ];
+  name = "${pkgs.opencode.name}-with-codex-auth";
+  paths = [ pkgs.opencode ];
   nativeBuildInputs = [ pkgs.makeWrapper ];
 
   postBuild = ''
