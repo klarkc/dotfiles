@@ -789,12 +789,11 @@ What is intentionally **not** fixed in this milestone:
   `nix profile upgrade klarkc` to install vLLM into
   `%h/.nix-profile/bin/vllm`. Removing it from the default profile
   would break the service startup contract.
-- The deterministic vLLM refactor work-in-progress was stashed under
-  `git stash push -m "vllm-and-cuda: deferred, will pick up next milestone"`
-  and remains ready for the next milestone. The refactor direction
-  (recorded earlier in this document) is: nixpkgs-style vLLM 0.20.1
-  package update **or** a declared wheelhouse flake input + offline
-  wheel installation, with no live `pip` resolution.
+- The deterministic vLLM refactor work-in-progress was attempted after the
+  Fusion/QMD milestone, but the old stash conflicted and contained obsolete
+  pre-milestone packaging work. Current `git stash list` has no
+  `vllm-and-cuda` stash to apply. The next milestone should start from current
+  `HEAD` and the vLLM design notes below, not from a stale stash.
 
 Small but in-scope cleanup included in this milestone:
 
@@ -876,6 +875,168 @@ Decision update: Option B is discarded. Use the nixpkgs-style source package rou
   - `vllm --version` reports `0.20.1`.
   - At least a basic import/CLI smoke check runs during build or verification: `python -c 'import vllm'` and `vllm --version`.
   - If dependency pins are relaxed, comments in the Nix file document exactly which upstream pins were relaxed and what smoke tests justify it.
+
+### 2026-08-07 Current Design review of Build progress
+
+Repository evidence at review time:
+
+- `git status --short` is clean; there are no uncommitted Build changes in this
+  worktree to review.
+- Latest commit is `3ae4637 feat(runtime): package Fusion via deterministic pnpm helpers`.
+- `.nix/fusion-runtime.nix` is in the accepted helper-only shape:
+  `fetchPnpmDeps` + `pnpmConfigHook` + `pnpmBuildHook` + mechanical copy/wrapper
+  install, with pinned Fusion/QMD pnpm hashes and no direct package-manager
+  resolver/install commands in repo-maintained phases.
+- `.nix/vllm-runtime.nix` remains the open blocker: line 41 still runs
+  `pip download`, and line 83 still runs `pip install`. This is the only
+  remaining strict deterministic-build invariant violation in the runtime scope.
+
+Verdict: Build is going in the right direction if he treats Fusion/QMD as done
+and starts vLLM from current `HEAD` using the decided nixpkgs-style source
+package route. Do **not** spend more time on Fusion unless a fresh smoke check
+fails, and do **not** resurrect stale stash contents.
+
+Next Build steps:
+
+1. Inspect the locked nixpkgs `python312Packages.vllm` expression and vendor
+   companion files/patches before editing; copy the relevant expression into a
+   repo-local hidden Nix file only after understanding the native-source/vendor
+   substitutions it performs.
+2. Add a repo-local vLLM `0.20.1` package expression derived from that nixpkgs
+   expression, not a shallow `overrideAttrs { version = ...; }`.
+3. Package the required Torch/CUDA stack as Nix-declared artifacts/sources
+   compatible with vLLM `0.20.1` (`torch==2.11.0+cu130`,
+   `torchvision==0.26.0+cu130`, `torchaudio==2.11.0+cu130`) unless upstream
+   release docs provide a stronger supported combination and the user accepts it.
+4. Refactor `.nix/vllm-runtime.nix` into a thin wrapper around the Nix-built
+   vLLM package. Acceptance remains: no `pip download`, no `pip install`,
+   `nix build .#vllm-runtime`, `result/bin/vllm --version` reports `0.20.1`,
+   and at least `python -c 'import vllm'` is verified by Build.
+5. Keep `vllmRuntime` in `packages.default`; removing it would break the
+   profile-managed service contract (`%h/.nix-profile/bin/vllm`).
+
+### 2026-08-07 vLLM version policy update: model compatibility wins
+
+User clarified that the existing vLLM/Torch/CUDA version pins are likely a
+means to run the configured model weights, not a hard product requirement by
+themselves. Therefore the vLLM decision should be reframed:
+
+- Hard requirement: the profile-installed `vllm` must be able to serve the
+  configured model targets/weights reliably.
+- Soft requirement: preserve `vLLM 0.20.1 + torch 2.11.0 + CUDA 13.0` only if
+  that remains the smallest proven way to run those model targets.
+- Acceptable alternative: bump nixpkgs and use a newer nixpkgs-provided vLLM if
+  Build proves it can run the proposed model configs/weights, or updates the
+  configs to newer compatible model/model-version weights with user acceptance.
+
+Current model targets to validate:
+
+- `.config/vllm/qwen3.6-35B-a3b.env`
+  - `MODEL=Intel/Qwen3.6-35B-A3B-int4-mixed-AutoRound`
+  - `MODEL_REVISION=65f69c73f17488236c85c85211f6ba28d7106157`
+  - `SERVED_MODEL_NAME=qwen3.6-35b-a3b`
+  - important launch features: `--trust-remote-code`, `--dtype half`,
+    `--max-model-len 49152`, chunked prefill, prefix caching, async scheduling,
+    language-model-only, Qwen3 reasoning/parser flags, auto tool choice, MTP
+    speculative config, `--default-chat-template-kwargs {preserve_thinking:true}`.
+- `.config/vllm/qwen3.6-27B.env`
+  - `MODEL=Intel/Qwen3.6-27B-int4-AutoRound`
+  - `MODEL_REVISION=` currently unpinned; Build should either pin a tested
+    revision or document why tracking latest is intentional.
+  - `SERVED_MODEL_NAME=qwen3.6-27b`
+  - same important launch features as above.
+  - User clarified this target is broken with the current GPU/specs. Treat it
+    as a candidate/proposed target, not mandatory acceptance for preserving the
+    current runtime. A nixpkgs/vLLM bump may replace or repair this target, but
+    Build should not block acceptance of the known-working 35B path solely on
+    the current 27B config failing.
+
+Updated preferred Build evaluation order:
+
+1. First evaluate a nixpkgs bump in isolation because it may replace the
+   repo-local pip/wheel runtime with a maintained Nix package and reduce local
+   maintenance. Keep `nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable"`;
+   determinism comes from `flake.lock`.
+2. If newer nixpkgs provides an acceptable `python312Packages.vllm`, refactor
+   `.nix/vllm-runtime.nix` into a thin profile-wrapper around that package.
+   Preserve the service contract (`%h/.nix-profile/bin/vllm`) and any runtime
+   `LD_LIBRARY_PATH`/driver-library setup needed by `.local/bin/vllm-serve-pure`.
+3. Validate both API/CLI compatibility and model compatibility before accepting
+   the bump:
+   - `nix flake check --no-build`
+   - `nix build .#vllm-runtime --no-sandbox`
+   - `result/bin/vllm --version`
+   - `result/bin/vllm serve --help` contains/accepts all flags emitted by
+     `.local/bin/vllm-serve-pure`.
+   - Real GPU smoke for the known-working/primary target first: start the 35B
+     service/command with the env file, wait for `/v1/models`, verify
+     `qwen3.6-35b-a3b`, and run at least one short chat/completions request that
+     exercises the Qwen3 chat template/reasoning path. For 27B, either prove a
+     repaired/replacement model config works or document that it remains broken
+     on the current GPU/specs and keep it out of mandatory acceptance.
+   - Then run the maintained benchmark wrapper against the active target:
+     `vllm-benchmark --check` first, followed by `vllm-benchmark` for the full
+     small/medium/long-context benchmark matrix. The service writes
+     `benchmark.env` under `~/.cache/vllm-<instance>/`, and benchmark artifacts
+     are archived under `~/.cache/vllm-benchmarks/`.
+4. If a newer vLLM needs newer/different weights, Build may propose updated
+   `MODEL`/`MODEL_REVISION` values, but must document the compatibility reason
+   and require user acceptance before replacing the configured models.
+5. If nixpkgs' newer vLLM cannot serve the configured/proposed models, fall back
+   to the local nixpkgs-style source package route described above. The fallback
+   still must remove `pip download`/`pip install` from `.nix/vllm-runtime.nix`.
+
+This supersedes the earlier stronger preference to preserve vLLM `0.20.1`.
+The invariant remains unchanged: no live `pip download`/`pip install` in
+repo-maintained Nix build code.
+
+### 2026-08-07 CUDA runtime/linking decision
+
+User agreed with the Nixpkgs-canonical CUDA direction:
+
+- If using nixpkgs-provided vLLM, first try it without carrying over the old
+  wheel-runtime `LD_LIBRARY_PATH` customization from `.nix/vllm-runtime.nix` and
+  `.local/bin/vllm-serve-pure`.
+- The old customization exists because the current runtime is pip/wheel-based
+  and manually assembles `site-packages`; it scans `*.libs`, `torch/lib`, and
+  `site-packages/nvidia/**/lib` to compensate for missing Nix RPATH/runpath
+  metadata. That is a workaround, not the canonical Nix CUDA path.
+- Nixpkgs CUDA docs and the nixpkgs vLLM expression point to the canonical path:
+  import/use CUDA-enabled nixpkgs (`cudaSupport`, appropriate unfree allowance,
+  and GPU capabilities as needed), depend on `cudaPackages`, and let setup hooks
+  such as `autoAddDriverRunpath` patch runtime discovery.
+- Therefore Build should start minimal:
+  1. bump/evaluate nixpkgs;
+  2. ensure the selected nixpkgs package set is CUDA-enabled, not accidentally
+     CPU-only;
+  3. make `.nix/vllm-runtime.nix` a thin adapter around nixpkgs vLLM;
+  4. remove the wheelhouse and all `pip` commands;
+  5. do not add custom `LD_LIBRARY_PATH` unless real GPU smoke fails with a
+     specific missing-library error.
+- If a failure mentions `libcuda.so.1` or another NVIDIA/CUDA shared object, add
+  only the smallest targeted runtime fix and document the exact error that
+  justified it. Do not preserve the broad wheel-runtime scanning by inertia.
+
+Build follow-up required: update `AGENTS.md` with durable generic runtime-linker
+guidance plus CUDA-specific Nix guidance so future agents do not reintroduce
+broad runtime-linker workarounds by default. Suggested wording:
+
+```md
+- Runtime linker path policy: prefer proper Nix packaging with declared
+  dependencies, normal fixup/RPATH/RUNPATH handling, and package-specific setup
+  hooks over broad `LD_LIBRARY_PATH` wrappers. Add `LD_LIBRARY_PATH` or similar
+  runtime library path customization only after a real runtime smoke test fails
+  with a specific missing-library/dlopen error that normal Nix linking cannot
+  address. Keep the workaround minimal, document the exact error and smoke test
+  next to the fix, and do not preserve package-manager/binary-runtime library
+  scans by inertia when moving a package to proper Nix packaging.
+- CUDA packages: prefer Nixpkgs' CUDA-enabled package variants and CUDA setup
+  hooks (`cudaSupport`, appropriate unfree allowance, GPU capabilities,
+  `cudaPackages`, `autoAddDriverRunpath`) before adding runtime linker-path
+  workarounds. If `libcuda.so.1` or another driver/runtime library is missing at
+  runtime, document the exact hardware smoke failure and add only the minimal
+  targeted fix.
+```
 
 ## Upgrade notes for future Fusion/vLLM bumps
 
