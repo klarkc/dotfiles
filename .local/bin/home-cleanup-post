@@ -1,12 +1,11 @@
 #!/bin/bash
 
 # Git: Find all .git directories and process them
-find ~/{Sources,.herdr/worktrees} -name '.git' -type d -print | while read git_dir; do
+find ~/{Sources,.herdr/worktrees} -name '.git' -print | while read git_dir; do
   parent_dir=$(dirname "$git_dir")
-  echo "Processing git directory: $parent_dir"
+  echo "Processing git: $parent_dir"
   cd "$parent_dir" || continue
-  git stash -u
-  git clean -fdx -e '.worktrees'
+  git stash -u && git clean -fdx -e '.worktrees'
 done
 
 # Clean old files in cache
