@@ -1,16 +1,41 @@
 #!/bin/bash
 
-# Git: Find all .git directories and process them
-find ~/{Sources,.herdr/worktrees} -name '.git' -print | while read git_dir; do
-  parent_dir=$(dirname "$git_dir")
-  echo "Processing git: $parent_dir"
-  cd "$parent_dir" || continue
-  git stash -u && git clean -fdx -e '.worktrees'
+SOURCES=(
+    ~/Sources
+    ~/.herdr/worktrees
+)
+
+# Git: Find all .git entries and process them
+find "${SOURCES[@]}" -name '.git' -print0 |
+while IFS= read -r -d '' git_dir; do
+    parent_dir=$(dirname "$git_dir")
+    echo "Processing git: $parent_dir"
+    cd "$parent_dir" || continue
+    git stash -u && git clean -fdx -e '.worktrees/'
 done
+
+# Non-git / corrupt-git cleanup
+find "${SOURCES[@]}" -type d \( \
+    -name node_modules -o \
+    -name target -o \
+    -name __pycache__ -o \
+    -name .pytest_cache -o \
+    -name .mypy_cache -o \
+    -name .ruff_cache -o \
+    -name .next -o \
+    -name .nuxt -o \
+    -name .turbo -o \
+    -name .parcel-cache -o \
+    -name .gradle -o \
+    -name .cxx -o \
+    -name .android -o \
+    -name .devenv* -o \
+    -name .android-home \
+\) -prune -exec rm -rf -- {} +
 
 # Clean old files in cache
 find ~/.config/discord/Cache/Cache_Data -type f -atime +30 -delete
 sudo find ~/.cache -type f -atime +30 -not -path '*/yay/*' -delete
 
 # Clean build tools and artifacts
-sudo rm -Rf ~/{go,.gradle,.npm}
+sudo rm -rf ~/{go,.gradle,.npm}
