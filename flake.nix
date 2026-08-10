@@ -46,8 +46,8 @@
           ...
         }@ctx:
         let
-          nvidiaVersion = "610.43.03";
-          nvidiaHash = "sha256-ReLUwTSiPDXlDyU6SqY+fl6NF+PRhdSgfIpY6WEu05I=";
+          nvidiaVersion = "610.57.04";
+          nvidiaHash = "sha256-suk1xmuDuwDAyFe8jg7g/VLekoa0DJzB7sKafOfrEW0=";
 
           alacrittyDeps = {
             nativeBuildInputs = with pkgs; [
