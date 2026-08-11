@@ -1230,6 +1230,60 @@ Design decision:
   for vLLM right now. The only safe next implementation work is committing the
   policy/design documentation if the user wants the decision recorded.
 
+### 2026-08-11 Search for existing CUDA 13 ML-stack overlay/fork
+
+User asked to verify whether an existing GitHub overlay/fork already provides
+the coherent CUDA 13 vLLM/Torch stack before giving up on C2b.
+
+Search performed:
+
+- GitHub issue/PR API queries for combinations of `cudaPackages_13_0`,
+  `cudaPackages_13`, `python312Packages.vllm`, `vllm`, and `torch`.
+- GitHub repository search queries for `vllm nix cuda`, `nixpkgs vllm cuda`, and
+  `torch cuda13 nix`.
+- Public GitHub code search pages for `cudaPackages_13_0 vllm`,
+  `cudaPackages_13 vllm torch`, and `python312Packages.vllm cudaPackages` were
+  inaccessible without GitHub sign-in, so this is not a mathematically exhaustive
+  code search.
+
+Result:
+
+- No public reusable overlay/fork was found that demonstrates a coherent
+  `vLLM >= 0.20.1` + `Torch >= 2.11` + CUDA `>= 13.0` nixpkgs-based stack.
+- The only `cudaPackages_13_0` + vLLM issue result was NixOS/nixpkgs PR
+  `#515928` (`release-cuda: add cudaCapabilities parameter`), which is an
+  eval/Hydra release job parameter change and not a vLLM/Torch overlay.
+- Repository searches returned no obvious candidate repos for a vLLM/CUDA13 Nix
+  overlay.
+
+Additional local nixpkgs evidence:
+
+- Nixpkgs' Python package set has useful internal propagation points:
+  `torchvision`, `torchaudio`, `xformers`, and some other Python CUDA packages
+  inherit CUDA settings from `torch`; `torch` has `_tritonEffective` and comments
+  explicitly warning that overlays/nixpkgsFun are preferred over ad-hoc
+  attributes such as `torchWithCuda` because those can consume wrong arguments.
+- A tested `overrideScope` shape that overrides `torch`, `triton`,
+  `triton-cuda`, `cupy`, `flashinfer`, `accelerate`, and `vllm` to CUDA 13 makes
+  vLLM's direct references CUDA 13.0, but the derivation tree still contains CUDA
+  12.9 via deeper dependencies/check paths such as `accelerate`/`triton`/
+  `onnxruntime` style dependencies.
+- Some of that CUDA 12.9 evidence is in derivation/build-time trees, not yet a
+  proven built-output runtime closure. However, it is enough evidence that a
+  complete C2b overlay cannot be assumed from a simple override; it still needs a
+  dedicated staged implementation and closure audit.
+
+Design implication:
+
+- There is no found off-the-shelf overlay/fork to reuse today.
+- C2b is not hopeless: nixpkgs' package structure suggests a coherent overlay
+  may be smaller than a full local fork if implemented carefully through
+  `python312Packages.overrideScope` and by following Torch's CUDA/Triton
+  propagation points.
+- But it remains a separate explicit implementation effort. Do not restart it in
+  the current milestone unless the user approves that larger overlay spike with
+  enough time/disk budget for iterative builds and runtime proof.
+
 ## Upgrade notes for future Fusion/vLLM bumps
 
 Keep these notes near any eventual code comments in the Nix files. They are meant to prevent partial bumps where the visible package version changes but coupled runtime/dependency inputs stay stale.
