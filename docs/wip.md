@@ -1283,6 +1283,22 @@ Design implication:
 - But it remains a separate explicit implementation effort. Do not restart it in
   the current milestone unless the user approves that larger overlay spike with
   enough time/disk budget for iterative builds and runtime proof.
+- 2026-08-11 attempted spike: a scoped `python312Packages.overrideScope` was
+  wired in `flake.nix` that overrides `triton[-cuda]`, `torch`, `cupy`,
+  `flashinfer`, `accelerate`, and `vllm` to use `cudaPackages_13_0`. Direct
+  derivation references for vLLM 0.24.0 then resolved to CUDA 13 packages
+  (cuda_cudart-13.0.96, cuda_nvcc-13.0.88, libcublas-13.1.1.3, cudnn-9.22.0.52,
+  etc.). A narrow evidence-backed `doCheck = false` overlay was added only for
+  `interegular` to bypass the wall-clock `test_slow_example` flake seen under
+  heavy parallel builds. No broad `doCheck = false` was introduced.
+- Build attempts in this worktree were repeatedly interrupted by tool timeouts
+  and the detached-builds caused severe system load (multiple parallel `nvcc`
+  invocations per derivation), so the full `nix build .#vllm-runtime` was not
+  completed here. The code/overlay changes are preserved in the working tree
+  for the user to resume in a session with more time, and the docs here are
+  the durable handoff. Acceptance remains: `nix build .#vllm-runtime`,
+  `result/bin/vllm --version`, `vllm serve --help`, then real 35B A3B
+  `vllm-benchmark --check` and `vllm-benchmark`.
 
 ## Upgrade notes for future Fusion/vLLM bumps
 

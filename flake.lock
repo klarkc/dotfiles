@@ -245,6 +245,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-vllm": {
+      "locked": {
+        "lastModified": 1786467074,
+        "narHash": "sha256-fjGAueYa+gUSehHf7JEdQCWmvKpfQP/7+NTVnjD4oDU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "370968bf671b4360ed33460dc91191aa8c8ed99d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "master",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "qmd-src": {
       "flake": false,
       "locked": {
@@ -272,6 +288,7 @@
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-vllm": "nixpkgs-vllm",
         "qmd-src": "qmd-src",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils"
