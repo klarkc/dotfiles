@@ -1038,6 +1038,198 @@ broad runtime-linker workarounds by default. Suggested wording:
   targeted fix.
 ```
 
+### 2026-08-11 vLLM source-packaging decision update
+
+User discarded the declared-wheel-artifact bridge as too cumbersome and not a
+real solution. Do not pursue a repo-maintained wheel list / offline wheel
+unpacking path unless the user explicitly reopens it.
+
+Design checked nixpkgs vLLM history via the GitHub commits API for
+`pkgs/development/python-modules/vllm/default.nix`; upstream nixpkgs appears to
+move vLLM directly from `0.16.0` to `0.24.0` in commit
+`924212e109e218908b73f05c6ecb6b4c3edd7fa3` (`vllm: 0.16.0 -> 0.24.0`).
+Therefore there is currently no evidence of an official older/intermediate
+nixpkgs rev that provides `python312Packages.vllm = 0.20.1`, let alone the exact
+`0.20.1 + torch 2.11.0 + CUDA 13.0` stack.
+
+Updated C2 interpretation:
+
+- C2 still means eliminating the current wheelhouse and building vLLM from
+  source using Nix-native package expressions, CUDA setup hooks, and declared
+  source dependencies.
+- Do not expect to find an older official nixpkgs rev that already packages
+  `vLLM 0.20.1 + cu130`. If Build wants that exact runtime, assume a repo-local
+  source package derived from nixpkgs' vLLM expression will be needed.
+- Before implementing that local package, Build should perform a short research
+  pass for an upstream nixpkgs PR/ref that packaged vLLM `0.20.1` or the exact
+  Torch/CUDA pairing. If none exists, choose between:
+  1. local vLLM `0.20.1` source package against a nixpkgs-provided Torch/CUDA
+     stack, accepting that it may not match the current wheel runtime exactly;
+  2. local/forked ML stack including Torch/CUDA 13.0, accepting much higher cost;
+  3. deferring until nixpkgs-unstable catches up with a cacheable vLLM that
+     passes the 35B A3B benchmark.
+- The failed `nixpkgs-vllm = master` experiment remains evidence that raw master
+  can expose `vllm 0.24.0` but may require chasing unrelated upstream Python test
+  failures before any GPU/model proof is possible.
+
+User clarified the C2b target does not need to be strictly equal to the old
+wheel runtime versions; equal or newer is acceptable if the result is source
+packaged and can be verified against the 35B A3B model. Optimistic C2b target:
+
+- Reuse the official nixpkgs vLLM source-build expression around commit
+  `924212e109e218908b73f05c6ecb6b4c3edd7fa3` (`vllm: 0.16.0 -> 0.24.0`) rather
+  than tracking raw moving `master` casually. Per flake input URL policy, do not
+  hard-code that commit in `flake.nix` just for determinism; keep the exact rev
+  in `flake.lock`. Add a nearby bump note documenting when to update
+  `nixpkgs-vllm`: update when nixpkgs-unstable (preferred) or an upstream
+  nixpkgs PR/ref has evidence that the selected vLLM/CUDA/Python stack builds,
+  or when CUDA 13 support reaches nixpkgs with no known flake/evaluation/test
+  blockers for the vLLM closure. Each update must include `nix flake check
+  --no-build`, `nix build .#vllm-runtime`, CLI smoke, and 35B A3B benchmark
+  evidence.
+- Evidence from evaluating that commit with CUDA enabled:
+  - `python312Packages.vllm.version = "0.24.0"`
+  - `python312Packages.torch.version = "2.12.0"`
+  - `cudaPackages.cudaMajorMinorVersion = "12.9"`
+  - `mcp = 1.27.1`, `scipy = 1.18.0`, `interegular = 0.3.3`,
+    `lm-format-enforcer = 0.11.3`.
+- Important correction: because the current wheel runtime uses CUDA `13.0`
+  (`cu130`) and user clarified equal-or-newer versions are acceptable, the
+  evaluated CUDA `12.9` stack is **not** an acceptable final runtime target.
+  Treat PR `#498040` / commit `924212e...` as a reusable vLLM source-packaging
+  example only. Build must still select or adapt a package set with CUDA
+  `>= 13.0` before accepting the runtime.
+- Why this is a reusable C2b example:
+  - source-builds vLLM using `buildPythonPackage.override { stdenv = torch.stdenv; }`;
+  - uses CUDA setup hooks (`cuda_nvcc`, `autoAddDriverRunpath`) and Nix CUDA
+    packages (`cuda_cudart`, `cccl`, `libcurand`, `libcusparse`, `libcusolver`,
+    `cuda_nvtx`, `cuda_nvrtc`, `libcublas`, `nccl`, `cudnn`, `libcufile`);
+  - declares upstream submodule/vendor sources explicitly with hashes: CUTLASS
+    `v4.4.2`, FlashMLA, DeepGEMM, FMHA/SM100 MSA, triton-kernels `v3.6.0`,
+    QUTLASS, and `vllm-flash-attn 2.7.2.post1` plus Hopper build patches;
+  - relaxes/removes upstream Python deps in the package expression instead of
+    running `pip download`/`pip install`.
+- Build should prefer a lockfile rev at or near this upstream package-expression
+  baseline over current moving `master`; the `flake.nix` URL may still point to
+  a branch/ref, but the lock should be moved deliberately and reviewed before
+  every bump.
+- GitHub evidence found for the nixpkgs-based C2b direction:
+  - NixOS/nixpkgs PR `#498040` (`vllm: 0.16.0 -> 0.24.0`) merged as commit
+    `924212e109e218908b73f05c6ecb6b4c3edd7fa3`. Its PR body marks
+    `x86_64-linux` built, but says the author only tested ROCm initially.
+  - The same PR contains CUDA-relevant user evidence: a contributor reported
+    getting CUDA to run, later reported "Still works fine after rebuild", and
+    later attached a CUDA build fix patch. The PR thread also says `vllm` and
+    `pkgsRocm.vllm` built in nixpkgs-review at commit
+    `998b78d15a78be2a8675fb97b0db80d4bc2186c6`, while `python313Packages.vllm`
+    still failed. Later nixpkgs-review at commit
+    `293b0b205eea70eaee8c988fd6b8ff72a593b91c` reported `vllm` and
+    `python313Packages.vllm` built, but the thread still noted CUDA dependency
+    issues. Treat this as partial evidence, not a guarantee.
+  - PR `#549327` (`vllm: 0.24.0 -> 0.26.0`) is open/draft. Comments state
+    `tokenspeed-triton` was failing and that `flashinfer` update PR `#526691`
+    is required. One contributor said the 0.26 CUDA build "compiles fine for me
+    with CUDA enabled besides" missing `tml-fa4`, `pynvvideocodec`, and `nvtx`
+    fixes. This is useful future evidence but not a stable base now.
+  - Earlier torch ecosystem PR `#377785` (`torch 2.5.1 -> 2.6.0`) includes a
+    matrix where `vllm (CUDA)` was marked building, but that stack is older than
+    the desired vLLM 0.24 direction and not sufficient by itself.
+- Interpretation: the known flaky tests and failures are largely dependency
+  churn exposed by the vLLM jump/CUDA path, not vLLM tests alone. Raw master made
+  this worse by pulling later unrelated dependency versions (for example
+  `mcp 1.29.0` vs `mcp 1.27.1` near the vLLM 0.24 merge). Prefer a lock near the
+  merged `#498040` baseline as packaging reference or wait for nixpkgs-unstable
+  to contain a CUDA `>= 13.0` vLLM stack, rather than using latest master. Do not
+  accept a CUDA `12.9` runtime as satisfying the equal-or-newer policy.
+- Start with no broad global `doCheck = false`. If build evidence reproduces the
+  known flaky failures, add only narrow overlays in the isolated vLLM package set
+  and document the exact failures:
+  - `interegular 0.3.3` `test_slow_example` wall-clock assertion `<1s` failed
+    under load at about 1.1s/33s in prior attempts;
+  - `scipy 1.18.0` `test_support_moments_sample` failed on a tiny FP/fuzz diff
+    in prior attempts.
+- Acceptance does not change: successful build, `vllm --version`,
+  `vllm serve --help`, then real 35B A3B `vllm-benchmark --check` and
+  `vllm-benchmark`.
+
+### 2026-08-11 Design decision after CUDA 13 feasibility pass
+
+Build confirmed that the nixpkgs vLLM 0.24 package-expression baseline can be
+evaluated with CUDA 13 packages: overriding vLLM with `cudaPackages_13_0`
+produces a different vLLM derivation whose tree references CUDA 13.0 libraries
+such as `cuda_cudart-13.0.96`, `cuda_nvcc-13.0.88`, `nccl-2.30.7-1`, and
+`libcublas-13.1.1.3`. This is useful, but it is not final proof.
+
+Design strategy:
+
+- Proceed with a bounded optimistic C2b spike, not a broad master chase and not
+  a passive wait. Use the official nixpkgs vLLM 0.24 source packaging from PR
+  `#498040` as the expression baseline, but require CUDA `>= 13.0` for the
+  actual runtime.
+- Do not override only vLLM's direct `cudaPackages` and assume success. The ML
+  stack must be internally coherent: Torch, torchvision, torchaudio, vLLM, and
+  CUDA-sensitive companion packages must consume the same CUDA 13 package set
+  where applicable. Before long builds, Build must inspect/evaluate derivation
+  references and confirm no unintended CUDA 12.9 libraries remain in the vLLM
+  runtime closure.
+- Keep main `nixpkgs` on `nixpkgs-unstable`; if split input is still needed, keep
+  the URL branch/ref-style in `flake.nix` and move only `flake.lock` to the
+  selected reviewed rev/ref. The split input can be collapsed once main
+  `nixpkgs-unstable` provides a CUDA `>= 13.0` vLLM stack that passes acceptance.
+- Use staged verification before the full expensive build:
+  1. Evaluate/report versions: vLLM, Torch, CUDA major/minor, and key companion
+     packages.
+  2. Evaluate/report derivation paths for Torch and vLLM with the CUDA 13
+     override.
+  3. Inspect derivation/reference trees for CUDA 13 vs CUDA 12 leakage.
+  4. Build likely flaky transitive test packages in isolation first if they are
+     in the closure; this avoids parallel-load timing failures being rediscovered
+     late in the full vLLM build.
+  5. Run the full `nix build .#vllm-runtime --no-sandbox` only after the closure
+     looks coherent.
+- Start with no broad/global `doCheck = false`. If failures reproduce, add only
+  narrow, isolated overlays with exact log evidence. If the build requires more
+  than a small number of unrelated test overrides, stop and ask Design/user
+  rather than accumulating overlay debt.
+- Success criteria remain: no wheelhouse, no `pip download`, no `pip install`,
+  profile-installed `%h/.nix-profile/bin/vllm`, CLI smoke, and 35B A3B benchmark
+  proof. If CUDA 13 source packaging cannot be made coherent or buildable with
+  small targeted fixes, keep the current wheelhouse temporarily and mark C2b
+  blocked pending nixpkgs-unstable catching up.
+
+### 2026-08-11 Design intervention after Build CUDA 13 closure check
+
+Build tested the staged coherence gate before implementing code, which was the
+right move. The result blocks the cheap C2b path:
+
+- `python312Packages.vllm.override { cudaPackages = pkgs.cudaPackages_13_0; }`
+  at the vLLM 0.24 nixpkgs baseline makes vLLM's direct derivation references
+  use CUDA 13.0 packages.
+- However, the transitive derivation tree still contains CUDA 12.9 packages at
+  runtime-relevant depths (`cuda12.9-cuda_cudart`, `cuda12.9-cuda_nvcc`,
+  `cuda12.9-libcublas`, `cuda12.9-nccl`, `cuda12.9-cudnn`, etc.).
+- Therefore the simple vLLM-level override does **not** satisfy the coherent
+  CUDA `>= 13.0` requirement. Do not spend a long build on that expression and
+  do not accept it as a runtime candidate.
+
+Design decision:
+
+- Stop the current C2b implementation spike. The remaining C2b path is no
+  longer a thin adapter plus one override; it is a broader ML-stack overlay or
+  local package-set fork that makes Torch, torchvision, torchaudio, vLLM, cupy,
+  xformers, flashinfer, and CUDA-sensitive companions all consume the same CUDA
+  13 package set.
+- That broader overlay is large enough to require a separate explicit user
+  decision and should not be started opportunistically in this milestone.
+- Keep the current wheelhouse vLLM runtime temporarily, with the known invariant
+  violation documented, until either:
+  1. nixpkgs-unstable provides a coherent CUDA `>= 13.0` vLLM stack that passes
+     the 35B A3B benchmark; or
+  2. the user explicitly approves a larger local ML-stack overlay/fork effort.
+- Build should not modify `.nix/vllm-runtime.nix`, `flake.nix`, or `flake.lock`
+  for vLLM right now. The only safe next implementation work is committing the
+  policy/design documentation if the user wants the decision recorded.
+
 ## Upgrade notes for future Fusion/vLLM bumps
 
 Keep these notes near any eventual code comments in the Nix files. They are meant to prevent partial bumps where the visible package version changes but coupled runtime/dependency inputs stay stale.
