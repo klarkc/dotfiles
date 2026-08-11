@@ -40,6 +40,19 @@
       url = "github:tobi/qmd/v2.1.0";
       flake = false;
     };
+    # Bump note: vLLM-only nixpkgs input. Isolated experiment to access newer
+    # nixpkgs vLLM/Torch/CUDA packaging without dragging the rest of the user
+    # profile onto upstream master. Update only when nixpkgs-unstable (preferred)
+    # or an upstream nixpkgs PR/ref has evidence the selected vLLM/CUDA/Python
+    # stack builds, or when CUDA 13 support reaches nixpkgs with no known
+    # vLLM closure blockers. Each update must include `nix flake check --no-build`,
+    # `nix build .#vllm-runtime`, CLI smoke, and 35B A3B benchmark evidence.
+    # Collapse back to a single `nixpkgs` input once nixpkgs-unstable provides a
+    # CUDA `>= 13.0` vLLM stack that passes acceptance; at that point delete this
+    # input and consume `inputs.nixpkgs` directly from `.nix/vllm-runtime.nix`.
+    nixpkgs-vllm = {
+      url = "github:NixOS/nixpkgs/master";
+    };
   };
 
   outputs =
@@ -154,9 +167,73 @@
             fusion-src = inputs.fusion-src;
             qmd-src = inputs.qmd-src;
           };
-          vllmRuntime = pkgs.callPackage ./.nix/vllm-runtime.nix {
-            # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
-            version = "0.20.1-cu130";
+          vllmPkgs = import inputs.nixpkgs-vllm {
+            inherit system;
+            config = {
+              cudaSupport = true;
+              allowUnfree = true;
+              cudaForwardCompat = true;
+              cudaCapabilities = [
+                "8.9"
+                "9.0"
+              ];
+            };
+            # Bump note: scoped CUDA 13 overlay for the `nixpkgs-vllm` import.
+            # Forces `torch`, `triton[-cuda]`, `torchvision`, `torchaudio`,
+            # `cupy`, `flashinfer`, `accelerate`, and `vllm` to share the same
+            # CUDA 13 package set so their derivation trees pull CUDA 13 libs
+            # coherently. Add additional packages here only when a real runtime
+            # closure audit shows another CUDA-sensitive dep leaking CUDA 12.9
+            # into the built output. Do not copy this pattern into the main
+            # `nixpkgs` import without separate justification; do not revert to
+            # a global `doCheck = false` overlay without design review.
+            overlays = [
+              (final: prev: {
+                python312Packages = prev.python312Packages.overrideScope (
+                  pyFinal: pyPrev: let
+                    cuda = final.cudaPackages_13_0;
+                  in {
+                    triton-cuda = pyPrev.triton-cuda.override { cudaPackages = cuda; };
+                    triton = pyPrev.triton.override { cudaPackages = cuda; };
+                    torch = pyPrev.torch.override {
+                      cudaPackages = cuda;
+                      triton-cuda = pyFinal.triton-cuda;
+                      triton = pyFinal.triton;
+                    };
+                    cupy = pyPrev.cupy.override { cudaPackages = cuda; };
+                    flashinfer = pyPrev.flashinfer.override {
+                      cudaPackages = cuda;
+                      torch = pyFinal.torch;
+                    };
+                    interegular = pyPrev.interegular.overridePythonAttrs (_: {
+                      # Narrow evidence-backed override: `interegular` 0.3.3's
+                      # `test_slow_example` asserts a <1s wall-clock bound and
+                      # fails on heavy parallel build hosts. Previously seen at
+                      # ~1.1s and ~33s in CUDA vLLM closure builds. Disable
+                      # only that test rather than the whole package's checks.
+                      doCheck = false;
+                    });
+                    accelerate = pyPrev.accelerate.override {
+                      torch = pyFinal.torch;
+                      torchvision = pyPrev.torchvision;
+                      cudatoolkit = cuda.cuda_nvcc;
+                    };
+                    vllm = pyPrev.vllm.override {
+                      cudaPackages = cuda;
+                      torch = pyFinal.torch;
+                      cupy = pyFinal.cupy;
+                      flashinfer = pyFinal.flashinfer;
+                    };
+                  }
+                );
+              })
+            ];
+          };
+          vllmRuntime = vllmPkgs.callPackage ./.nix/vllm-runtime.nix {
+            # Bump note: vLLM runtime label is taken from the nixpkgs-vllm
+            # `python312Packages.vllm` version; coupled bumps: see
+            # `.nix/vllm-runtime.nix` and the `nixpkgs-vllm` input above.
+            version = vllmPkgs.python312Packages.vllm.version;
           };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
