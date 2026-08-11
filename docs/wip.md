@@ -1299,6 +1299,57 @@ Design implication:
   the durable handoff. Acceptance remains: `nix build .#vllm-runtime`,
   `result/bin/vllm --version`, `vllm serve --help`, then real 35B A3B
   `vllm-benchmark --check` and `vllm-benchmark`.
+- 2026-08-11 inner-parallelism investigation (no code change): user observed a
+  `make -j16` inside the build chain. Root cause analysis from the locked
+  `nixpkgs-vllm` source (`/nix/store/fgn9...-source`):
+  - `nix build -j 1` only throttles how many derivations Nix evaluates in
+    parallel. It does **not** prevent an individual derivation from spawning
+    many `g++`/`nvcc` jobs via its own `make -jN`.
+  - The screenshot showed `samples/cpp/CMakeFiles/samples.dir/build` and
+    `test/cpp/CMakeFiles/tests.dir/build` driving `g++ -fPIC -c` jobs in parallel.
+    That matches `pkgs/development/cuda-modules/packages/cudnn-frontend/package.nix`,
+    which has `enableParallelBuilding = true` and builds `samples`, `legacy_samples`,
+    and `tests` outputs.
+  - For our vLLM runtime we do not need those samples/tests: both vLLM
+    (`pythonRemoveDeps = [ ... "nvidia-cudnn-frontend" ... ]`) and `flashinfer`
+    (same removal) drop the `nvidia-cudnn-frontend` Python wrapper, and vLLM only
+    needs the header-only C++ library. Transformer-engine consumes
+    `cudaPackages.cudnn-frontend`'s `include/`, not its samples/tests.
+  - Two narrow fixes worth trying before restarting the build:
+    1. Override `cudaPackages.cudnn-frontend` to disable samples/tests:
+       ```nix
+       cudaPackages = (prev.cudaPackages_13_0.overrideScope (final': prev':
+         prev'.cudnn-frontend.override { withSamples = false; withTests = false; }
+       ));
+       ```
+       This skips ~150+ compile units that account for most of the `make -j16`
+       burst. Same shape can be applied to `cudaPackages.nccl` (also
+       `enableParallelBuilding = true`) via `makeFlags = [ "-j1" ];` if a
+       per-derivation override is needed.
+    2. Force single-job inner parallelism in addition to `NIX_BUILD_CORES=1`:
+       ```sh
+       export NIX_BUILD_CORES=1
+       export MAKEFLAGS="-j1"
+       export CMAKE_BUILD_PARALLEL_LEVEL=1
+       export NINJAFLAGS="-j1"
+       nix build .#vllm-runtime --no-sandbox -j 1 --cores 1
+       ```
+       The `MAKEFLAGS`/`CMAKE_BUILD_PARALLEL_LEVEL` env vars do reach most
+       generic `make`/`cmake` builds, but are not guaranteed for every
+       derivation (CMake-driven projects often read their own parallel level
+       from `ProcessorCount()` and ignore env). Pairing (1) + (2) gives the
+       strongest mitigation available without forking upstream expressions.
+  - Per-derivation overrides are still preferred over a global disable because
+    `AGENTS.md` runtime-linker policy says we add `doCheck = false` only with
+    explicit evidence and never as a blanket. The narrow `interegular` overlay
+    remains the only `doCheck = false` change in the current vllm overlay.
+  - When the build is resumed, recommended command shape:
+    ```sh
+    NIX_BUILD_CORES=1 MAKEFLAGS="-j1" CMAKE_BUILD_PARALLEL_LEVEL=1 \
+      nix build .#vllm-runtime --no-sandbox -j 1 --cores 1
+    ```
+    plus the `cudaPackages.cudnn-frontend` override in `flake.nix`'s
+    `vllmPkgs` import to actually remove the `samples`/`tests` build.
 
 ## Upgrade notes for future Fusion/vLLM bumps
 
