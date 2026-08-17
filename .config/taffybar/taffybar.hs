@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
@@ -9,7 +10,6 @@ import System.Taffybar.Hooks
   ( withLogServer,
     withToggleServer,
   )
-import System.Taffybar.Information.CPU (cpuLoad)
 import System.Taffybar.Information.Memory
   ( MemoryInfo (memoryUsedRatio),
     parseMeminfo,
@@ -26,8 +26,9 @@ import System.Taffybar.SimpleConfig
         startupHook,
         widgetSpacing
       ),
-    StrutSize (ExactSize),
+    StrutSize,
     toTaffyConfig,
+    pattern ExactSize,
   )
 import System.Taffybar.Widget
   ( WorkspacesConfig (minIcons, showWorkspaceFn, widgetGap),
@@ -83,11 +84,6 @@ memCallback :: IO [Double]
 memCallback = do
   mi <- parseMeminfo
   return [memoryUsedRatio mi]
-
-cpuCallback :: IO [Double]
-cpuCallback = do
-  (_, systemLoad, totalLoad) <- cpuLoad
-  return [totalLoad, systemLoad]
 
 myTaffybarConfig :: TaffybarConfig
 myTaffybarConfig =
