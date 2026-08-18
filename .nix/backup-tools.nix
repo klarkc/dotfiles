@@ -426,9 +426,10 @@ let
             cp -a "$item" "$merged/"
           done
           shopt -u dotglob nullglob
-          # rsync --ignore-existing: per-file skip, so prev files inside
-          # directories that already exist in new are preserved (unlike cp -an
-          # which is atomic at the directory level).
+          # Append-only fill: copy prev contents into merged, skipping anything
+          # already provided by new sources. rsync --ignore-existing applies the
+          # skip per-file (rather than per-directory), so prev-only files inside
+          # directories that exist in both prev and new are preserved.
           rsync -a --ignore-existing "$prev_extract"/ "$merged"/
           rm -rf "$prev_extract"
           # Replace stage_dir contents with merged (skip .merged itself).
@@ -651,9 +652,12 @@ let
         --exclude 'sample-b.tgz'
 
       lrzip -d -o - "$backup_dir/archive.lrz" | tar -tf - > "$work/list3.txt"
-      # Tight assertion: only the literal archive and its extracted dir are forbidden.
-      # Loose `grep sample-b` would also match `sample-b-extract/` if present.
-      if grep -qE "^\\./sample-b\\.tgz$|^\\./sample-b-extract/" "$work/list3.txt"; then
+      # Tight assertion: forbid the literal archive file and its extracted prefix.
+      # Two greps so each pattern has its own anchoring (single regex with
+      # alternation gets ambiguous when one alternative needs prefix-match and the
+      # other needs exact-match).
+      if grep -qE "^\\./sample-b\\.tgz$" "$work/list3.txt" \
+         || grep -qE "^\\./sample-b-extract/" "$work/list3.txt"; then
         echo "FAIL: sample-b should have been excluded" >&2
         exit 1
       fi
@@ -665,21 +669,23 @@ let
       printf 'readme\n' > "$backup_dir/docs/readme.txt"
       printf 'old file\n' > "$backup_dir/docs/keep-me.txt"
 
-      log "First pack (seeds archive with docs/keep-me.txt and docs/readme.txt)"
+      log "First pack: seeds archive with docs/keep-me.txt and docs/readme.txt"
       ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
         --threads 2 --maxram 40 --window 5 --level 1
 
-      log "Add a new file inside docs/ but don't touch existing ones"
+      log "Simulate user removing keep-me.txt from source and adding newer.txt"
+      rm "$backup_dir/docs/keep-me.txt"
       printf 'newer file\n' > "$backup_dir/docs/newer.txt"
 
-      log "Re-pack; docs/keep-me.txt must survive (this would fail with cp -an)"
+      log "Re-pack: keep-me.txt must survive in archive even though removed from source"
+      log "(this guards the append-only invariant for files inside shared dirs)"
       ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
         --threads 2 --maxram 40 --window 5 --level 1
 
       lrzip -d -o - "$backup_dir/archive.lrz" | tar -tf - > "$work/list4.txt"
 
       grep -q "^\\./docs/keep-me\\.txt$" "$work/list4.txt" \
-        || { echo "FAIL: docs/keep-me.txt missing after re-pack (cp -an bug regression)" >&2; exit 1; }
+        || { echo "FAIL: docs/keep-me.txt missing after re-pack (append-only regression)" >&2; exit 1; }
       grep -q "^\\./docs/newer\\.txt$" "$work/list4.txt" \
         || { echo "FAIL: docs/newer.txt missing after re-pack" >&2; exit 1; }
       grep -q "^\\./docs/readme\\.txt$" "$work/list4.txt" \
