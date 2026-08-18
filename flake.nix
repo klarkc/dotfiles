@@ -135,6 +135,7 @@
             opencode-src = inputs.opencode-src;
           };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
+          backupTools = pkgs.callPackage ./.nix/backup-tools.nix { };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -186,6 +187,12 @@
           checks = {
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
+            google-takeout-pack-test =
+              pkgs.runCommand "google-takeout-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
+                ''
+                  google-takeout-pack-test
+                  touch $out
+                '';
           };
 
           devShells.default = pkgs.mkShell {
@@ -218,12 +225,16 @@
                 pi-coding-agent
                 opencodeWithReasoning
                 opencodeCodexAuthTools
+                backupTools.packScript
+                backupTools.testScript
                 kolu
                 herdr
               ];
           };
 
           packages.alacritty = alacrittyWithLigatures;
+          packages.google-takeout-pack = backupTools.packScript;
+          packages.google-takeout-pack-test = backupTools.testScript;
         }
       );
 }
