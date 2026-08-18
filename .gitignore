@@ -24,6 +24,10 @@
 # nix files
 !/.nix
 
+# google takeout backup (source archives, staging, packed archive)
+!/.backup
+/.backup/*
+
 # monitoring scripts and systemd units
 !/scripts
 !/systemd

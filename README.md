@@ -242,3 +242,97 @@ vllm-benchmark
 Benchmark artifacts are written below `~/.cache/vllm-benchmarks/`.
 
 For the 27B target, replace `35B-a3b` with `27B` in the commands above.
+
+#### Google Takeout / Google Photos backup
+
+The `google-takeout-pack` and `google-takeout-pack-test` commands are provided
+by the Nix flake (`.nix/backup-tools.nix`) and installed into the user profile
+by `nix profile install .`.
+
+Inputs live in `~/.backup/`:
+
+- `takeout-*.tgz` — Google Takeout volumes.
+- `Photos*.zip` — Google Photos export bundles.
+- `VID_*.mp4` — loose media (optional).
+- `pipelineLog-*.txt` — miscellaneous logs (optional).
+
+Outputs:
+
+- `~/.backup/all-clean.lrz` — single deduplicated archive (`lrzip`).
+- `~/.backup/all-clean.lrz.SUMMARY.txt` — generation report.
+- `~/.backup/.stage/` — staging directory (kept unless `--clean-temp`).
+- `~/.backup/.logs/` — log directory (kept unless `--clean-temp`).
+- `~/.backup/.manifest/` — list of files inside the archive.
+
+Install/upgrade:
+
+```bash
+nix profile install .
+# or
+nix profile upgrade klarkc
+```
+
+Run with safe defaults (≈8 threads, ≈8 GB RAM cap, window 2 GB, level 6):
+
+```bash
+google-takeout-pack
+```
+
+Tune resources:
+
+```bash
+google-takeout-pack --threads 4 --maxram 40 --window 10 --level 6
+```
+
+Dry run (print actions without writing):
+
+```bash
+google-takeout-pack --dry-run
+```
+
+Skip the upfront integrity test on sources (use only if you know they are good):
+
+```bash
+google-takeout-pack --skip-source-integrity
+```
+
+Clean temporary staging and logs after a successful pack:
+
+```bash
+google-takeout-pack --clean-temp
+```
+
+Clean original sources (`takeout-*.tgz`, `Photos*.zip`, `VID_*.mp4`,
+`pipelineLog-*.txt`) after a successful pack and `lrzip -t`:
+
+```bash
+google-takeout-pack --clean-source
+```
+
+Combine both:
+
+```bash
+google-takeout-pack --clean-temp --clean-source
+```
+
+The final `all-clean.lrz` is **never** removed by the script.
+
+Run the self-test (small synthetic backup):
+
+```bash
+google-takeout-pack-test
+# or, via flake check
+nix flake check
+```
+
+`nix flake check` runs the formatting check, pre-commit checks and
+`google-takeout-pack-test` as part of `checks.google-takeout-pack-test`.
+
+How to extract later (no Nix required at extraction time):
+
+```bash
+lrzip -t ~/.backup/all-clean.lrz          # verify integrity
+lrzip -d -o - ~/.backup/all-clean.lrz    # produces .tar on stdout
+lrzip -d ~/.backup/all-clean.lrz         # produces all-clean.tar
+mkdir -p restored && tar -xf all-clean.tar -C restored
+```
