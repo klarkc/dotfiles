@@ -17,6 +17,7 @@ let
     lrzip
     p7zip
     procps
+    rsync
     unzip
     util-linux
     xz
@@ -111,10 +112,10 @@ let
 
       match_excluded() {
         local name="$1"
-        local pat
-        for pat in "''${default_excludes[@]}" "''${exclude_patterns[@]}"; do
+        local glob_pat
+        for glob_pat in "''${default_excludes[@]}" "''${exclude_patterns[@]}"; do
           # shellcheck disable=SC2053
-          [[ "$name" == $pat ]] && return 0
+          [[ "$name" == $glob_pat ]] && return 0
         done
         return 1
       }
@@ -147,7 +148,7 @@ let
           *.tar.lz|*.tlz)    tar --lzip -xf "$f" -C "$dest" ;;
           *.tar)             tar -xf "$f" -C "$dest" ;;
           *.zip)             unzip -q "$f" -d "$dest" ;;
-          *.7z)              7z x -y -o"$dest" "$f" >/dev/null ;;
+          *.7z)              7z x -y -o"$dest" "$f" >/dev/null ;;  # 7z: -o<path> with no space
           *)                 return 1 ;;
         esac
       }
@@ -425,8 +426,10 @@ let
             cp -a "$item" "$merged/"
           done
           shopt -u dotglob nullglob
-          # cp -an: prev fills only what's missing in new
-          ( cd "$prev_extract" && cp -an . "$merged/" )
+          # rsync --ignore-existing: per-file skip, so prev files inside
+          # directories that already exist in new are preserved (unlike cp -an
+          # which is atomic at the directory level).
+          rsync -a --ignore-existing "$prev_extract"/ "$merged"/
           rm -rf "$prev_extract"
           # Replace stage_dir contents with merged (skip .merged itself).
           find "$stage_dir" -mindepth 1 -maxdepth 1 ! -name '.merged' -exec rm -rf {} +
@@ -648,10 +651,39 @@ let
         --exclude 'sample-b.tgz'
 
       lrzip -d -o - "$backup_dir/archive.lrz" | tar -tf - > "$work/list3.txt"
-      if grep -q "sample-b" "$work/list3.txt"; then
+      # Tight assertion: only the literal archive and its extracted dir are forbidden.
+      # Loose `grep sample-b` would also match `sample-b-extract/` if present.
+      if grep -qE "^\\./sample-b\\.tgz$|^\\./sample-b-extract/" "$work/list3.txt"; then
         echo "FAIL: sample-b should have been excluded" >&2
         exit 1
       fi
+
+      log "Test append-only preserves files inside directories that exist in both prev and new"
+      rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest" \
+        "$backup_dir/archive.lrz" "$backup_dir"/archive-*.lrz
+      mkdir -p "$backup_dir/docs"
+      printf 'readme\n' > "$backup_dir/docs/readme.txt"
+      printf 'old file\n' > "$backup_dir/docs/keep-me.txt"
+
+      log "First pack (seeds archive with docs/keep-me.txt and docs/readme.txt)"
+      ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+        --threads 2 --maxram 40 --window 5 --level 1
+
+      log "Add a new file inside docs/ but don't touch existing ones"
+      printf 'newer file\n' > "$backup_dir/docs/newer.txt"
+
+      log "Re-pack; docs/keep-me.txt must survive (this would fail with cp -an)"
+      ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+        --threads 2 --maxram 40 --window 5 --level 1
+
+      lrzip -d -o - "$backup_dir/archive.lrz" | tar -tf - > "$work/list4.txt"
+
+      grep -q "^\\./docs/keep-me\\.txt$" "$work/list4.txt" \
+        || { echo "FAIL: docs/keep-me.txt missing after re-pack (cp -an bug regression)" >&2; exit 1; }
+      grep -q "^\\./docs/newer\\.txt$" "$work/list4.txt" \
+        || { echo "FAIL: docs/newer.txt missing after re-pack" >&2; exit 1; }
+      grep -q "^\\./docs/readme\\.txt$" "$work/list4.txt" \
+        || { echo "FAIL: docs/readme.txt missing after re-pack" >&2; exit 1; }
 
       log "PASS"
     '';
