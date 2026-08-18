@@ -183,14 +183,13 @@
         in
         {
           formatter = treefmtEval.config.build.wrapper;
-
           checks = {
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
-            google-takeout-pack-test =
-              pkgs.runCommand "google-takeout-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
+            archive-pack-test =
+              pkgs.runCommand "archive-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
                 ''
-                  google-takeout-pack-test
+                  archive-pack-test
                   touch $out
                 '';
           };
@@ -233,8 +232,8 @@
           };
 
           packages.alacritty = alacrittyWithLigatures;
-          packages.google-takeout-pack = backupTools.packScript;
-          packages.google-takeout-pack-test = backupTools.testScript;
+          packages.archive-pack = backupTools.packScript;
+          packages.archive-pack-test = backupTools.testScript;
         }
       );
 }
