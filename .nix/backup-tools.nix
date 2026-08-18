@@ -57,8 +57,6 @@ let
         "archive.lrz"
         "archive.lrz.SUMMARY.txt"
         "archive-*.lrz"
-        "*.lrz"
-        "*.lrz.SUMMARY.txt"
         ".gitignore"
         "README.md"
       )
@@ -71,6 +69,13 @@ let
       archive with append-only semantics. Re-pack merges new sources with
       the previous archive: removed sources stay, modified sources update,
       and lrzip dedups identical content.
+
+      Append-only semantics:
+        - A file or directory removed from $backup_dir stays in the archive.
+        - A file replaced in $backup_dir (same name, new content) replaces the
+          previous version in the archive ("newer wins").
+        - A file renamed in $backup_dir appears under both old and new paths;
+          lrzip dedups identical content if the bytes match.
 
       Options:
         --threads N            Number of lrzip threads (default: 8)
@@ -90,6 +95,7 @@ let
         --retain N             Keep the last N datestamped snapshots (default: 5).
                                0 disables snapshot retention.
         --retain-days N        Drop snapshots older than N days (default: 0, off).
+                               0 disables age-based retention.
         --dry-run              Print actions without writing the archive
         --verify               Only run 'lrzip -t' on the existing archive and exit
         -h, --help             Show this help
@@ -408,29 +414,26 @@ let
         mkdir -p "$prev_extract"
         log "Extracting previous archive for merge"
         if lrzip -d -o - "$output" 2>>"$pack_log" | tar -xf - -C "$prev_extract"; then
-          # new wins, prev fills gaps
+          # Build merged: new wins, prev fills gaps (append-only).
           merged="$stage_dir/.merged"
           mkdir -p "$merged"
-          # copy all of "new" (everything in stage_dir except .prev and .merged) into merged
-          # shellcheck disable=SC2086
+          shopt -s dotglob nullglob
           for item in "$stage_dir"/*; do
             name="$(basename "$item")"
             [ "$name" = ".prev" ] && continue
             [ "$name" = ".merged" ] && continue
             cp -a "$item" "$merged/"
           done
-          # fill in only what new doesn't have, preserving append-only semantics
-          if [ -d "$prev_extract" ]; then
-            ( cd "$prev_extract" && cp -an . "$merged/" )
-          fi
-          # replace stage contents with merged
-          rm -rf "$stage_dir/.new_save" 2>/dev/null || true
-          # preserve .prev for inspection? Not needed. Clean it.
+          shopt -u dotglob nullglob
+          # cp -an: prev fills only what's missing in new
+          ( cd "$prev_extract" && cp -an . "$merged/" )
           rm -rf "$prev_extract"
-          # nuke stage_dir contents and replace with merged
+          # Replace stage_dir contents with merged (skip .merged itself).
           find "$stage_dir" -mindepth 1 -maxdepth 1 ! -name '.merged' -exec rm -rf {} +
-          mv "$stage_dir/.merged"/* "$stage_dir/" 2>/dev/null || true
-          rmdir "$stage_dir/.merged" 2>/dev/null || true
+          shopt -s dotglob nullglob
+          mv "$stage_dir/.merged"/* "$stage_dir/"
+          shopt -u dotglob nullglob
+          rmdir "$stage_dir/.merged"
           log "Merged with previous archive (append-only)"
         else
           log "Failed to extract previous archive; pack will be a full rebuild"
@@ -472,9 +475,10 @@ let
         fi
 
         # Snapshot rotation: if retain > 0, move current archive to datestamped
-        # before replacing.
+        # before replacing. PID appended to avoid collisions when two packs
+        # complete in the same wall-clock second.
         if [ -f "$output" ] && [ "$retain" -gt 0 ]; then
-          stamp="$(date +%Y%m%d-%H%M%S)"
+          stamp="$(date +%Y%m%d-%H%M%S)-$$"
           snapshot="$backup_dir/archive-$stamp.lrz"
           log "Snapshotting previous archive to $snapshot"
           mv "$output" "$snapshot"
@@ -630,18 +634,14 @@ let
       grep -q "file2.txt" "$work/list2.txt" || { echo "FAIL: file2.txt missing after re-pack" >&2; exit 1; }
 
       log "Test --exclude"
-      rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest"
-      rm -rf "$backup_dir/archive.lrz"
-      # Re-create sources (we cleaned them in --clean-source? No, we don't run that.)
+      rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest" \
+        "$backup_dir/archive.lrz" "$backup_dir"/archive-*.lrz
       ( cd "$work/src_a" && tar -czf "$backup_dir/sample-a.tgz" . )
       ( cd "$work/src_b" && tar -czf "$backup_dir/sample-b.tgz" . )
       ( cd "$work/src_a" && zip -qr "$backup_dir/sample-c.zip" . )
       printf 'plain note\n' > "$backup_dir/notes.txt"
       mkdir -p "$backup_dir/docs"
       printf 'readme\n' > "$backup_dir/docs/readme.txt"
-      printf 'exclude me\n' > "$backup_dir/sample-a.tgz" # trick; let's actually just test with --exclude
-      rm "$backup_dir/sample-a.tgz"
-      ( cd "$work/src_a" && tar -czf "$backup_dir/sample-a.tgz" . )
 
       ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
         --threads 2 --maxram 40 --window 5 --level 1 \
