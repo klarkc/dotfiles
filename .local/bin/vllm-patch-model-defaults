@@ -92,8 +92,8 @@ models = [
         'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
     },
     {
-        'id': 'qwen3.6-27b',
-        'name': 'Qwen3.6 27B',
+        'id': 'qwen3.8-27b',
+        'name': 'Qwen3.8 27B',
         'reasoning': True,
         'input': ['text'],
         'contextWindow': context_window,
@@ -154,8 +154,9 @@ models = data['provider']['vllm'].setdefault('models', {})
 current_id = models.get(model_id, {})
 if isinstance(current_id, dict):
     current_id['name'] = model_name
-    current_id['limit']['context'] = int(context_window)
+    current_id.setdefault('limit', {})['context'] = int(context_window)
     current_id['limit']['output'] = int(max_tokens)
+    models[model_id] = current_id
 else:
     models[model_id] = {'name': model_name, 'limit': {'context': int(context_window), 'output': int(max_tokens)}}
 tmp = path + '.tmp'
@@ -184,8 +185,8 @@ models = [
         'cost_per_1m_out': 0,
     },
     {
-        'name': 'Qwen3.6 27B',
-        'id': 'qwen3.6-27b',
+        'name': 'Qwen3.8 27B',
+        'id': 'qwen3.8-27b',
         'context_window': int(context_window),
         'default_max_tokens': int(max_tokens),
         'cost_per_1m_in': 0,
