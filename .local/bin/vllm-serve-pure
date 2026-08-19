@@ -3,7 +3,9 @@ set -euo pipefail
 
 cache="${VLLM_RUNTIME_DIR:?VLLM_RUNTIME_DIR is required}"
 export XDG_CACHE_HOME="$cache/xdg-cache"
-mkdir -p "$cache" "$XDG_CACHE_HOME"
+export HUMMING_CACHE_DIR="$cache/humming/cache"
+export HUMMING_TMP_DIR="$cache/humming/tmp"
+mkdir -p "$cache" "$XDG_CACHE_HOME" "$HUMMING_CACHE_DIR" "$HUMMING_TMP_DIR"
 
 vllm_bin="${VLLM_BIN:-$HOME/.nix-profile/bin/vllm}"
 if [ ! -x "$vllm_bin" ]; then
