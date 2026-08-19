@@ -11,11 +11,14 @@ let
   );
 
   # Keep CUDA's unfree license opt-in local to the vLLM runtime instead of
-  # changing the repository-wide Nixpkgs policy.
+  # changing the repository-wide Nixpkgs policy. Pin CUDA 13.0 to match the
+  # cu130 PyTorch/vLLM wheel set; Nixpkgs' default cudaPackages is currently
+  # CUDA 12.9, whose cuda_crt placeholder is intentionally unsupported.
   cudaPkgs = import pkgs.path {
     system = pkgs.stdenv.hostPlatform.system;
     config.allowUnfree = true;
   };
+  cuda = cudaPkgs.cudaPackages_13_0;
 
   vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
 
@@ -94,12 +97,12 @@ let
   cudaJitToolkit = pkgs.symlinkJoin {
     name = "vllm-cuda-jit-toolkit";
     paths =
-      with cudaPkgs.cudaPackages;
+      with cuda;
       [
         cuda_nvcc
         cuda_cudart
-      ]
-      ++ pkgs.lib.optional (cudaPkgs.cudaPackages ? cuda_crt) cudaPkgs.cudaPackages.cuda_crt;
+        cuda_crt
+      ];
     postBuild = ''
       if [ -d "$out/lib" ] && [ ! -e "$out/lib64" ]; then
         ln -s lib "$out/lib64"
@@ -126,7 +129,7 @@ let
   runtimeLibraryPath = pkgs.lib.makeLibraryPath [
     pkgs.stdenv.cc.cc.lib
     pkgs.zstd
-    cudaPkgs.cudaPackages.cuda_cudart
+    cuda.cuda_cudart
   ];
 in
 pkgs.stdenvNoCC.mkDerivation {
