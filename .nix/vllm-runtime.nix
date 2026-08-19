@@ -26,7 +26,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = pkgs.lib.fakeHash;
+    outputHash = "sha256-XpIO5SsjA/6KQhdYJxjSjZE57nYrph5S/o8ZThE6b7U=";
 
     dontUnpack = true;
 
