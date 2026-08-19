@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-find_nix() {
-  for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do
-    [ -x "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
-  done
-  echo "nix executable not found" >&2
-  return 127
-}
-
-nix_bin="$(find_nix)"
 cache="${VLLM_RUNTIME_DIR:?VLLM_RUNTIME_DIR is required}"
 export XDG_CACHE_HOME="$cache/xdg-cache"
 mkdir -p "$cache" "$XDG_CACHE_HOME"
 
-runtime="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "${VLLM_NIX_CONFIG:?VLLM_NIX_CONFIG is required}")"
+vllm_bin="${VLLM_BIN:-$HOME/.nix-profile/bin/vllm}"
+if [ ! -x "$vllm_bin" ]; then
+  echo "vLLM binary not found in klarkc profile: $vllm_bin" >&2
+  echo "Run: nix profile upgrade klarkc" >&2
+  exit 127
+fi
+
+runtime="$(dirname "$(dirname "$(readlink -f "$vllm_bin")")")"
 
 if [ -r "$HOME/.profile" ]; then
   set -a
