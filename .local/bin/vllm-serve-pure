@@ -74,7 +74,7 @@ args=(
   --max-model-len "$MAX_MODEL_LEN"
   --max-num-seqs "$MAX_NUM_SEQS"
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
-  --cpu-offload-gb "$CPU_OFFLOAD_GB"
+  --cpu-offload-gb "${CPU_OFFLOAD_GB:-0}"
   --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS"
   --max-num-partial-prefills "$MAX_NUM_PARTIAL_PREFILLS"
   --renderer-num-workers "$RENDERER_NUM_WORKERS"
@@ -91,6 +91,11 @@ args=(
   --tool-call-parser qwen3_coder
   --disable-uvicorn-access-log
 )
+[ -z "${KV_CACHE_DTYPE:-}" ] || args+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
+[ -z "${OFFLOAD_BACKEND:-}" ] || args+=(--offload-backend "$OFFLOAD_BACKEND")
+[ -z "${OFFLOAD_GROUP_SIZE:-}" ] || args+=(--offload-group-size "$OFFLOAD_GROUP_SIZE")
+[ -z "${OFFLOAD_NUM_IN_GROUP:-}" ] || args+=(--offload-num-in-group "$OFFLOAD_NUM_IN_GROUP")
+[ -z "${OFFLOAD_PREFETCH_STEP:-}" ] || args+=(--offload-prefetch-step "$OFFLOAD_PREFETCH_STEP")
 [ -z "${MODEL_REVISION:-}" ] || args+=(--revision "$MODEL_REVISION" --tokenizer-revision "$MODEL_REVISION" --code-revision "$MODEL_REVISION")
 [ -z "${VLLM_API_KEY:-}" ] || args+=(--api-key "$VLLM_API_KEY")
 [ -z "${SPECULATIVE_CONFIG_B64:-}" ] || args+=(--speculative-config "$(printf %s "$SPECULATIVE_CONFIG_B64" | base64 -d)")
@@ -106,5 +111,5 @@ EOF
 
 echo "Runtime command: $cache/runtime_command.sh"
 echo "Benchmark metadata: $cache/benchmark.env"
-echo "Serving model: $MODEL as $SERVED_MODEL_NAME context=$MAX_MODEL_LEN seqs=$MAX_NUM_SEQS"
+echo "Serving model: $MODEL as $SERVED_MODEL_NAME context=$MAX_MODEL_LEN seqs=$MAX_NUM_SEQS kv=${KV_CACHE_DTYPE:-auto} offload=${OFFLOAD_BACKEND:-uva}"
 exec "$runtime/bin/vllm" serve "$MODEL" "${args[@]}"
