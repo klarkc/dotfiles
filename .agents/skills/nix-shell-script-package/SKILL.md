@@ -4,7 +4,7 @@
 
 Apply when the user asks for any of:
 
-- A new command-line tool written in shell (`bash`, POSIX `sh`)
+- A new command-line tool written in shell (`bash`)
 - A tool that needs runtime inputs from `nixpkgs` (e.g. `lrzip`, `git`, `jq`)
 - A tool that must be installable via `nix profile install`
 - A tool that comes with a self-test
