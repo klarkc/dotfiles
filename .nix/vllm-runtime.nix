@@ -10,15 +10,7 @@ let
     ]
   );
 
-  # Build vLLM from the requested GitHub PR instead of installing a released
-  # vLLM wheel. Pinning the PR ref keeps the user-facing requirement identical
-  # to:
-  #   pip install -v "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head"
   vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
-
-  # The PR head currently requires the CUDA 13 generation of its dependencies.
-  # Let vLLM's own metadata resolve exact runtime dependencies; the cu130 index
-  # below ensures CUDA-flavoured PyTorch wheels are available to pip.
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
     pname = "vllm-pr52729-wheelhouse";
@@ -27,12 +19,11 @@ let
     nativeBuildInputs = with pkgs; [
       cacert
       git
+      cmake
+      ninja
       pythonWithPip
     ];
 
-    # This changes whenever the PR head or any resolved dependency changes.
-    # Run `nix build .#vllm-runtime`; Nix will print the actual recursive hash,
-    # then replace lib.fakeHash with that value.
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
     outputHash = pkgs.lib.fakeHash;
@@ -44,23 +35,44 @@ let
       mkdir -p "$HOME" "$out"
       export PIP_DISABLE_PIP_VERSION_CHECK=1
       export PIP_NO_CACHE_DIR=1
-
-      # PEP 517 installs PyTorch into an isolated temporary environment and
-      # imports it while evaluating vLLM's build metadata. Binary PyTorch
-      # wheels expect libstdc++.so.6 to be discoverable by the dynamic linker.
-      export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}:''${LD_LIBRARY_PATH:-}"
-
-      # The requested PR change is Python-side CUDA dispatch. Reuse the
-      # matching precompiled vLLM extensions instead of requiring a complete
-      # CUDA compiler toolchain inside this Nix fixed-output derivation.
       export VLLM_USE_PRECOMPILED=1
       export VLLM_MAIN_CUDA_VERSION=13.0
-
-      # Make the locally-built PR wheel reproducible enough for a Nix FOD.
       export SOURCE_DATE_EPOCH=315532800
       export PYTHONHASHSEED=0
 
+      # Avoid pip's opaque PEP 517 build environment. vLLM's PR head declares
+      # these build requirements in pyproject.toml; stage them explicitly so
+      # we can make the binary PyTorch wheel's shared libraries visible.
+      buildsite="$TMPDIR/vllm-build-site"
+      mkdir -p "$buildsite"
+      ${pythonWithPip}/bin/python3.12 -m pip install -v \
+        --target "$buildsite" \
+        --extra-index-url https://download.pytorch.org/whl/cu130 \
+        "cmake>=3.26.1" \
+        ninja \
+        "packaging>=24.2" \
+        "setuptools>=77.0.3,<81.0.0" \
+        "setuptools-scm>=8.0" \
+        "setuptools-rust>=1.9.0" \
+        "torch==2.13.0" \
+        wheel \
+        jinja2
+
+      export PYTHONPATH="$buildsite''${PYTHONPATH:+:$PYTHONPATH}"
+      build_ld="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}"
+      [ ! -d "$buildsite/torch/lib" ] || build_ld="$buildsite/torch/lib:$build_ld"
+      if [ -d "$buildsite/nvidia" ]; then
+        nvidia_ld="$(find "$buildsite/nvidia" -type d -name lib -print 2>/dev/null | paste -sd: - || true)"
+        [ -z "$nvidia_ld" ] || build_ld="$nvidia_ld:$build_ld"
+      fi
+      export LD_LIBRARY_PATH="$build_ld''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+      echo "Checking staged PyTorch before building vLLM..."
+      echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+      ${pythonWithPip}/bin/python3.12 -c 'import torch; print("torch build dependency:", torch.__version__, "CUDA:", torch.version.cuda)'
+
       ${pythonWithPip}/bin/python3.12 -m pip wheel -v \
+        --no-build-isolation \
         --wheel-dir "$out" \
         --extra-index-url https://download.pytorch.org/whl/cu130 \
         --extra-index-url https://flashinfer.ai/whl/ \
@@ -106,8 +118,6 @@ pkgs.stdenvNoCC.mkDerivation {
         export PIP_DISABLE_PIP_VERSION_CHECK=1
         export PIP_NO_CACHE_DIR=1
 
-        # Install the wheel built from refs/pull/52729/head plus all of its resolved
-        # dependencies, completely offline from the fixed-output wheelhouse.
         ${pythonWithPip}/bin/python3.12 -m pip install -v \
           --no-index \
           --find-links ${wheelhouse} \
