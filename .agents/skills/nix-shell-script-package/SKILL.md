@@ -182,9 +182,9 @@ Before considering the skill applied:
   `printf -v`, process substitution `<( )` are bash features but all supported
   by `writeShellApplication`'s default bash interpreter. No `runtimeInput`
   needed for bash itself; only list non-bash dependencies (`coreutils`,
-  `gnutar`, `gzip`, etc). If your script requires POSIX `sh` instead of bash,
-  use `writeScript` (or `writeShellScript` with `runtimeEnv`) — but then you
-  lose the bash-only conveniences.
+  `gnutar`, `gzip`, etc). Note: this skill is bash-centric. POSIX `sh` scripts
+  require custom packaging — `writeScript` and `writeShellScript` have no
+  `runtimeInputs`, so PATH management falls on the script author.
 - **nixfmt choking on shell heredocs inside Nix strings.** The whole point of
   this skill is to avoid that: scripts live in `.sh` files, nixfmt never sees
   their content.
@@ -218,8 +218,9 @@ a working example:
   archives, `--keep-archives`, `--dry-run`, `--clean-temp`, `--clean-source`,
   `--skip-source-integrity` + corrupt source, `--verify` (success),
   `--verify` (missing), `--help`, `--retain 1`, `--retain 0`. 13 of these are
-  prefixed with `Test ...` in the log; the other 2 are setup steps that share
-  assertions with adjacent scenarios.)
+  prefixed with `Test ...` in the log; the other 2 (basic pack and
+  append-only) are setup steps with their own assertions under non-`Test`
+  log prefixes.)
 - `.nix/backup-tools.nix` (the Nix wrapper using `builtins.readFile`)
 - `flake.nix` exposes `packages.archive-pack`, `packages.archive-pack-test`,
   `checks.archive-pack-test`
