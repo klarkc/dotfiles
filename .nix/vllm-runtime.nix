@@ -10,45 +10,56 @@ let
     ]
   );
 
-  # Bump note: vLLM 0.24.0 explicitly pins torch/torchvision/torchaudio
-  # versions in its wheel metadata (verified via PyPI JSON API). vLLM 0.24.0
-  # was built and tested against torch 2.11.0, not torch 2.12.x. Overriding
-  # the torch version would create an untested combination that pip would
-  # not have validated. We should keep the explicit pins from vllm 0.24.0's
-  # wheel metadata and only change the vLLM version itself in the bump.
-  pytorchPackages = [
-    "torch==2.11.0+cu130"
-    "torchvision==0.26.0+cu130"
-    "torchaudio==2.11.0+cu130"
-  ];
+  # Build vLLM from the requested GitHub PR instead of installing a released
+  # vLLM wheel. Pinning the PR ref keeps the user-facing requirement identical
+  # to:
+  #   pip install -v "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head"
+  vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
 
-  vllmPackages = [
-    "vllm==0.24.0"
-  ];
-
-  allPythonPackages = pytorchPackages ++ vllmPackages;
+  # The PR head currently requires the CUDA 13 generation of its dependencies.
+  # Let vLLM's own metadata resolve exact runtime dependencies; the cu130 index
+  # below ensures CUDA-flavoured PyTorch wheels are available to pip.
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
-    pname = "vllm-wheelhouse";
+    pname = "vllm-pr52729-wheelhouse";
     inherit version;
 
     nativeBuildInputs = with pkgs; [
       cacert
+      git
       pythonWithPip
     ];
 
-    # Bump note: outputHash is a placeholder. With the new torch 2.12+cu130
-    # and vLLM 0.24.0 wheelhouse combo, the hash must be recomputed on first
-    # build. Running `nix build .#vllm-runtime` will fail with a "hash mismatch"
-    # error that prints the actual hash; copy that hash into this line.
+    # This changes whenever the PR head or any resolved dependency changes.
+    # Run `nix build .#vllm-runtime`; Nix will print the actual recursive hash,
+    # then replace lib.fakeHash with that value.
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-jnjqtLoM22BicORhLRMjig7r7ejX5Sz8IGSfqMXLAio=";
+    outputHash = pkgs.lib.fakeHash;
+
+    dontUnpack = true;
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
       mkdir -p "$HOME" "$out"
-      ${pythonWithPip}/bin/python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ${pkgs.lib.escapeShellArgs allPythonPackages}
+      export PIP_DISABLE_PIP_VERSION_CHECK=1
+      export PIP_NO_CACHE_DIR=1
+
+      # The requested PR change is Python-side CUDA dispatch. Reuse the
+      # matching precompiled vLLM extensions instead of requiring a complete
+      # CUDA compiler toolchain inside this Nix fixed-output derivation.
+      export VLLM_USE_PRECOMPILED=1
+      export VLLM_MAIN_CUDA_VERSION=13.0
+
+      # Make the locally-built PR wheel reproducible enough for a Nix FOD.
+      export SOURCE_DATE_EPOCH=315532800
+      export PYTHONHASHSEED=0
+
+      ${pythonWithPip}/bin/python3.12 -m pip wheel -v \
+        --wheel-dir "$out" \
+        --extra-index-url https://download.pytorch.org/whl/cu130 \
+        --extra-index-url https://flashinfer.ai/whl/ \
+        ${pkgs.lib.escapeShellArg vllmRequirement}
     '';
   };
 
@@ -90,26 +101,27 @@ pkgs.stdenvNoCC.mkDerivation {
         export PIP_DISABLE_PIP_VERSION_CHECK=1
         export PIP_NO_CACHE_DIR=1
 
-        ${pythonWithPip}/bin/python3.12 -m pip install \
-          --pre \
+        # Install the wheel built from refs/pull/52729/head plus all of its resolved
+        # dependencies, completely offline from the fixed-output wheelhouse.
+        ${pythonWithPip}/bin/python3.12 -m pip install -v \
           --no-index \
           --find-links ${wheelhouse} \
           --target "$out/lib/python3.12/site-packages" \
-          ${pkgs.lib.escapeShellArgs allPythonPackages}
+          vllm
 
         makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
           --set PYTHONNOUSERSITE 1 \
           --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
           --prefix PATH : "${runtimePath}"
 
-        cat > "$out/bin/vllm" <<EOF
+        cat > "$out/bin/vllm" <<EOF2
     #!/bin/sh
     export PYTHONNOUSERSITE=1
     export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
     export PATH="${runtimePath}:\''${PATH:-}"
     export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
     exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.cli.main "\$@"
-    EOF
+    EOF2
         chmod 0755 "$out/bin/vllm"
 
         printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
