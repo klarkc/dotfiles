@@ -427,9 +427,8 @@ let
           done
           shopt -u dotglob nullglob
           # Append-only fill: copy prev contents into merged, skipping anything
-          # already provided by new sources. --ignore-existing skips per file, so
-          # prev-only files inside directories that exist in both prev and new are
-          # preserved.
+          # already provided by new sources. --ignore-existing preserves prev-only
+          # files inside directories that exist in both prev and new.
           rsync -a --ignore-existing "$prev_extract"/ "$merged"/
           rm -rf "$prev_extract"
           # Replace stage_dir contents with merged (skip .merged itself).
