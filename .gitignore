@@ -24,6 +24,9 @@
 # nix files
 !/.nix
 
+# agent skills
+!/.agents
+
 # google takeout backup (source archives, staging, packed archive)
 !/.backup
 /.backup/*
