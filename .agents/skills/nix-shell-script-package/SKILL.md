@@ -110,9 +110,9 @@ packages.<tool> = <tool>Script;
 packages.<tool>-test = <tool>TestScript;
 ```
 
-Note: this repo does NOT add tools to `packages.default.paths`. Standalone
-`packages.<tool>` is sufficient for `nix run` and `nix profile install` to find
-them by attribute name.
+Note: prefer standalone `packages.<tool>` over adding to
+`packages.default.paths`. Standalone packages are sufficient for
+`nix run .#<tool>` and `nix profile install` to find them by attribute name.
 
 Add check:
 
@@ -171,7 +171,7 @@ Before considering the skill applied:
       fast). Use small fixtures (KB-scale payloads, not multi-MB).
 - [ ] Memory ceiling for `lrzip`-style tools: `--maxram` of 4 GB (`-m 40`) in
       the test default, so the test passes on a 16 GB machine.
-- [ ] Commits is on one logical change; no unrelated edits bundled in
+- [ ] Commit is on one logical change; no unrelated edits bundled in
 
 ## Common pitfalls
 
@@ -179,9 +179,10 @@ Before considering the skill applied:
   paths; `builtins.readFile` of an untracked file fails the flake check with
   `Path '.nix/<tool>/<tool>.sh' is not tracked by Git`.
 - **Bash-only features in scripts that should be POSIX.** `[[ ]]`, `local`,
-  arrays, `printf -v`, process substitution `<( )` are bash-only. The
-  `runtimeInputs` should include `bash` (or use `bash` as the interpreter).
-  `writeShellApplication` defaults to bash, so plain bash is fine.
+  arrays, `printf -v`, process substitution `<( )` are bash-only. Plain bash
+  is fine because `writeShellApplication` defaults to bash as the interpreter;
+  `runtimeInputs` only needs to list non-bash dependencies (`coreutils`,
+  `gnutar`, `gzip`, etc).
 - **nixfmt choking on shell heredocs inside Nix strings.** The whole point of
   this skill is to avoid that: scripts live in `.sh` files, nixfmt never sees
   their content.
@@ -210,11 +211,13 @@ The first iteration of this pattern is `.nix/archive-pack/` and
 a working example:
 
 - `.nix/archive-pack/archive-pack.sh` (the main pack tool, 544 lines)
-- `.nix/archive-pack/archive-pack-test.sh` (the self-test with 13 subtests:
+- `.nix/archive-pack/archive-pack-test.sh` (the self-test with 15 scenarios:
   basic pack, append-only, `--exclude`, files-inside-shared-dirs, dedup across
   archives, `--keep-archives`, `--dry-run`, `--clean-temp`, `--clean-source`,
   `--skip-source-integrity` + corrupt source, `--verify` success + missing,
-  `--help`, `--retain 1`, `--retain 0`)
+  `--help`, `--retain 1`, `--retain 0`. 13 of these are prefixed with `Test ...`
+  in the log; the other 2 are setup steps that share assertions with adjacent
+  scenarios.)
 - `.nix/backup-tools.nix` (the Nix wrapper using `builtins.readFile`)
 - `flake.nix` exposes `packages.archive-pack`, `packages.archive-pack-test`,
   `checks.archive-pack-test`
