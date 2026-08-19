@@ -170,4 +170,177 @@ if [ "$archive_size" -ge "$threshold" ]; then
   exit 1
 fi
 
+log "Test --keep-archives keeps original archive alongside extracted contents"
+rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest" \
+  "$backup_dir/archive.lrz" "$backup_dir"/archive-*.lrz
+mkdir -p "$work/src_keep"
+printf 'kept archive content\n' >"$work/src_keep/keep.txt"
+(cd "$work/src_keep" && tar -czf "$backup_dir/keep-sample.tgz" .)
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --keep-archives
+lrzip -d -o - "$backup_dir/archive.lrz" | tar -tf - >"$work/list_keep.txt"
+grep -q "keep-sample-extract/keep.txt" "$work/list_keep.txt" ||
+  {
+    echo "FAIL: --keep-archives missing extracted dir" >&2
+    exit 1
+  }
+grep -q "keep-sample.tgz" "$work/list_keep.txt" ||
+  {
+    echo "FAIL: --keep-archives missing original archive" >&2
+    exit 1
+  }
+
+log "Test --dry-run does not modify archive"
+size_before=$(stat -c%s "$backup_dir/archive.lrz")
+mtime_before=$(stat -c%Y "$backup_dir/archive.lrz")
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --dry-run >/dev/null 2>&1
+size_after=$(stat -c%s "$backup_dir/archive.lrz")
+mtime_after=$(stat -c%Y "$backup_dir/archive.lrz")
+if [ "$size_before" != "$size_after" ] || [ "$mtime_before" != "$mtime_after" ]; then
+  echo "FAIL: --dry-run modified archive (size $size_before->$size_after, mtime $mtime_before->$mtime_after)" >&2
+  exit 1
+fi
+
+log "Test --clean-temp removes stage/ and logs/ but preserves archive"
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --clean-temp
+[ ! -d "$backup_dir/stage" ] ||
+  {
+    echo "FAIL: --clean-temp did not remove stage/" >&2
+    exit 1
+  }
+[ ! -d "$backup_dir/logs" ] ||
+  {
+    echo "FAIL: --clean-temp did not remove logs/" >&2
+    exit 1
+  }
+[ -f "$backup_dir/archive.lrz" ] ||
+  {
+    echo "FAIL: --clean-temp removed archive.lrz" >&2
+    exit 1
+  }
+
+log "Test --clean-source removes sources and preserves archive + excludes"
+rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest" \
+  "$backup_dir/archive.lrz" "$backup_dir"/archive-*.lrz
+mkdir -p "$work/src_clean"
+printf 'clean me\n' >"$work/src_clean/data.txt"
+(cd "$work/src_clean" && tar -czf "$backup_dir/clean-sample.tgz" .)
+test -f "$backup_dir/clean-sample.tgz" ||
+  {
+    echo "FAIL: setup (clean-sample.tgz not created)" >&2
+    exit 1
+  }
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --clean-source || ec=$?
+[ "$ec" = "0" ] || {
+  echo "FAIL: --clean-source exited with $ec" >&2
+  exit 1
+}
+[ ! -f "$backup_dir/clean-sample.tgz" ] ||
+  {
+    echo "FAIL: --clean-source did not remove clean-sample.tgz" >&2
+    exit 1
+  }
+[ -f "$backup_dir/archive.lrz" ] ||
+  {
+    echo "FAIL: --clean-source removed archive.lrz" >&2
+    exit 1
+  }
+[ -f "$backup_dir/archive.lrz.SUMMARY.txt" ] ||
+  {
+    echo "FAIL: --clean-source removed archive.lrz.SUMMARY.txt" >&2
+    exit 1
+  }
+
+log "Test --skip-source-integrity bypasses corrupt-source check"
+rm -rf "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest" \
+  "$backup_dir/archive.lrz" "$backup_dir"/archive-*.lrz
+printf 'this is not a real tar.gz\n' >"$backup_dir/corrupt.tgz"
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 || ec=$?
+[ "$ec" = "2" ] || {
+  echo "FAIL: corrupt source should exit 2, got $ec" >&2
+  exit 1
+}
+[ ! -f "$backup_dir/archive.lrz" ] ||
+  {
+    echo "FAIL: corrupt source produced archive.lrz" >&2
+    exit 1
+  }
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --skip-source-integrity || ec=$?
+[ "$ec" = "0" ] ||
+  {
+    echo "FAIL: --skip-source-integrity should exit 0, got $ec" >&2
+    exit 1
+  }
+rm -f "$backup_dir/corrupt.tgz"
+
+log "Test --verify on existing archive exits 0"
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --verify || ec=$?
+[ "$ec" = "0" ] || {
+  echo "FAIL: --verify on valid archive exited $ec" >&2
+  exit 1
+}
+
+log "Test --verify on missing archive exits non-zero"
+rm -f "$backup_dir/archive.lrz"
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --verify >/dev/null 2>&1 || ec=$?
+[ "$ec" != "0" ] || {
+  echo "FAIL: --verify on missing archive should fail, exited $ec" >&2
+  exit 1
+}
+
+log "Test --help exits 0 and prints usage"
+ec=0
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --help || ec=$?
+[ "$ec" = "0" ] || {
+  echo "FAIL: --help exited with $ec" >&2
+  exit 1
+}
+
+log "Test --retain 1 keeps only one snapshot"
+rm -rf "$backup_dir"/archive-*.lrz "$backup_dir/archive.lrz" "$backup_dir/archive.lrz.SUMMARY.txt" \
+  "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest"
+mkdir -p "$work/src_r1" "$work/src_r2" "$work/src_r3"
+printf 'one\n' >"$work/src_r1/a.txt"
+printf 'two\n' >"$work/src_r2/b.txt"
+printf 'three\n' >"$work/src_r3/c.txt"
+(cd "$work/src_r1" && tar -czf "$backup_dir/r1.tgz" .)
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --threads 2 --maxram 40 --window 5 --level 1
+sleep 1
+(cd "$work/src_r2" && tar -czf "$backup_dir/r2.tgz" .)
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --threads 2 --maxram 40 --window 5 --level 1
+sleep 1
+(cd "$work/src_r3" && tar -czf "$backup_dir/r3.tgz" .)
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --threads 2 --maxram 40 --window 5 --level 1 --retain 1
+snap_count=$(find "$backup_dir" -maxdepth 1 -name 'archive-*.lrz' | wc -l)
+[ "$snap_count" = "1" ] || {
+  echo "FAIL: --retain 1 left $snap_count snapshots, expected 1" >&2
+  exit 1
+}
+
+log "Test --retain 0 disables snapshotting"
+rm -rf "$backup_dir"/archive-*.lrz "$backup_dir/archive.lrz" "$backup_dir/archive.lrz.SUMMARY.txt" \
+  "$backup_dir/stage" "$backup_dir/logs" "$backup_dir/manifest"
+mkdir -p "$work/src_r0"
+printf 'zero\n' >"$work/src_r0/x.txt"
+(cd "$work/src_r0" && tar -czf "$backup_dir/r0.tgz" .)
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack --threads 2 --maxram 40 --window 5 --level 1
+sleep 1
+ARCHIVE_PACK_DIR="$backup_dir" archive-pack \
+  --threads 2 --maxram 40 --window 5 --level 1 --retain 0
+snap_count=$(find "$backup_dir" -maxdepth 1 -name 'archive-*.lrz' | wc -l)
+[ "$snap_count" = "0" ] || {
+  echo "FAIL: --retain 0 created $snap_count snapshots, expected 0" >&2
+  exit 1
+}
+
 log "PASS"
