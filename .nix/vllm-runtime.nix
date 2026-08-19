@@ -91,9 +91,10 @@ let
   };
 
   # FlashInfer JITs attention kernels at runtime for shapes that are not already
-  # available as prebuilt artifacts. Give it a small CUDA_HOME containing only
-  # the compiler, runtime/driver stubs, and CUDA 13 CRT headers instead of the
-  # full CUDA toolkit. FlashInfer hard-codes lib64 paths, while Nixpkgs uses lib.
+  # available as prebuilt artifacts. Humming's NVRTC path also uses CUDA's C++
+  # standard-library headers from CCCL (for example cuda/std/cstdint). Keep a
+  # small CUDA_HOME instead of installing the full toolkit. FlashInfer hard-
+  # codes lib64 paths, while Nixpkgs uses lib.
   cudaJitToolkit = pkgs.symlinkJoin {
     name = "vllm-cuda-jit-toolkit";
     paths =
@@ -102,10 +103,16 @@ let
         cuda_nvcc
         cuda_cudart
         cuda_crt
+        cccl
       ];
     postBuild = ''
       if [ -d "$out/lib" ] && [ ! -e "$out/lib64" ]; then
         ln -s lib "$out/lib64"
+      fi
+
+      if [ ! -e "$out/include/cuda/std/cstdint" ]; then
+        echo "CUDA JIT toolkit is missing CCCL header cuda/std/cstdint" >&2
+        exit 1
       fi
     '';
   };
