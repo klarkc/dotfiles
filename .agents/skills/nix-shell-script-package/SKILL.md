@@ -73,23 +73,27 @@ let
     # ...add as needed
   ];
 
-  script = pkgs.writeShellApplication {
+  <tool>Script = pkgs.writeShellApplication {
     name = "<tool>";
     runtimeInputs = runtime;
     text = builtins.readFile ./<tool>/<tool>.sh;
   };
 
-  test = pkgs.writeShellApplication {
+  <tool>TestScript = pkgs.writeShellApplication {
     name = "<tool>-test";
-    runtimeInputs = runtime ++ [ script ];
+    runtimeInputs = runtime ++ [ <tool>Script ];
     text = builtins.readFile ./<tool>/<tool>-test.sh;
   };
 in
 {
-  inherit script test;
+  inherit <tool>Script <tool>TestScript;
   inherit runtime;
 }
 ```
+
+The actual repo uses prefixed names (`packScript`, `testScript`) rather than bare
+`script` / `test` to avoid shadowing and to keep flake outputs distinct when
+multiple tools are packaged this way.
 
 Why `builtins.readFile`:
 
@@ -99,25 +103,22 @@ Why `builtins.readFile`:
 
 ### 3. Wire into `flake.nix`
 
-Add to `packages.default.paths`:
-
-```nix
-script
-test
-```
-
 Add standalone packages:
 
 ```nix
-packages.<tool> = script;
-packages.<tool>-test = test;
+packages.<tool> = <tool>Script;
+packages.<tool>-test = <tool>TestScript;
 ```
+
+Note: this repo does NOT add tools to `packages.default.paths`. Standalone
+`packages.<tool>` is sufficient for `nix run` and `nix profile install` to find
+them by attribute name.
 
 Add check:
 
 ```nix
 checks.<tool>-test = pkgs.runCommand "<tool>-test"
-  { nativeBuildInputs = [ test ]; }
+  { nativeBuildInputs = [ <tool>TestScript ]; }
   ''
     <tool>-test
     touch $out
@@ -166,6 +167,10 @@ Before considering the skill applied:
       exit code, output content, archive size, etc.)
 - [ ] At least one subtest covers a regression scenario (something that used to
       work, would fail if a specific implementation detail changes)
+- [ ] The full self-test runs in under 60 seconds (so `nix flake check` stays
+      fast). Use small fixtures (KB-scale payloads, not multi-MB).
+- [ ] Memory ceiling for `lrzip`-style tools: `--maxram` of 4 GB (`-m 40`) in
+      the test default, so the test passes on a 16 GB machine.
 - [ ] Commits is on one logical change; no unrelated edits bundled in
 
 ## Common pitfalls
@@ -186,15 +191,30 @@ Before considering the skill applied:
 - **Tests asserting on `--exclude` patterns with loose grep.** Use anchored
   regex (`^\\./sample-b\\.tgz$`) instead of substring (`grep "sample-b"`), or
   split into two greps so each pattern's intent is explicit.
+- **`set -e` + capturing exit code of an expected failure.** With `set -e`,
+  a command that exits non-zero aborts the script before `ec=$?` runs. To
+  capture an expected failure, neutralize `set -e` for that command:
+  ```bash
+  ec=0
+  some_command || ec=$?
+  [ "$ec" = "EXPECTED" ] || { echo "FAIL: got $ec"; exit 1; }
+  ```
+  The `||` clause is exempt from `set -e`, so the assignment runs. The same
+  pattern applies to `cmp -s`, `[ ]` tests that may fail unexpectedly, and any
+  command whose exit code you want to inspect.
 
 ## Reference implementation
 
 The first iteration of this pattern is `.nix/archive-pack/` and
-`.nix/backup-tools.nix` in this repo (commit `677e32b`). Use it as a working
-example:
+`.nix/backup-tools.nix` in this repo (commits `677e32b`, `c7078e0`). Use it as
+a working example:
 
-- `.nix/archive-pack/archive-pack.sh` (the main pack tool)
-- `.nix/archive-pack/archive-pack-test.sh` (the self-test with 8 subtests)
+- `.nix/archive-pack/archive-pack.sh` (the main pack tool, 544 lines)
+- `.nix/archive-pack/archive-pack-test.sh` (the self-test with 13 subtests:
+  basic pack, append-only, `--exclude`, files-inside-shared-dirs, dedup across
+  archives, `--keep-archives`, `--dry-run`, `--clean-temp`, `--clean-source`,
+  `--skip-source-integrity` + corrupt source, `--verify` success + missing,
+  `--help`, `--retain 1`, `--retain 0`)
 - `.nix/backup-tools.nix` (the Nix wrapper using `builtins.readFile`)
 - `flake.nix` exposes `packages.archive-pack`, `packages.archive-pack-test`,
   `checks.archive-pack-test`
