@@ -97,6 +97,7 @@ args=(
 [ -z "${OFFLOAD_GROUP_SIZE:-}" ] || args+=(--offload-group-size "$OFFLOAD_GROUP_SIZE")
 [ -z "${OFFLOAD_NUM_IN_GROUP:-}" ] || args+=(--offload-num-in-group "$OFFLOAD_NUM_IN_GROUP")
 [ -z "${OFFLOAD_PREFETCH_STEP:-}" ] || args+=(--offload-prefetch-step "$OFFLOAD_PREFETCH_STEP")
+[ -z "${COMPILATION_CONFIG:-}" ] || args+=(--compilation-config "$COMPILATION_CONFIG")
 [ -z "${MODEL_REVISION:-}" ] || args+=(--revision "$MODEL_REVISION" --tokenizer-revision "$MODEL_REVISION" --code-revision "$MODEL_REVISION")
 [ -z "${VLLM_API_KEY:-}" ] || args+=(--api-key "$VLLM_API_KEY")
 [ -z "${SPECULATIVE_CONFIG_B64:-}" ] || args+=(--speculative-config "$(printf %s "$SPECULATIVE_CONFIG_B64" | base64 -d)")
