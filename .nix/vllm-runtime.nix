@@ -1,30 +1,118 @@
 { pkgs, version }:
-# Bump note: thin runtime adapter over nixpkgs `python312Packages.vllm`.
-# Earlier versions of this file shipped a pip/wheelhouse build of vLLM 0.20.1
-# with torch 2.11.0+cu130; that violated the repo-maintained Nix-build
-# determinism invariant (live `pip download` / `pip install` inside Nix code)
-# and the resulting wheel runtime required broad `LD_LIBRARY_PATH` scanning to
-# find Python/CUDA shared libraries. Per AGENTS runtime-linker policy, prefer
-# proper Nix packaging with normal RPATH/RUNPATH/fixup handling. The vLLM
-# runtime is now consumed from a CUDA-enabled nixpkgs instance supplied by
-# `flake.nix` (currently `inputs.nixpkgs-vllm = github:NixOS/nixpkgs/master`
-# for an isolated experiment; collapse back to `inputs.nixpkgs` once
-# `nixpkgs-unstable` ships a vLLM that passes the 35B A3B GPU benchmark
-# acceptance). No `pip download`/`pip install` lives in this file anymore.
-pkgs.symlinkJoin {
-  name = "vllm-runtime-${version}";
+let
+  python = pkgs.python312;
+  pythonWithPip = python.withPackages (
+    ps: with ps; [
+      pip
+      setuptools
+      wheel
+      packaging
+    ]
+  );
 
-  paths = [ pkgs.python312Packages.vllm ];
+  # Bump note: CUDA 13.0 wheelhouse pinned to the most recent stable vLLM
+  # (0.24.0) and the latest torch family that publishes cu130 wheels
+  # (2.12.x). vLLM 0.24.x requires torch >= 2.12. PyTorch ships +cu130 wheels
+  # for torch 2.7.x, 2.8.x, 2.9.x, 2.11.x, 2.12.x, and 2.13.x. We pick
+  # 2.12.0+cu130 because vLLM 0.24.x is tested against torch 2.12.x.
+  # This bumped Python/wheelhouse is the only thing the .nix-runtime needs
+  # to refresh; the source/eval side of the runtime is untouched.
+  pytorchPackages = [
+    "torch==2.12.0+cu130"
+    "torchvision==0.27.0+cu130"
+    "torchaudio==2.12.0+cu130"
+  ];
 
-  postBuild = ''
-    if [ ! -x "$out/bin/vllm" ]; then
-      echo "vllm-runtime: expected $out/bin/vllm after symlinkJoin; not found" >&2
-      exit 1
-    fi
-  '';
+  vllmPackages = [
+    "vllm==0.24.0"
+  ];
 
-  meta = {
-    description = "vLLM runtime adapter (thin wrapper over nixpkgs python312Packages.vllm)";
-    mainProgram = "vllm";
+  allPythonPackages = pytorchPackages ++ vllmPackages;
+
+  wheelhouse = pkgs.stdenvNoCC.mkDerivation {
+    pname = "vllm-wheelhouse";
+    inherit version;
+
+    nativeBuildInputs = with pkgs; [
+      cacert
+      pythonWithPip
+    ];
+
+    # Bump note: outputHash is a placeholder. With the new torch 2.12+cu130
+    # and vLLM 0.24.0 wheelhouse combo, the hash must be recomputed on first
+    # build. Running `nix build .#vllm-runtime` will fail with a "hash mismatch"
+    # error that prints the actual hash; copy that hash into this line.
+    outputHashAlgo = "sha256";
+    outputHashMode = "recursive";
+    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+    buildCommand = ''
+      export HOME="$TMPDIR/home"
+      mkdir -p "$HOME" "$out"
+      ${pythonWithPip}/bin/python3.12 -m pip download --dest "$out" --extra-index-url https://download.pytorch.org/whl/cu130 ${pkgs.lib.escapeShellArgs allPythonPackages}
+    '';
   };
+
+  runtimePath = pkgs.lib.makeBinPath (
+    with pkgs;
+    [
+      bash
+      coreutils
+      findutils
+      gnugrep
+      git
+      gcc
+      cmake
+      pkg-config
+    ]
+  );
+
+  runtimeLibraryPath = pkgs.lib.makeLibraryPath [
+    pkgs.stdenv.cc.cc.lib
+    pkgs.zstd
+  ];
+in
+pkgs.stdenvNoCC.mkDerivation {
+  pname = "vllm-runtime";
+  inherit version;
+
+  nativeBuildInputs = with pkgs; [
+    makeWrapper
+    pythonWithPip
+  ];
+
+  dontUnpack = true;
+
+  installPhase = ''
+        mkdir -p "$out/lib/python3.12/site-packages" "$out/bin" "$out/nix-support"
+        export HOME="$TMPDIR/home"
+        export PIP_NO_INDEX=1
+        export PIP_FIND_LINKS=${wheelhouse}
+        export PIP_DISABLE_PIP_VERSION_CHECK=1
+        export PIP_NO_CACHE_DIR=1
+
+        ${pythonWithPip}/bin/python3.12 -m pip install \
+          --pre \
+          --no-index \
+          --find-links ${wheelhouse} \
+          --target "$out/lib/python3.12/site-packages" \
+          ${pkgs.lib.escapeShellArgs allPythonPackages}
+
+        makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
+          --set PYTHONNOUSERSITE 1 \
+          --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
+          --prefix PATH : "${runtimePath}"
+
+        cat > "$out/bin/vllm" <<EOF
+    #!/bin/sh
+    export PYTHONNOUSERSITE=1
+    export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
+    export PATH="${runtimePath}:\''${PATH:-}"
+    export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
+    exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.cli.main "\$@"
+    EOF
+        chmod 0755 "$out/bin/vllm"
+
+        printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
+  '';
 }

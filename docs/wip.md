@@ -1343,13 +1343,121 @@ Design implication:
     `AGENTS.md` runtime-linker policy says we add `doCheck = false` only with
     explicit evidence and never as a blanket. The narrow `interegular` overlay
     remains the only `doCheck = false` change in the current vllm overlay.
-  - When the build is resumed, recommended command shape:
-    ```sh
-    NIX_BUILD_CORES=1 MAKEFLAGS="-j1" CMAKE_BUILD_PARALLEL_LEVEL=1 \
-      nix build .#vllm-runtime --no-sandbox -j 1 --cores 1
-    ```
-    plus the `cudaPackages.cudnn-frontend` override in `flake.nix`'s
-    `vllmPkgs` import to actually remove the `samples`/`tests` build.
+   - When the build is resumed, recommended command shape:
+     ```sh
+     NIX_BUILD_CORES=1 MAKEFLAGS="-j1" CMAKE_BUILD_PARALLEL_LEVEL=1 \
+       nix build .#vllm-runtime --no-sandbox -j 1 --cores 1
+     ```
+     plus the `cudaPackages.cudnn-frontend` override in `flake.nix`'s
+     `vllmPkgs` import to actually remove the `samples`/`tests` build.
+
+### 2026-08-11 ===> 2026-08-19 Runtime rollback + wheelhouse bump
+
+The C2B attempt (nixpkgs-vllm split input + CUDA 13 overlay) was abandoned
+on 2026-08-19 after multiple reproducer OOMs on the 27 GB host. The
+implementation was reverted and the runtime was bumped within the wheelhouse
+approach instead. The new runtime is:
+- `.nix/vllm-runtime.nix`: thin symlinkJoin over `pkgs.python312Packages.vllm`
+  was reverted to the declared wheelhouse derivation. Versions bumped from
+  `vllm==0.20.1` + `torch==2.11.0+cu130` to `vllm==0.24.0` +
+  `torch==2.12.0+cu130` (latest cu130 wheels available for the vLLM 0.24.x
+  line). The `outputHash` is a placeholder and must be recomputed on first
+  build — the failure message will print the actual sha256.
+- `flake.nix`: reverted to the wheelhouse state (`vllmRuntime` from main
+  `pkgs.callPackage ./.nix/vllm-runtime.nix`, `version = "0.24.0-cu130"`).
+  The `nixpkgs-vllm` split input is removed from `flake.nix` and `flake.lock`.
+
+The runtime still violates the deterministic-build invariant
+(`AGENTS.md` repo-maintained Nix-build determinism invariant section):
+
+> any external dependency used by Nix build code maintained in this repo must
+> be declared through `flake.nix` inputs and locked in `flake.lock`. Do not
+> add `builtins.fetchTree`, `builtins.fetchTarball`, `builtins.fetchurl`,
+> `import <nixpkgs>`, live `npm install`, live `pip download`, live
+> `bun install`, live `pnpm/yarn install`, `curl`, `wget`, or `git clone`
+> inside repo-maintained Nix derivations/scripts unless the user explicitly
+> approves an exception.
+
+The wheelhouse runs `pip download` and `pip install` against
+`https://download.pytorch.org/whl/cu130` from inside a Nix derivation. This
+is the explicit, user-approved exception. The outputHash + recursive pinning
+keeps the build reproducible once the hash is set on a working host.
+
+#### When can this exception be removed?
+
+The exception is revisable when **any one of the following** is true.
+Each path is documented with the eval/build evidence needed to retire the
+wheelhouse runtime.
+
+1. **vLLM from nixpkgs-unstable (CUDA 12.9, no cu130)** is the
+   lightest path. The locked `nixpkgs-unstable` (`f205b5574…`) already
+   exposes `python312Packages.vllm = 0.16.0` as a CUDA-enabled source
+   derivation with `cuda_nvcc`, `auto-add-driver-runpath`, `cudnn`, `nccl`,
+   `libcublas`, `libcufile`. Caveats:
+   - The expression uses `cudaPackages` (CUDA 12.9) by default — no cu130
+     override needed since 12.9 >= 12.0 and the locked CUDA is supported.
+   - vLLM 0.16.0 is older than vLLM 0.24.0. The 35B A3B AutoRound model
+     hasn't been served against vLLM 0.16.0 — runtime acceptance must
+     re-run `vllm-benchmark --check` and `vllm-benchmark` against the
+     35B A3B target (`qwen3.6-35B-a3b`) before retiring the wheelhouse.
+   - Required user action: change the `vllmRuntime` wiring in `flake.nix`
+     from `pkgs.callPackage ./.nix/vllm-runtime.nix` to a thin symlinkJoin
+     adapter over `pkgs.python312Packages.vllm`, and delete `.nix/vllm-runtime.nix`.
+
+2. **rLLM (`ghyathmoussa/rLLM`)** is a younger Rust single-binary
+   inference engine. Lower maintenance but lossy on our target:
+   - Does NOT support AutoRound (the 35B A3B model is AutoRound-quantized).
+   - Does NOT support MTP (Multi-Token Prediction, required for MoE
+     offloading on Qwen3.x).
+   - No public evidence rLLM serves `Qwen3.6-35B-A3B` correctly.
+   - 23 stars, single maintainer, 3-month-old — not production-ready.
+   - Required user action: convert the 35B A3B AutoRound weights to
+     AWQ/GPTQ/GGUF, then evaluate `rllm` against the converted weights.
+     Likely not viable for the current 35B A3B target.
+
+3. **mistral.rs (`EricLBuehler/mistral.rs`)** is more mature than rLLM
+   (7.6k stars, 2.5 years, MIT, in `nixpkgs` master as `mistral-rs 0.9.1`)
+   and supports Qwen3 + MTP. Status against our target:
+   - **Broken on our model**: upstream issue
+     [`EricLBuehler/mistral.rs#2378`](https://github.com/EricLBuehler/mistral.rs/issues/2378)
+     reproduces a `moe experts forward / PendingIsqLayer is in an invalid
+     transitional state` error on `Qwen/Qwen3.6-35B-A3B` (the exact model
+     we serve). Mistral.rs 0.9.0 cannot run inference on it.
+   - Related work in PR
+     [`#2380`](https://github.com/EricLBuehler/mistral.rs/pull/2380)
+     also shows mistral.rs is still finding 200x MoE decode regressions on
+     the same model family.
+   - Required user action: wait for `[mistral.rs#2378]` to be resolved
+     upstream, then re-evaluate. Until then, mistral.rs is **not** a viable
+     replacement for the 35B A3B target.
+
+4. **sglang in nixpkgs** would be the strongest long-term option
+   (Qwen3-native MTP, deep MoE offloading, official Qwen3.6 target). But
+   `python3Packages.sglang` is **not yet in nixpkgs** — PR
+   [`NixOS/nixpkgs#525141`](https://github.com/NixOS/nixpkgs/pull/525141)
+   has been open with merge conflicts since 2026-05-28 and depends on 15+
+   unmerged companion PRs. Estimated timeline: multiple months at nixpkgs
+   review cadence.
+   - Required user action: monitor upstream PR or vendor a local fork.
+     Removing the wheelhouse exception via sglang is **not** a small task.
+
+5. **vLLM 0.24.x via wheelhouse** (the current path) is the most recent
+   stable outcome. The wheelhouse is the closest we have to a deterministic
+   runtime without forking the entire CUDA/Torch/vLLM stack. It is
+   appropriate as long as no in-nixpkgs alternative can serve the 35B A3B
+   target. The version is always bumpable by editing `.nix/vllm-runtime.nix`
+   (which is what was done 2026-08-19: 0.20.1 → 0.24.0).
+
+#### Recommendation
+
+In the current memory-tight host, the wheelhouse is the only viable runtime
+for the 35B A3B target. Re-evaluate options 1 and 3 in the next 30-60 days:
+- Option 1 (nixpkgs-unstable vLLM 0.16.0) is the cheapest to try — just needs
+  a thin adapter + a 30 min benchmark on the 35B A3B target.
+- Option 3 (mistral.rs) depends on upstream issue resolution.
+- Option 4 (sglang) is the strategic long-term direction but multi-month.
+
+Until one of these resolves, the wheelhouse exception is mandatory.
 
 ## Upgrade notes for future Fusion/vLLM bumps
 
@@ -1405,11 +1513,19 @@ When bumping vLLM:
    - Do not substitute locked nixpkgs Torch/CUDA just because it evaluates.
    - If upstream docs do not identify a more specific supported combo for the chosen variant, keep the versions already encoded in this repo until there is stronger evidence.
 4. For the current vLLM target, the current/fallback coupled set is:
-   - `vllm == 0.20.1`
-   - `torch == 2.11.0+cu130`
-   - `torchvision == 0.26.0+cu130`
-   - `torchaudio == 2.11.0+cu130`
+   - `vllm == 0.24.0`
+   - `torch == 2.12.0+cu130`
+   - `torchvision == 0.27.0+cu130`
+   - `torchaudio == 2.12.0+cu130`
    - PyTorch CUDA index variant: `cu130`
+   - Older fallback (was the runtime before 2026-08-19 bump):
+     - `vllm == 0.20.1`
+     - `torch == 2.11.0+cu130`
+     - `torchvision == 0.26.0+cu130`
+     - `torchaudio == 2.11.0+cu130`
+   - The `outputHash` in `.nix/vllm-runtime.nix` must be recomputed on first
+     build after any version bump — the failure message will print the
+     actual sha256.
 5. Native/component coupling:
    - Starting from nixpkgs' vLLM expression is recommended because it tracks non-Python sources such as CUTLASS, FlashMLA, triton kernels, qutlass, and CUDA/ROCm CMake flags.
    - On each vLLM bump, compare the target tag's `CMakeLists.txt` and `cmake/external_projects/*.cmake` against the repo-local Nix package and bump associated source hashes when upstream changes them.
