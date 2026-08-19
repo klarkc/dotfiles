@@ -80,6 +80,26 @@ let
     '';
   };
 
+  # FlashInfer JITs attention kernels at runtime for shapes that are not already
+  # available as prebuilt artifacts. Give it a small CUDA_HOME containing only
+  # the compiler, runtime/driver stubs, and CUDA 13 CRT headers instead of the
+  # full CUDA toolkit. FlashInfer hard-codes lib64 paths, while Nixpkgs uses lib.
+  cudaJitToolkit = pkgs.symlinkJoin {
+    name = "vllm-cuda-jit-toolkit";
+    paths =
+      with pkgs.cudaPackages;
+      [
+        cuda_nvcc
+        cuda_cudart
+      ]
+      ++ pkgs.lib.optional (pkgs.cudaPackages ? cuda_crt) pkgs.cudaPackages.cuda_crt;
+    postBuild = ''
+      if [ -d "$out/lib" ] && [ ! -e "$out/lib64" ]; then
+        ln -s lib "$out/lib64"
+      fi
+    '';
+  };
+
   runtimePath = pkgs.lib.makeBinPath (
     with pkgs;
     [
@@ -90,13 +110,16 @@ let
       git
       gcc
       cmake
+      ninja
       pkg-config
+      cudaJitToolkit
     ]
   );
 
   runtimeLibraryPath = pkgs.lib.makeLibraryPath [
     pkgs.stdenv.cc.cc.lib
     pkgs.zstd
+    pkgs.cudaPackages.cuda_cudart
   ];
 in
 pkgs.stdenvNoCC.mkDerivation {
@@ -126,6 +149,8 @@ pkgs.stdenvNoCC.mkDerivation {
 
         makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
           --set PYTHONNOUSERSITE 1 \
+          --set CUDA_HOME "${cudaJitToolkit}" \
+          --set CUDA_PATH "${cudaJitToolkit}" \
           --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
           --prefix PATH : "${runtimePath}"
 
@@ -133,6 +158,8 @@ pkgs.stdenvNoCC.mkDerivation {
     #!/bin/sh
     export PYTHONNOUSERSITE=1
     export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
+    export CUDA_HOME="${cudaJitToolkit}"
+    export CUDA_PATH="${cudaJitToolkit}"
     export PATH="${runtimePath}:\''${PATH:-}"
     export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
     exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.cli.main "\$@"
