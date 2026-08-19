@@ -72,7 +72,7 @@ args=(
   --host "$HOST"
   --port "$PORT"
   --trust-remote-code
-  --dtype half
+  --dtype "${DTYPE:-half}"
   --max-model-len "$MAX_MODEL_LEN"
   --max-num-seqs "$MAX_NUM_SEQS"
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
@@ -112,5 +112,5 @@ EOF
 
 echo "Runtime command: $cache/runtime_command.sh"
 echo "Benchmark metadata: $cache/benchmark.env"
-echo "Serving model: $MODEL as $SERVED_MODEL_NAME context=$MAX_MODEL_LEN seqs=$MAX_NUM_SEQS kv=${KV_CACHE_DTYPE:-auto} offload=${OFFLOAD_BACKEND:-uva}"
+echo "Serving model: $MODEL as $SERVED_MODEL_NAME dtype=${DTYPE:-half} context=$MAX_MODEL_LEN seqs=$MAX_NUM_SEQS kv=${KV_CACHE_DTYPE:-auto} offload=${OFFLOAD_BACKEND:-uva}"
 exec "$runtime/bin/vllm" serve "$MODEL" "${args[@]}"
