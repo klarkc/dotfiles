@@ -178,11 +178,13 @@ Before considering the skill applied:
 - **Forgetting to `git add` the new `.sh` files.** Nix flake requires tracked
   paths; `builtins.readFile` of an untracked file fails the flake check with
   `Path '.nix/<tool>/<tool>.sh' is not tracked by Git`.
-- **Bash-only features in scripts that should be POSIX.** `[[ ]]`, `local`,
-  arrays, `printf -v`, process substitution `<( )` are bash-only. Plain bash
-  is fine because `writeShellApplication` defaults to bash as the interpreter;
-  `runtimeInputs` only needs to list non-bash dependencies (`coreutils`,
-  `gnutar`, `gzip`, etc).
+- **Bash-only features work out of the box.** `[[ ]]`, `local`, arrays,
+  `printf -v`, process substitution `<( )` are bash features but all supported
+  by `writeShellApplication`'s default bash interpreter. No `runtimeInput`
+  needed for bash itself; only list non-bash dependencies (`coreutils`,
+  `gnutar`, `gzip`, etc). If your script requires POSIX `sh` instead of bash,
+  use `writeScript` (or `writeShellScript` with `runtimeEnv`) — but then you
+  lose the bash-only conveniences.
 - **nixfmt choking on shell heredocs inside Nix strings.** The whole point of
   this skill is to avoid that: scripts live in `.sh` files, nixfmt never sees
   their content.
@@ -214,10 +216,10 @@ a working example:
 - `.nix/archive-pack/archive-pack-test.sh` (the self-test with 15 scenarios:
   basic pack, append-only, `--exclude`, files-inside-shared-dirs, dedup across
   archives, `--keep-archives`, `--dry-run`, `--clean-temp`, `--clean-source`,
-  `--skip-source-integrity` + corrupt source, `--verify` success + missing,
-  `--help`, `--retain 1`, `--retain 0`. 13 of these are prefixed with `Test ...`
-  in the log; the other 2 are setup steps that share assertions with adjacent
-  scenarios.)
+  `--skip-source-integrity` + corrupt source, `--verify` (success),
+  `--verify` (missing), `--help`, `--retain 1`, `--retain 0`. 13 of these are
+  prefixed with `Test ...` in the log; the other 2 are setup steps that share
+  assertions with adjacent scenarios.)
 - `.nix/backup-tools.nix` (the Nix wrapper using `builtins.readFile`)
 - `flake.nix` exposes `packages.archive-pack`, `packages.archive-pack-test`,
   `checks.archive-pack-test`
