@@ -45,6 +45,11 @@ let
       export PIP_DISABLE_PIP_VERSION_CHECK=1
       export PIP_NO_CACHE_DIR=1
 
+      # PEP 517 installs PyTorch into an isolated temporary environment and
+      # imports it while evaluating vLLM's build metadata. Binary PyTorch
+      # wheels expect libstdc++.so.6 to be discoverable by the dynamic linker.
+      export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}:''${LD_LIBRARY_PATH:-}"
+
       # The requested PR change is Python-side CUDA dispatch. Reuse the
       # matching precompiled vLLM extensions instead of requiring a complete
       # CUDA compiler toolchain inside this Nix fixed-output derivation.
