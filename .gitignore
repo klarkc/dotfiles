@@ -30,9 +30,6 @@
 # google takeout backup (source archives, staging, packed archive)
 !/.backup
 /.backup/*
-# safe copy of original backup sources moved out of .backup
-!/.backup-originals
-/.backup-originals/*
 
 # monitoring scripts and systemd units
 !/scripts
