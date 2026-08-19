@@ -16,13 +16,29 @@
       url = "github:ink-splatters/alacritty-ligatures/ligature";
       flake = false;
     };
-    opencode-src = {
-      url = "github:anomalyco/opencode";
-      flake = false;
-    };
     nixGL = {
       url = "git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    # Bump note: Fusion source. fetchPnpmDeps requires pnpm-lock.yaml which only
+    # exists in source tags (not in published npm tarballs). When bumping Fusion:
+    # 1) bump this ref (`Runfusion/Fusion/v<X.Y.Z>`),
+    # 2) refresh the `fusion-cli-pnpm-deps` hash in `.nix/fusion-runtime.nix`
+    #    via `nix build .#fusion-runtime` (initial build will fail and report
+    #    expected hash), then commit the reported hash,
+    # 3) update `fusionRuntime` version in this flake, and
+    # 4) rerun `nix build .#fusion-runtime` + `result/bin/fusion --version`.
+    fusion-src = {
+      url = "github:Runfusion/Fusion/v0.73.0";
+      flake = false;
+    };
+    # Bump note: QMD source. Fusion's memory backend invokes the `qmd` CLI as a
+    # separate runtime process; bump this only if upstream Fusion docs/code
+    # require a newer QMD CLI or the current `qmd --help` smoke check fails.
+    # Refresh the `qmd-cli-pnpm-deps` hash in `.nix/fusion-runtime.nix` similarly.
+    qmd-src = {
+      url = "github:tobi/qmd/v2.1.0";
+      flake = false;
     };
   };
 
@@ -131,11 +147,19 @@
               exec "${nixGLNvidiaDrv}/bin/nixGLNvidia-${nvidiaVersion}" "${alacrittyWithLigatures}/bin/alacritty" "$@"
             '';
           };
-          opencodeWithReasoning = pkgs.callPackage ./.nix/opencode-with-reasoning.nix {
-            opencode-src = inputs.opencode-src;
-          };
+          opencodeWithCodexAuth = pkgs.callPackage ./.nix/opencode-with-codex-auth.nix { };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
           backupTools = pkgs.callPackage ./.nix/backup-tools.nix { };
+          fusionRuntime = pkgs.callPackage ./.nix/fusion-runtime.nix {
+            # Bump note: Fusion runtime. Coupled bumps: see `.nix/fusion-runtime.nix`.
+            version = "0.73.0";
+            fusion-src = inputs.fusion-src;
+            qmd-src = inputs.qmd-src;
+          };
+          vllmRuntime = pkgs.callPackage ./.nix/vllm-runtime.nix {
+            # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
+            version = "0.24.0-cu130";
+          };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -222,18 +246,22 @@
                 gh
                 codex
                 pi-coding-agent
-                opencodeWithReasoning
+                opencodeWithCodexAuth
                 opencodeCodexAuthTools
                 backupTools.packScript
                 backupTools.testScript
                 kolu
                 herdr
+                fusionRuntime
+                vllmRuntime
               ];
           };
 
           packages.alacritty = alacrittyWithLigatures;
           packages.archive-pack = backupTools.packScript;
           packages.archive-pack-test = backupTools.testScript;
+          packages.fusion-runtime = fusionRuntime;
+          packages.vllm-runtime = vllmRuntime;
         }
       );
 }

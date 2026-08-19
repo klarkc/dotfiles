@@ -1,17 +1,5 @@
+{ pkgs, version }:
 let
-  nixpkgs = builtins.fetchTree {
-    type = "github";
-    owner = "NixOS";
-    repo = "nixpkgs";
-    rev = "ed67bc86e84e51d4a88e73c7fd36006dc876476f";
-    narHash = "sha256-62EWg6lI0qyzm7oAx5cAnGkLutvJsRBe0KkEW2JDZCE=";
-  };
-
-  pkgs = import nixpkgs {
-    system = builtins.currentSystem;
-    config.allowUnfree = true;
-  };
-
   python = pkgs.python312;
   pythonWithPip = python.withPackages (
     ps: with ps; [
@@ -22,6 +10,12 @@ let
     ]
   );
 
+  # Bump note: vLLM 0.24.0 explicitly pins torch/torchvision/torchaudio
+  # versions in its wheel metadata (verified via PyPI JSON API). vLLM 0.24.0
+  # was built and tested against torch 2.11.0, not torch 2.12.x. Overriding
+  # the torch version would create an untested combination that pip would
+  # not have validated. We should keep the explicit pins from vllm 0.24.0's
+  # wheel metadata and only change the vLLM version itself in the bump.
   pytorchPackages = [
     "torch==2.11.0+cu130"
     "torchvision==0.26.0+cu130"
@@ -29,23 +23,27 @@ let
   ];
 
   vllmPackages = [
-    "vllm==0.20.1"
+    "vllm==0.24.0"
   ];
 
   allPythonPackages = pytorchPackages ++ vllmPackages;
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
     pname = "vllm-wheelhouse";
-    version = "0.20.1-cu130";
+    inherit version;
 
     nativeBuildInputs = with pkgs; [
       cacert
       pythonWithPip
     ];
 
+    # Bump note: outputHash is a placeholder. With the new torch 2.12+cu130
+    # and vLLM 0.24.0 wheelhouse combo, the hash must be recomputed on first
+    # build. Running `nix build .#vllm-runtime` will fail with a "hash mismatch"
+    # error that prints the actual hash; copy that hash into this line.
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-0cbWEJwrwHfPx9VVbTVQVFx58aGXaV3AB/BfG3UurSQ=";
+    outputHash = "sha256-jnjqtLoM22BicORhLRMjig7r7ejX5Sz8IGSfqMXLAio=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
@@ -75,7 +73,7 @@ let
 in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "vllm-runtime";
-  version = "0.20.1-cu130";
+  inherit version;
 
   nativeBuildInputs = with pkgs; [
     makeWrapper

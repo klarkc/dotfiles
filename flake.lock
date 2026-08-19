@@ -87,6 +87,23 @@
         "type": "github"
       }
     },
+    "fusion-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784871823,
+        "narHash": "sha256-ZAKkjfv+jPSNe6TKCOkrjYJ2H7DXmgU8JhXBddjNpC0=",
+        "owner": "Runfusion",
+        "repo": "Fusion",
+        "rev": "127b640b3fb18fc09cfc6e4d8a9d5956cc2ae69c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Runfusion",
+        "ref": "v0.73.0",
+        "repo": "Fusion",
+        "type": "github"
+      }
+    },
     "git-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -228,32 +245,34 @@
         "type": "github"
       }
     },
-    "opencode-src": {
+    "qmd-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1783486648,
-        "narHash": "sha256-V+UgFj42mIFP7YERgpwg2r3XJZ5KKqjp5xrdsusarMU=",
-        "owner": "anomalyco",
-        "repo": "opencode",
-        "rev": "77429f59823c8c6df9cfee95d4c663043b017f46",
+        "lastModified": 1775429264,
+        "narHash": "sha256-bqIVaNRTa8H5vrw3RwsD7QdtTa0xNvRuEVzlzE1hIBQ=",
+        "owner": "tobi",
+        "repo": "qmd",
+        "rev": "65cd1b3fd02891d1ee0eefa751620918664fa321",
         "type": "github"
       },
       "original": {
-        "owner": "anomalyco",
-        "repo": "opencode",
+        "owner": "tobi",
+        "ref": "v2.1.0",
+        "repo": "qmd",
         "type": "github"
       }
     },
     "root": {
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
+        "fusion-src": "fusion-src",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
-        "opencode-src": "opencode-src",
+        "qmd-src": "qmd-src",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils"
       }

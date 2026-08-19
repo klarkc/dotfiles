@@ -9,16 +9,14 @@ Environment=NODE_LLAMA_CPP_SKIP_DOWNLOAD_GPU=1
 Environment=GIT_CEILING_DIRECTORIES=%h/Sources/Fusion
 Environment="GIT_SSH_COMMAND=ssh -F %h/.fusion/ssh_config"
 Environment=FUSION_RUNTIME_DIR=%C/fusion-systemd
-Environment=FUSION_NIX_CONFIG=%h/.nix/fusion-npm.nix
 PassEnvironment=GITHUB_TOKEN FUSION_DASHBOARD_TOKEN FUSION_DAEMON_TOKEN VAST_API_KEY VLLM_API_KEY
-WorkingDirectory=%h/Sources/Fusion/klarkc/dotfiles
 
 RuntimeDirectory=fusion
 RuntimeDirectoryMode=0700
 CacheDirectory=fusion-systemd
 CacheDirectoryMode=0700
 
-ExecStart=/bin/sh -lc 'set -eu; nix_bin=""; for candidate in "$HOME/.nix-profile/bin/nix" /nix/var/nix/profiles/default/bin/nix /run/current-system/sw/bin/nix /usr/bin/nix; do if [ -x "$candidate" ]; then nix_bin="$candidate"; break; fi; done; if [ -z "$nix_bin" ]; then echo "nix executable not found" >&2; exit 127; fi; runtime="$FUSION_RUNTIME_DIR"; export XDG_CACHE_HOME="$runtime/xdg-cache"; mkdir -p "$runtime" "$XDG_CACHE_HOME"; fusion_store_path="$($nix_bin --extra-experimental-features "nix-command flakes" build --no-link --print-out-paths --file "$FUSION_NIX_CONFIG")"; cli=""; for candidate in "$fusion_store_path/bin/fusion" "$fusion_store_path/bin/fn"; do if [ -x "$candidate" ]; then cli="$candidate"; break; fi; done; if [ -z "$cli" ]; then echo "Fusion CLI not found in $fusion_store_path/bin" >&2; ls -la "$fusion_store_path/bin" >&2 || true; exit 127; fi; echo "Using Fusion CLI: $cli" >&2; "$cli" --version >&2 || true; exec "$cli" dashboard --host 0.0.0.0 --port 4040 --no-auth'
+ExecStart=/bin/sh -lc 'set -eu; cli=""; for candidate in "$HOME/.nix-profile/bin/fusion" "$HOME/.nix-profile/bin/fn"; do if [ -x "$candidate" ]; then cli="$candidate"; break; fi; done; if [ -z "$cli" ]; then echo "Fusion CLI not found in klarkc profile (looked for %h/.nix-profile/bin/fusion and .../fn); run: nix profile upgrade klarkc" >&2; exit 127; fi; runtime="$FUSION_RUNTIME_DIR"; export XDG_CACHE_HOME="$runtime/xdg-cache"; mkdir -p "$runtime" "$XDG_CACHE_HOME"; echo "Using Fusion CLI: $cli" >&2; "$cli" --version >&2 || true; exec "$cli" dashboard --host 0.0.0.0 --port 4040 --no-auth'
 
 Restart=on-failure
 RestartSec=5s
@@ -34,7 +32,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 InaccessiblePaths=%h/.codex
 
-ReadOnlyPaths=%h/.nix/fusion-npm.nix
+ReadOnlyPaths=%h/.nix-profile/bin/fusion %h/.nix-profile/bin/fn %h/.fusion/ssh_config
 ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %C/fusion-systemd %h/.config/qmd %t/fusion
 
 [Install]
