@@ -10,6 +10,13 @@ let
     ]
   );
 
+  # Keep CUDA's unfree license opt-in local to the vLLM runtime instead of
+  # changing the repository-wide Nixpkgs policy.
+  cudaPkgs = import pkgs.path {
+    system = pkgs.stdenv.hostPlatform.system;
+    config.allowUnfree = true;
+  };
+
   vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
@@ -87,12 +94,12 @@ let
   cudaJitToolkit = pkgs.symlinkJoin {
     name = "vllm-cuda-jit-toolkit";
     paths =
-      with pkgs.cudaPackages;
+      with cudaPkgs.cudaPackages;
       [
         cuda_nvcc
         cuda_cudart
       ]
-      ++ pkgs.lib.optional (pkgs.cudaPackages ? cuda_crt) pkgs.cudaPackages.cuda_crt;
+      ++ pkgs.lib.optional (cudaPkgs.cudaPackages ? cuda_crt) cudaPkgs.cudaPackages.cuda_crt;
     postBuild = ''
       if [ -d "$out/lib" ] && [ ! -e "$out/lib64" ]; then
         ln -s lib "$out/lib64"
@@ -119,7 +126,7 @@ let
   runtimeLibraryPath = pkgs.lib.makeLibraryPath [
     pkgs.stdenv.cc.cc.lib
     pkgs.zstd
-    pkgs.cudaPackages.cuda_cudart
+    cudaPkgs.cudaPackages.cuda_cudart
   ];
 in
 pkgs.stdenvNoCC.mkDerivation {
