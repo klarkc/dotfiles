@@ -10,17 +10,16 @@ let
     ]
   );
 
-  # Bump note: CUDA 13.0 wheelhouse pinned to the most recent stable vLLM
-  # (0.24.0) and the latest torch family that publishes cu130 wheels
-  # (2.12.x). vLLM 0.24.x requires torch >= 2.12. PyTorch ships +cu130 wheels
-  # for torch 2.7.x, 2.8.x, 2.9.x, 2.11.x, 2.12.x, and 2.13.x. We pick
-  # 2.12.0+cu130 because vLLM 0.24.x is tested against torch 2.12.x.
-  # This bumped Python/wheelhouse is the only thing the .nix-runtime needs
-  # to refresh; the source/eval side of the runtime is untouched.
+  # Bump note: vLLM 0.24.0 explicitly pins torch/torchvision/torchaudio
+  # versions in its wheel metadata (verified via PyPI JSON API). vLLM 0.24.0
+  # was built and tested against torch 2.11.0, not torch 2.12.x. Overriding
+  # the torch version would create an untested combination that pip would
+  # not have validated. We should keep the explicit pins from vllm 0.24.0's
+  # wheel metadata and only change the vLLM version itself in the bump.
   pytorchPackages = [
-    "torch==2.12.0+cu130"
-    "torchvision==0.27.0+cu130"
-    "torchaudio==2.12.0+cu130"
+    "torch==2.11.0+cu130"
+    "torchvision==0.26.0+cu130"
+    "torchaudio==2.11.0+cu130"
   ];
 
   vllmPackages = [
@@ -44,7 +43,7 @@ let
     # error that prints the actual hash; copy that hash into this line.
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    outputHash = "sha256-jnjqtLoM22BicORhLRMjig7r7ejX5Sz8IGSfqMXLAio=";
 
     buildCommand = ''
       export HOME="$TMPDIR/home"
