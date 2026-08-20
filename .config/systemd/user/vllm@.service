@@ -1,6 +1,6 @@
 [Unit]
 Description=vLLM model server (%i)
-After=default.target network-online.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -54,6 +54,3 @@ ProtectKernelModules=yes
 
 ReadOnlyPaths=%h/.config/vllm/%i.env %h/.local/bin/vllm-patch-model-defaults %h/.local/bin/vllm-serve-pure %h/.local/bin/vllm-wait-ready
 ReadWritePaths=%C/vllm-%i %h/.cache/huggingface %h/.config/crush %h/.config/opencode %h/.pi/agent %h/.fusion
-
-[Install]
-WantedBy=default.target
