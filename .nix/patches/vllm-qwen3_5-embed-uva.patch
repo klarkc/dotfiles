@@ -9,7 +9,7 @@ diff --git a/vllm/model_executor/models/qwen3_5.py b/vllm/model_executor/models/
  from vllm.multimodal import MULTIMODAL_REGISTRY
  from vllm.sequence import IntermediateTensors
  from vllm.tokenizers.registry import cached_tokenizer_from_config
-@@ -191,6 +192,27 @@ class Qwen3_5Model(Qwen3NextModel):
+@@ -191,6 +192,30 @@ class Qwen3_5Model(Qwen3NextModel):
              self.vocab_size,
              config.hidden_size,
          )
