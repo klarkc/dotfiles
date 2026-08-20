@@ -88,6 +88,13 @@
 						"repetition_penalty": 1.1,
 						"thinking_token_budget": 1536
 					}
+				},
+				"qwen3.8-27b": {
+					"name": "Qwen3.8 27B",
+					"limit": {
+						"context": 43008,
+						"output": 4096
+					}
 				}
 			}
 		}
