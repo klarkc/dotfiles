@@ -366,6 +366,7 @@ run_prefix_switch() {
     "$PREFIX_TOKENS" "$SUFFIX_TOKENS" "$COMPLETION_TOKENS" \
     "$WARM_REPEATS" "$INCLUDE_SOLOGIG" "$PASS_RATIO" \
     "$json_file" "$csv_file" "$summary_file" \
+    "$artifact_dir" "$slug" \
     <<'PY' 2>&1 | tee "$log_file"
 import csv
 import json
@@ -379,7 +380,8 @@ import urllib.request
 
 (base_url, model, api_key, prefix_tokens, suffix_tokens, completion_tokens,
  warm_repeats, include_sologig, pass_ratio,
- json_path, csv_path, summary_path) = sys.argv[1:]
+ json_path, csv_path, summary_path,
+ artifact_dir, slug) = sys.argv[1:]
 
 prefix_tokens = int(prefix_tokens)
 suffix_tokens = int(suffix_tokens)
@@ -532,8 +534,21 @@ def http_post_chat(messages, max_tokens, temperature=0):
     }
 
 
-def scrape_metrics():
-    counters = {}
+def scrape_metrics(_artifact_dir=None, _slug=None):
+    """Scrape /metrics and return a dict.
+
+    Behavior:
+      - Always attempt to record ALL `vllm:*` names we observe so we never
+        silently miss cache-related counters that this vLLM build does
+        expose.
+      - Flag counters whose names match `cache|prefix|hit|query` keywords.
+      - On any failure, return `_error` and `_url` keys so the benchmark
+        can continue running; the absence of one counter MUST NOT invalidate
+        the run. TTFT cold/warm remains the primary signal.
+      - The first scrape of a run is also written to <artifact>/<slug>.metrics.txt
+        so the raw Prometheus text can be inspected offline.
+    """
+    result = {}
     base_root = base_url.rstrip('/')
     if base_root.endswith('/v1'):
         base_root = base_root[:-3]
@@ -547,13 +562,19 @@ def scrape_metrics():
             text = r.read().decode('utf-8', errors='replace')
     except Exception as exc:
         return {'_error': repr(exc), '_url': metrics_url}
-    wanted = (
-        'vllm:prefix_cache_hits_total',
-        'vllm:prefix_cache_queries_total',
-        'vllm:gpu_prefix_cache_hits_total',
-        'vllm:gpu_cache_usage_perc',
-        'vllm:prefix_cache_queries',
-    )
+    result['_url'] = metrics_url
+
+    # Save the raw scrape once per run (best-effort; do not crash).
+    if not scrape_metrics._wrote_raw and _artifact_dir and _slug:
+        try:
+            with open(f"{_artifact_dir}/{_slug}.metrics.txt", 'w', encoding='utf-8') as f:
+                f.write(text)
+            scrape_metrics._wrote_raw = True
+        except Exception:
+            pass
+
+    keyword_hits = []
+    base_names = []
     for line in text.splitlines():
         if not line or line.startswith('#'):
             continue
@@ -561,12 +582,25 @@ def scrape_metrics():
         if len(parts) < 2:
             continue
         name = parts[0]
-        if name in wanted:
-            try:
-                counters[name] = float(parts[-1])
-            except ValueError:
-                pass
-    return counters
+        if not name.startswith('vllm:'):
+            continue
+        try:
+            value = float(parts[-1])
+        except ValueError:
+            continue
+        result[name] = value
+        # Strip {...} label suffix so the headline list is readable.
+        base = name.split('{', 1)[0]
+        base_names.append(base)
+        lname = base.lower()
+        if any(k in lname for k in ('cache', 'prefix', 'hit', 'query')):
+            keyword_hits.append(base)
+    result['_keyword_hits'] = sorted(set(keyword_hits))
+    result['_base_names'] = sorted(set(base_names))
+    return result
+
+
+scrape_metrics._wrote_raw = False
 
 
 prefix_chars = prefix_tokens * CHARS_PER_TOKEN
@@ -615,8 +649,14 @@ def probe_chars_per_token(probe_chars=4000):
     return None
 
 
+requested_prefix_tokens = prefix_tokens
+requested_prefix_chars = prefix_chars
+chars_per_token_estimate = None
+clamp_reason = None
+
 if max_model_len:
     cpt = probe_chars_per_token(4000) or 3.0
+    chars_per_token_estimate = cpt
     print(f'info: probe chars-per-token ratio = {cpt:.3f}', file=sys.stderr)
     safe_max = max_model_len - completion_tokens - 64
     overhead_chars = 16000 + suffix_chars + 64  # system+tool+suffix+reply
@@ -625,12 +665,12 @@ if max_model_len:
     if prefix_chars > safe_prefix_chars:
         fitted_tokens = max(1024, int(safe_prefix_chars / cpt) // 32 * 32)
         fitted_chars = int(fitted_tokens * cpt)
-        print(
-            f'WARN: requested prefix_tokens={prefix_tokens} would exceed max_model_len={max_model_len} '
+        clamp_reason = (
+            f'requested prefix_tokens={prefix_tokens} would exceed max_model_len={max_model_len} '
             f'(chars={prefix_chars} > safe={safe_prefix_chars}); '
-            f'clamping to prefix_tokens={fitted_tokens} (chars={fitted_chars})',
-            file=sys.stderr,
+            f'clamped to prefix_tokens={fitted_tokens} (chars={fitted_chars})'
         )
+        print(f'WARN: {clamp_reason}', file=sys.stderr)
         prefix_tokens = fitted_tokens
         prefix_chars = fitted_chars
 
@@ -647,7 +687,7 @@ metrics_per_request = []
 def run_request(agent, run_index, kind, prefix_chars_used, suffix_chars_used, label, seed):
     messages = build_messages(seed, prefix_chars_used, suffix_chars_used, label)
     resp = http_post_chat(messages, completion_tokens)
-    m = scrape_metrics()
+    m = scrape_metrics(artifact_dir, slug)
     metrics_per_request.append({'agent': agent, 'kind': kind, 'index': run_index, 'metrics': m})
     row = {
         'agent': agent,
@@ -775,7 +815,13 @@ for entry in metrics_per_request:
 with open(json_path, 'w', encoding='utf-8') as f:
     json.dump({
         'model': model,
-        'prefix_tokens': prefix_tokens,
+        'requested_prefix_tokens': requested_prefix_tokens,
+        'estimated_actual_prefix_tokens': prefix_tokens,
+        'requested_prefix_chars': requested_prefix_chars,
+        'estimated_actual_prefix_chars': prefix_chars,
+        'chars_per_token_estimate': chars_per_token_estimate,
+        'clamp_reason': clamp_reason,
+        'max_model_len': max_model_len,
         'suffix_tokens': suffix_tokens,
         'completion_tokens': completion_tokens,
         'warm_repeats': warm_repeats,
@@ -799,6 +845,14 @@ with open(summary_path, 'w', encoding='utf-8') as f:
     f.write(f"warm_repeats={warm_repeats}\n")
     f.write(f"include_sologig={include_sologig}\n")
     f.write(f"pass_ratio={pass_ratio}\n")
+    f.write(f"requested_prefix_tokens={requested_prefix_tokens}\n")
+    f.write(f"estimated_actual_prefix_tokens={prefix_tokens}\n")
+    f.write(f"requested_prefix_chars={requested_prefix_chars}\n")
+    f.write(f"estimated_actual_prefix_chars={prefix_chars}\n")
+    f.write(f"chars_per_token_estimate={chars_per_token_estimate}\n")
+    f.write(f"max_model_len={max_model_len}\n")
+    if clamp_reason:
+        f.write(f"clamp_reason={clamp_reason}\n")
     for s in summary_rows:
         f.write(f"ttft_{s['agent']}_cold_s={s['cold_ttft_s']}\n")
         f.write(f"ttft_{s['agent']}_warm1_s={s['warm1_ttft_s']}\n")
@@ -834,16 +888,38 @@ print()
 print('--- /metrics counters observed ---')
 if not observed_metrics:
     print('(no metrics available)')
+# Collect keyword hits across all per-request scrapes for the headline summary.
+all_keyword_hits = set()
+all_base_names = set()
+for entry in metrics_per_request:
+    m = entry.get('metrics') or {}
+    for h in (m.get('_keyword_hits') or []):
+        all_keyword_hits.add(h)
+    for n in (m.get('_base_names') or []):
+        all_base_names.add(n)
+if all_keyword_hits:
+    print('keyword_hits (cache|prefix|hit|query):')
+    for h in sorted(all_keyword_hits):
+        print(f'  - {h}')
+else:
+    print('keyword_hits (cache|prefix|hit|query): (none)')
+print()
+print(f'all vllm:* counter base names observed ({len(all_base_names)}):')
+for n in sorted(all_base_names):
+    marker = ' *' if n in all_keyword_hits else ''
+    print(f'  - {n}{marker}')
 for k, v in observed_metrics.items():
     if k == '_last_error':
         print(f'metrics_error={v}')
         continue
-    print(f"{k}: first={v['first']} last={v['last']}")
+    marker = ' *' if k in all_keyword_hits else ''
+    print(f"{k}: first={v['first']} last={v['last']}{marker}")
 print()
 print(f"overall_verdict={('pass' if verdicts and all(v == 'pass' for v in verdicts) else ('fail' if verdicts else 'no-data'))}")
 print(f"CSV: {csv_path}")
 print(f"JSON: {json_path}")
 print(f"Summary: {summary_path}")
+print(f"Raw /metrics: {artifact_dir}/{slug}.metrics.txt")
 
 if any(not r.get('ok') for r in rows):
     print('Some requests failed; see log for details.', file=sys.stderr)
