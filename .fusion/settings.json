@@ -3,9 +3,9 @@
 	"colorTheme": "nord",
 	"dashboardFontScalePct": 100,
 	"defaultProvider": "local-vllm",
-	"defaultModelId": "qwen3.6-35b-a3b",
+	"defaultModelId": "qwen3.8-27b",
 	"fallbackProvider": "local-vllm",
-	"fallbackModelId": "qwen3.6-35b-a3b",
+	"fallbackModelId": "qwen3.8-27b",
 	"ntfyEnabled": false,
 	"ntfyTopic": "fusion",
 	"ntfyEvents": [
