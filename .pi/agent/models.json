@@ -26,8 +26,8 @@
 					}
 				},
 				{
-					"id": "qwen3.6-27b",
-					"name": "Qwen3.6 27B",
+					"id": "qwen3.8-27b",
+					"name": "Qwen3.8 27B",
 					"reasoning": true,
 					"input": ["text"],
 					"contextWindow": 43008,
