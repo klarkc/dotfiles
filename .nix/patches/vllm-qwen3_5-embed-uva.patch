@@ -1,0 +1,42 @@
+diff --git a/vllm/model_executor/models/qwen3_5.py b/vllm/model_executor/models/qwen3_5.py
+--- a/vllm/model_executor/models/qwen3_5.py
++++ b/vllm/model_executor/models/qwen3_5.py
+@@ -48,6 +48,7 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
+     ParallelLMHead,
+     VocabParallelEmbedding,
+ )
++from vllm.model_executor.offloader.uva import UVAOffloader
+ from vllm.multimodal import MULTIMODAL_REGISTRY
+ from vllm.sequence import IntermediateTensors
+ from vllm.tokenizers.registry import cached_tokenizer_from_config
+@@ -191,6 +192,27 @@ class Qwen3_5Model(Qwen3NextModel):
+             self.vocab_size,
+             config.hidden_size,
+         )
++
++        # The Qwen3.5/3.8 token embedding is roughly 2.37 GiB in BF16. It is
++        # an unusually good offload target: unlike the output head, embedding
++        # lookup reads only the rows for the current token IDs. Keeping it in
++        # pinned host memory therefore frees substantial VRAM without putting
++        # an entire dense decoder layer on PCIe for every generated token.
++        additional_config = vllm_config.additional_config
++        embed_offload_gb = (
++            float(additional_config.get("qwen_embed_offload_gb", 0.0))
++            if isinstance(additional_config, dict)
++            else 0.0
++        )
++        if embed_offload_gb > 0:
++            self._embed_uva_offloader = UVAOffloader(
++                cpu_offload_max_bytes=int(embed_offload_gb * 1024**3),
++                cpu_offload_params={"weight"},
++            )
++            self.embed_tokens = self._embed_uva_offloader.wrap_modules(
++                iter([self.embed_tokens])
++            )[0]
++            logger.info_once(
++                "Qwen token embedding UVA offload enabled (budget %.2f GiB).",
++                embed_offload_gb,
++            )
+ 
+         def get_layer(prefix: str):
+             return Qwen3_5DecoderLayer(
