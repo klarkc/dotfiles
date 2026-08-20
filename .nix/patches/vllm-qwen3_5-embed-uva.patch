@@ -40,7 +40,7 @@ diff --git a/vllm/model_executor/models/qwen3_5.py b/vllm/model_executor/models/
  
          def get_layer(prefix: str):
              return Qwen3_5DecoderLayer(
-@@ -341,13 +366,32 @@ class Qwen3_5ForCausalLMBase(
+@@ -341,13 +366,34 @@ class Qwen3_5ForCausalLMBase(
          if get_pp_group().is_last_rank:
              self.lm_head = ParallelLMHead(
                  config.vocab_size,
