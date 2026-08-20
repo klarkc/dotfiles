@@ -167,8 +167,23 @@ pkgs.stdenvNoCC.mkDerivation {
 
         patch -p1 -d "$out/lib/python3.12/site-packages" \
           < ${./patches/vllm-qwen3_5-embed-uva.patch}
+
+        qwen_file="$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
+        ${pythonWithPip}/bin/python3.12 - "$qwen_file" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+needle = '''            if config.tie_word_embeddings:\n                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n        else:\n            self.lm_head = PPMissingLayer()\n'''
+replacement = '''            if config.tie_word_embeddings:\n                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n\n            additional_config = vllm_config.additional_config\n            lm_head_offload_gb = (\n                float(additional_config.get("qwen_lm_head_offload_gb", 0.0))\n                if isinstance(additional_config, dict)\n                else 0.0\n            )\n            if lm_head_offload_gb > 0 and not config.tie_word_embeddings:\n                self._lm_head_uva_offloader = UVAOffloader(\n                    cpu_offload_max_bytes=int(lm_head_offload_gb * 1024**3),\n                    cpu_offload_params={"weight"},\n                )\n                self.lm_head = self._lm_head_uva_offloader.wrap_modules(\n                    iter([self.lm_head])\n                )[0]\n                logger.info_once(\n                    "Qwen LM head UVA offload enabled (budget %.2f GiB).",\n                    lm_head_offload_gb,\n                )\n        else:\n            self.lm_head = PPMissingLayer()\n'''
+if text.count(needle) != 1:
+    raise SystemExit(f"expected exactly one Qwen LM-head insertion point, found {text.count(needle)}")
+path.write_text(text.replace(needle, replacement, 1))
+PY
+
         ${pythonWithPip}/bin/python3.12 -m py_compile \
-          "$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
+          "$qwen_file"
 
         makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
           --set PYTHONNOUSERSITE 1 \
