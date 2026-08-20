@@ -3,10 +3,18 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: vllm-benchmark [--check]
+Usage: vllm-benchmark [--check | prefix-switch]
 
 Runs lightweight target-aware HTTP benchmarks against the active vLLM
 OpenAI-compatible chat endpoint. Start a model first with vllm-config.
+
+Without a subcommand, runs the legacy SMALL/MEDIUM/LONG sweep.
+
+Subcommands:
+  prefix-switch   Run the agent-switch / prefix-cache workload using
+                  fully synthetic prompts whose token volume mimics
+                  parallel coding-agent traffic. No real repo content
+                  is sent.
 
 Environment overrides:
   VLLM_BENCHMARK_ENV  Path to benchmark.env from a vLLM runtime cache
@@ -19,13 +27,24 @@ Environment overrides:
   LONG_PROMPTS        Default: 2
   LONG_INPUT_LEN      Default: 48000
   LONG_OUTPUT_LEN     Default: 64
+
+Prefix-switch workload knobs:
+  PREFIX_TOKENS       Repo+system+tool prefix size. Default: 32768
+  SUFFIX_TOKENS       Per-agent history suffix. Default: 256
+  COMPLETION_TOKENS   Generation length. Default: 64
+  WARM_REPEATS        Warm reruns per agent. Default: 2
+  INCLUDE_SOLOGIG     Run cross-project (1) or skip (0). Default: 1
+  PASS_RATIO          Warm-vs-cold TTFT pass ratio (warm <= ratio*cold).
+                      Default: 0.5
 EOF
 }
 
 check_only=0
+prefix_switch_only=0
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   --check) check_only=1 ;;
+  prefix-switch) prefix_switch_only=1 ;;
   "") ;;
   *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
 esac
@@ -331,6 +350,511 @@ PY
   return "$rc"
 }
 
+run_prefix_switch() {
+  local slug="prefix-switch"
+  local json_file="$artifact_dir/${slug}.json"
+  local log_file="$artifact_dir/${slug}.log"
+  local csv_file="$artifact_dir/${slug}.csv"
+  local summary_file="$artifact_dir/${slug}.summary.env"
+
+  echo
+  echo "=== Prefix-switch / agent-switch workload ==="
+  echo "served_model=$MODEL base_url=$BASE_URL prefix_tokens=$PREFIX_TOKENS suffix_tokens=$SUFFIX_TOKENS completion_tokens=$COMPLETION_TOKENS warm_repeats=$WARM_REPEATS include_sologig=$INCLUDE_SOLOGIG pass_ratio=$PASS_RATIO"
+
+  set +e
+  python3 - "$BASE_URL" "$MODEL" "${VLLM_API_KEY:-}" \
+    "$PREFIX_TOKENS" "$SUFFIX_TOKENS" "$COMPLETION_TOKENS" \
+    "$WARM_REPEATS" "$INCLUDE_SOLOGIG" "$PASS_RATIO" \
+    "$json_file" "$csv_file" "$summary_file" \
+    <<'PY' 2>&1 | tee "$log_file"
+import csv
+import json
+import os
+import random
+import statistics
+import sys
+import time
+import urllib.error
+import urllib.request
+
+(base_url, model, api_key, prefix_tokens, suffix_tokens, completion_tokens,
+ warm_repeats, include_sologig, pass_ratio,
+ json_path, csv_path, summary_path) = sys.argv[1:]
+
+prefix_tokens = int(prefix_tokens)
+suffix_tokens = int(suffix_tokens)
+completion_tokens = int(completion_tokens)
+warm_repeats = int(warm_repeats)
+include_sologig = int(include_sologig)
+pass_ratio = float(pass_ratio)
+
+CHARS_PER_TOKEN = 4
+
+
+def fetch_max_model_len():
+    try:
+        req = urllib.request.Request(
+            base_url.rstrip('/') + '/models',
+            headers={'Authorization': 'Bearer ' + api_key} if api_key else {},
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.load(r)
+        for entry in data.get('data', []):
+            if entry.get('id') == model:
+                return int(entry.get('max_model_len') or 0)
+        if data.get('data'):
+            return int(data['data'][0].get('max_model_len') or 0)
+    except Exception as exc:
+        print(f'WARN: could not fetch max_model_len: {exc!r}', file=sys.stderr)
+    return 0
+
+
+max_model_len = fetch_max_model_len()
+
+
+def synth_block(target_chars, seed, label, salt):
+    rng = random.Random(f"{seed}|{label}|{salt}")
+    out = []
+    out.append(f"[{label}] seed={seed} prologue directive {rng.randint(0, 9999)}")
+    out.append("Operate as a coding agent across multiple repositories.")
+    line_no = 0
+    body = ''.join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(48))
+    while sum(len(x) for x in out) < target_chars:
+        line_no += 1
+        out.append(
+            f"[{label} #{line_no:06d}] marker={rng.randint(0, 9999)} | " + body + " " + body
+        )
+    text = '\n'.join(out)
+    return text[:target_chars]
+
+
+def build_messages(seed, prefix_chars, suffix_chars, label):
+    system_text = synth_block(8000, seed, label + '-system', salt=1)
+    tool_text = synth_block(8000, seed, label + '-tools', salt=2)
+    prefix_text = synth_block(prefix_chars, seed, label + '-repo', salt=3)
+    suffix_rng = random.Random(f"{seed}|{label}-suffix|4")
+    suffix_line = (
+        f"[agent {seed}] history step {suffix_rng.randint(0, 9999)}: "
+        + ('event ' * 14)
+        + ''.join(suffix_rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(56))
+    )
+    suffix_text = ''
+    while len(suffix_text) < suffix_chars:
+        suffix_text += '\n' + suffix_line
+    suffix_text = suffix_text[:suffix_chars]
+    return [
+        {'role': 'system', 'content': system_text + '\n\n' + tool_text},
+        {'role': 'user', 'content': prefix_text + suffix_text + '\n\nRespond briefly.'},
+    ]
+
+
+def http_post_chat(messages, max_tokens, temperature=0):
+    payload = {
+        'model': model,
+        'messages': messages,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+        'stream': True,
+        'stream_options': {'include_usage': True},
+    }
+    url = base_url.rstrip('/') + '/chat/completions'
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + api_key,
+        },
+    )
+    t0 = time.perf_counter()
+    first = None
+    usage = {}
+    chars = 0
+    http_status = None
+    error_body = ''
+    try:
+        with urllib.request.urlopen(req, timeout=3600) as response:
+            http_status = response.status
+            for raw in response:
+                if not raw.startswith(b'data: '):
+                    continue
+                data = raw[6:].strip()
+                if data == b'[DONE]':
+                    break
+                obj = json.loads(data)
+                if obj.get('usage'):
+                    usage = obj['usage']
+                choices = obj.get('choices') or []
+                if not choices:
+                    continue
+                delta = choices[0].get('delta') or {}
+                text = (
+                    delta.get('content')
+                    or delta.get('reasoning_content')
+                    or delta.get('reasoning')
+                    or ''
+                )
+                if text:
+                    if first is None:
+                        first = time.perf_counter()
+                    chars += len(text) if isinstance(text, str) else len(json.dumps(text))
+    except urllib.error.HTTPError as exc:
+        try:
+            error_body = exc.read().decode('utf-8', errors='replace')[:400]
+        except Exception:
+            error_body = ''
+        return {
+            'ok': False,
+            'http_status': exc.code,
+            'error': repr(exc),
+            'error_body': error_body,
+            'ttft_s': None,
+            'total_s': time.perf_counter() - t0,
+        }
+    except Exception as exc:
+        return {
+            'ok': False,
+            'http_status': http_status,
+            'error': repr(exc),
+            'error_body': error_body,
+            'ttft_s': None,
+            'total_s': time.perf_counter() - t0,
+        }
+    t1 = time.perf_counter()
+    return {
+        'ok': True,
+        'http_status': http_status,
+        'ttft_s': None if first is None else first - t0,
+        'total_s': t1 - t0,
+        'prompt_tokens': usage.get('prompt_tokens'),
+        'completion_tokens': usage.get('completion_tokens'),
+        'chars': chars,
+    }
+
+
+def scrape_metrics():
+    counters = {}
+    base_root = base_url.rstrip('/')
+    if base_root.endswith('/v1'):
+        base_root = base_root[:-3]
+    metrics_url = base_root + '/metrics'
+    try:
+        req = urllib.request.Request(
+            metrics_url,
+            headers={'Authorization': 'Bearer ' + api_key} if api_key else {},
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            text = r.read().decode('utf-8', errors='replace')
+    except Exception as exc:
+        return {'_error': repr(exc), '_url': metrics_url}
+    wanted = (
+        'vllm:prefix_cache_hits_total',
+        'vllm:prefix_cache_queries_total',
+        'vllm:gpu_prefix_cache_hits_total',
+        'vllm:gpu_cache_usage_perc',
+        'vllm:prefix_cache_queries',
+    )
+    for line in text.splitlines():
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split(' ')
+        if len(parts) < 2:
+            continue
+        name = parts[0]
+        if name in wanted:
+            try:
+                counters[name] = float(parts[-1])
+            except ValueError:
+                pass
+    return counters
+
+
+prefix_chars = prefix_tokens * CHARS_PER_TOKEN
+suffix_chars = suffix_tokens * CHARS_PER_TOKEN
+
+
+def probe_chars_per_token(probe_chars=4000):
+    """Send a tiny non-streaming chat probe to derive a chars-per-token ratio.
+
+    The probe uses synth_block-style content so the measured ratio matches the
+    actual workload rather than a 'z'-fill baseline.
+    """
+    sys_text = synth_block(8000, 1, 'probe-system', salt=1) + '\n\n' + synth_block(8000, 1, 'probe-tools', salt=2)
+    suf = 'event ' * 14 + ' ' + 'x' * 200
+    prefix_text = synth_block(probe_chars, 1, 'probe-repo', salt=3)
+    user_text = prefix_text + suf + '\n\nRespond briefly.'
+    payload = {
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': sys_text},
+            {'role': 'user', 'content': user_text},
+        ],
+        'temperature': 0,
+        'max_tokens': 1,
+        'stream': False,
+    }
+    try:
+        req = urllib.request.Request(
+            base_url.rstrip('/') + '/chat/completions',
+            data=json.dumps(payload).encode(),
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + api_key,
+            } if api_key else {'Content-Type': 'application/json'},
+        )
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = json.load(r)
+        n = int((data.get('usage') or {}).get('prompt_tokens') or 0)
+        if n > 0:
+            chars_sent = len(sys_text) + len(user_text)
+            return chars_sent / n
+    except urllib.error.HTTPError as exc:
+        print(f'WARN: probe chat failed: HTTP {exc.code}', file=sys.stderr)
+    except Exception as exc:
+        print(f'WARN: probe chat failed: {exc!r}', file=sys.stderr)
+    return None
+
+
+if max_model_len:
+    cpt = probe_chars_per_token(4000) or 3.0
+    print(f'info: probe chars-per-token ratio = {cpt:.3f}', file=sys.stderr)
+    safe_max = max_model_len - completion_tokens - 64
+    overhead_chars = 16000 + suffix_chars + 64  # system+tool+suffix+reply
+    # Add a 12% safety margin for content-shape variance across agents/seeds.
+    safe_prefix_chars = max(0, int(safe_max * 0.88 * cpt) - overhead_chars)
+    if prefix_chars > safe_prefix_chars:
+        fitted_tokens = max(1024, int(safe_prefix_chars / cpt) // 32 * 32)
+        fitted_chars = int(fitted_tokens * cpt)
+        print(
+            f'WARN: requested prefix_tokens={prefix_tokens} would exceed max_model_len={max_model_len} '
+            f'(chars={prefix_chars} > safe={safe_prefix_chars}); '
+            f'clamping to prefix_tokens={fitted_tokens} (chars={fitted_chars})',
+            file=sys.stderr,
+        )
+        prefix_tokens = fitted_tokens
+        prefix_chars = fitted_chars
+
+agents = [
+    ('A', 1, 'dotfiles'),
+    ('B', 2, 'dotfiles'),
+    ('C', 3, 'dotfiles'),
+]
+
+rows = []
+metrics_per_request = []
+
+
+def run_request(agent, run_index, kind, prefix_chars_used, suffix_chars_used, label, seed):
+    messages = build_messages(seed, prefix_chars_used, suffix_chars_used, label)
+    resp = http_post_chat(messages, completion_tokens)
+    m = scrape_metrics()
+    metrics_per_request.append({'agent': agent, 'kind': kind, 'index': run_index, 'metrics': m})
+    row = {
+        'agent': agent,
+        'kind': kind,
+        'index': run_index,
+        'http_status': resp.get('http_status'),
+        'ok': resp.get('ok'),
+        'ttft_s': resp.get('ttft_s'),
+        'total_s': resp.get('total_s'),
+        'prompt_tokens': resp.get('prompt_tokens'),
+        'completion_tokens': resp.get('completion_tokens'),
+        'chars': resp.get('chars', 0),
+        'prefix_chars': prefix_chars_used,
+        'suffix_chars': suffix_chars_used,
+        'completion_target_tokens': completion_tokens,
+        'error': resp.get('error', ''),
+        'error_body': resp.get('error_body', ''),
+    }
+    rows.append(row)
+    return row
+
+
+# Cold sequence: A, B, C
+for agent, seed, label in agents:
+    run_request(agent, 0, 'cold', prefix_chars, suffix_chars, label, seed)
+
+# Warm reruns
+for agent, seed, label in agents:
+    for r in range(1, warm_repeats + 1):
+        run_request(agent, r, 'warm', prefix_chars, suffix_chars, label, seed)
+
+# SoloSIG-shaped cross-project variant
+if include_sologig == 1:
+    run_request('SoloSIG', 0, 'cold', prefix_chars, suffix_chars, 'solosig', 99)
+    for r in range(1, warm_repeats + 1):
+        run_request('SoloSIG', r, 'warm', prefix_chars, suffix_chars, 'solosig', 99)
+
+
+# Write CSV
+fieldnames = [
+    'agent', 'kind', 'index', 'http_status', 'ok',
+    'ttft_s', 'total_s', 'prompt_tokens', 'completion_tokens', 'chars',
+    'prefix_chars', 'suffix_chars', 'completion_target_tokens',
+    'error', 'error_body',
+]
+with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: row.get(k) for k in fieldnames})
+
+
+# Build summary
+def by_kind(agent_name, kind):
+    return [r for r in rows if r['agent'] == agent_name and r['kind'] == kind and r.get('ok')]
+
+
+def best_ttft(rs):
+    vals = [r['ttft_s'] for r in rs if r.get('ttft_s') is not None]
+    return min(vals) if vals else None
+
+
+def avg_ttft(rs):
+    vals = [r['ttft_s'] for r in rs if r.get('ttft_s') is not None]
+    return statistics.mean(vals) if vals else None
+
+
+summary_rows = []
+verdicts = []
+for agent, seed, _label in agents:
+    cold_ttft = best_ttft(by_kind(agent, 'cold'))
+    warm_ttfts = [best_ttft(by_kind(agent, 'warm'))]
+    warm_avg = avg_ttft(by_kind(agent, 'warm'))
+    warm2 = best_ttft([r for r in by_kind(agent, 'warm') if r['index'] >= 2])
+    if cold_ttft is None or warm_ttfts[0] is None:
+        verdict = 'no-data'
+    else:
+        ratio = warm_ttfts[0] / cold_ttft
+        verdict = 'pass' if ratio <= pass_ratio else 'fail'
+        verdicts.append(verdict)
+    summary_rows.append({
+        'agent': agent,
+        'cold_ttft_s': cold_ttft,
+        'warm1_ttft_s': warm_ttfts[0],
+        'warm2_ttft_s': warm2,
+        'warm_avg_ttft_s': warm_avg,
+        'cold_prompt_tokens': (by_kind(agent, 'cold')[0].get('prompt_tokens') if by_kind(agent, 'cold') else None),
+        'verdict': verdict,
+    })
+
+if include_sologig == 1:
+    cold = best_ttft(by_kind('SoloSIG', 'cold'))
+    warm1 = best_ttft(by_kind('SoloSIG', 'warm'))
+    if cold is None or warm1 is None:
+        verdict = 'no-data'
+    else:
+        ratio = warm1 / cold
+        verdict = 'pass' if ratio <= pass_ratio else 'fail'
+        verdicts.append(verdict)
+    summary_rows.append({
+        'agent': 'SoloSIG',
+        'cold_ttft_s': cold,
+        'warm1_ttft_s': warm1,
+        'warm2_ttft_s': best_ttft([r for r in by_kind('SoloSIG', 'warm') if r['index'] >= 2]),
+        'warm_avg_ttft_s': avg_ttft(by_kind('SoloSIG', 'warm')),
+        'cold_prompt_tokens': (by_kind('SoloSIG', 'cold')[0].get('prompt_tokens') if by_kind('SoloSIG', 'cold') else None),
+        'verdict': verdict,
+    })
+
+
+# Metrics observed across the run
+observed_metrics = {}
+for entry in metrics_per_request:
+    m = entry.get('metrics') or {}
+    for k, v in m.items():
+        if k == '_error':
+            observed_metrics.setdefault('_last_error', v)
+            continue
+        # Prometheus counters are cumulative; record first/last values.
+        observed_metrics.setdefault(k, {'first': v, 'last': v})
+        observed_metrics[k]['last'] = v
+
+
+# Write JSON
+with open(json_path, 'w', encoding='utf-8') as f:
+    json.dump({
+        'model': model,
+        'prefix_tokens': prefix_tokens,
+        'suffix_tokens': suffix_tokens,
+        'completion_tokens': completion_tokens,
+        'warm_repeats': warm_repeats,
+        'include_sologig': include_sologig,
+        'pass_ratio': pass_ratio,
+        'rows': rows,
+        'summary': summary_rows,
+        'metrics': observed_metrics,
+    }, f, indent=2)
+    f.write('\n')
+
+
+# Write summary.env for downstream tooling
+with open(summary_path, 'w', encoding='utf-8') as f:
+    f.write(f"name=prefix-switch\n")
+    f.write(f"served_model={model}\n")
+    f.write(f"base_url={base_url}\n")
+    f.write(f"prefix_tokens={prefix_tokens}\n")
+    f.write(f"suffix_tokens={suffix_tokens}\n")
+    f.write(f"completion_tokens={completion_tokens}\n")
+    f.write(f"warm_repeats={warm_repeats}\n")
+    f.write(f"include_sologig={include_sologig}\n")
+    f.write(f"pass_ratio={pass_ratio}\n")
+    for s in summary_rows:
+        f.write(f"ttft_{s['agent']}_cold_s={s['cold_ttft_s']}\n")
+        f.write(f"ttft_{s['agent']}_warm1_s={s['warm1_ttft_s']}\n")
+        f.write(f"ttft_{s['agent']}_warm2_s={s['warm2_ttft_s']}\n")
+        f.write(f"ttft_{s['agent']}_warm_avg_s={s['warm_avg_ttft_s']}\n")
+        f.write(f"prompt_tokens_{s['agent']}_cold={s['cold_prompt_tokens']}\n")
+        f.write(f"verdict_{s['agent']}={s['verdict']}\n")
+    overall = 'pass' if verdicts and all(v == 'pass' for v in verdicts) else ('fail' if verdicts else 'no-data')
+    f.write(f"overall_verdict={overall}\n")
+
+
+# Console output
+print()
+print('--- prefix-switch summary ---')
+print(f"{'agent':<10}{'cold_ttft_s':>15}{'warm1_ttft_s':>16}{'warm2_ttft_s':>16}{'warm_avg_s':>15}{'prompt_tokens':>16}  verdict")
+for s in summary_rows:
+    def fmt(v, spec='.3f'):
+        return '' if v is None else format(v, spec)
+    cold_s = fmt(s['cold_ttft_s'])
+    warm1_s = fmt(s['warm1_ttft_s'])
+    warm2_s = fmt(s['warm2_ttft_s'])
+    warm_avg_s = fmt(s['warm_avg_ttft_s'])
+    prompt_s = '' if s['cold_prompt_tokens'] is None else str(s['cold_prompt_tokens'])
+    print(
+        f"{s['agent']:<10}"
+        f"{cold_s:>15}"
+        f"{warm1_s:>16}"
+        f"{warm2_s:>16}"
+        f"{warm_avg_s:>15}"
+        f"{prompt_s:>16}  {s['verdict']}"
+    )
+print()
+print('--- /metrics counters observed ---')
+if not observed_metrics:
+    print('(no metrics available)')
+for k, v in observed_metrics.items():
+    if k == '_last_error':
+        print(f'metrics_error={v}')
+        continue
+    print(f"{k}: first={v['first']} last={v['last']}")
+print()
+print(f"overall_verdict={('pass' if verdicts and all(v == 'pass' for v in verdicts) else ('fail' if verdicts else 'no-data'))}")
+print(f"CSV: {csv_path}")
+print(f"JSON: {json_path}")
+print(f"Summary: {summary_path}")
+
+if any(not r.get('ok') for r in rows):
+    print('Some requests failed; see log for details.', file=sys.stderr)
+    raise SystemExit(1)
+PY
+  local rc="${PIPESTATUS[0]}"
+  set -e
+  echo "$rc" > "$artifact_dir/${slug}.exit-code"
+  return "$rc"
+}
+
 benchmark_env="$(find_benchmark_env)"
 load_env_key "$benchmark_env" BASE_URL
 load_env_key "$benchmark_env" MODEL
@@ -373,6 +897,13 @@ LONG_PROMPTS="${LONG_PROMPTS:-2}"
 LONG_INPUT_LEN="${LONG_INPUT_LEN:-48000}"
 LONG_OUTPUT_LEN="${LONG_OUTPUT_LEN:-64}"
 
+PREFIX_TOKENS="${PREFIX_TOKENS:-32768}"
+SUFFIX_TOKENS="${SUFFIX_TOKENS:-256}"
+COMPLETION_TOKENS="${COMPLETION_TOKENS:-64}"
+WARM_REPEATS="${WARM_REPEATS:-2}"
+INCLUDE_SOLOGIG="${INCLUDE_SOLOGIG:-1}"
+PASS_RATIO="${PASS_RATIO:-0.5}"
+
 timestamp="$(date +%Y%m%d-%H%M%S)"
 artifact_root="$HOME/.cache/vllm-benchmarks"
 artifact_dir="$artifact_root/${timestamp}-${instance}"
@@ -387,12 +918,16 @@ echo "Using benchmark env: $benchmark_env"
 echo "Benchmark artifact directory: $artifact_dir"
 
 status=success
-run_case "Small requests" "small-requests" "$SMALL_PROMPTS" "$SMALL_INPUT_LEN" "$SMALL_OUTPUT_LEN" || status=failed
-if [ "$status" = success ]; then
-  run_case "Medium requests" "medium-requests" "$MEDIUM_PROMPTS" "$MEDIUM_INPUT_LEN" "$MEDIUM_OUTPUT_LEN" || status=failed
-fi
-if [ "$status" = success ]; then
-  run_case "Long-context requests" "long-context-requests" "$LONG_PROMPTS" "$LONG_INPUT_LEN" "$LONG_OUTPUT_LEN" || status=failed
+if [ "$prefix_switch_only" -eq 1 ]; then
+  run_prefix_switch || status=failed
+else
+  run_case "Small requests" "small-requests" "$SMALL_PROMPTS" "$SMALL_INPUT_LEN" "$SMALL_OUTPUT_LEN" || status=failed
+  if [ "$status" = success ]; then
+    run_case "Medium requests" "medium-requests" "$MEDIUM_PROMPTS" "$MEDIUM_INPUT_LEN" "$MEDIUM_OUTPUT_LEN" || status=failed
+  fi
+  if [ "$status" = success ]; then
+    run_case "Long-context requests" "long-context-requests" "$LONG_PROMPTS" "$LONG_INPUT_LEN" "$LONG_OUTPUT_LEN" || status=failed
+  fi
 fi
 
 finish_archive "$status"
