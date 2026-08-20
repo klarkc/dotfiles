@@ -97,14 +97,12 @@ let
   # codes lib64 paths, while Nixpkgs uses lib.
   cudaJitToolkit = pkgs.symlinkJoin {
     name = "vllm-cuda-jit-toolkit";
-    paths =
-      with cuda;
-      [
-        cuda_nvcc
-        cuda_cudart
-        cuda_crt
-        cccl
-      ];
+    paths = with cuda; [
+      cuda_nvcc
+      cuda_cudart
+      cuda_crt
+      cccl
+    ];
     postBuild = ''
       if [ -d "$out/lib" ] && [ ! -e "$out/lib64" ]; then
         ln -s lib "$out/lib64"
@@ -152,47 +150,76 @@ pkgs.stdenvNoCC.mkDerivation {
   dontUnpack = true;
 
   installPhase = ''
-        mkdir -p "$out/lib/python3.12/site-packages" "$out/bin" "$out/nix-support"
-        export HOME="$TMPDIR/home"
-        export PIP_NO_INDEX=1
-        export PIP_FIND_LINKS=${wheelhouse}
-        export PIP_DISABLE_PIP_VERSION_CHECK=1
-        export PIP_NO_CACHE_DIR=1
+            mkdir -p "$out/lib/python3.12/site-packages" "$out/bin" "$out/nix-support"
+            export HOME="$TMPDIR/home"
+            export PIP_NO_INDEX=1
+            export PIP_FIND_LINKS=${wheelhouse}
+            export PIP_DISABLE_PIP_VERSION_CHECK=1
+            export PIP_NO_CACHE_DIR=1
 
-        ${pythonWithPip}/bin/python3.12 -m pip install -v \
-          --no-index \
-          --find-links ${wheelhouse} \
-          --target "$out/lib/python3.12/site-packages" \
-          vllm
+            ${pythonWithPip}/bin/python3.12 -m pip install -v \
+              --no-index \
+              --find-links ${wheelhouse} \
+              --target "$out/lib/python3.12/site-packages" \
+              vllm
 
-        patch -p1 -d "$out/lib/python3.12/site-packages" \
-          < ${./patches/vllm-qwen3_5-embed-uva.patch}
+            patch -p1 -d "$out/lib/python3.12/site-packages" \
+              < ${./patches/vllm-qwen3_5-embed-uva.patch}
 
-        qwen_file="$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
-        ${pythonWithPip}/bin/python3.12 - "$qwen_file" <<'PY'
-import pathlib
-import sys
+            qwen_file="$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
+            ${pythonWithPip}/bin/python3.12 - "$qwen_file" <<'PY'
+    import pathlib
+    import sys
 
-path = pathlib.Path(sys.argv[1])
-text = path.read_text()
-needle = '''            if config.tie_word_embeddings:\n                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n        else:\n            self.lm_head = PPMissingLayer()\n'''
-replacement = '''            if config.tie_word_embeddings:\n                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n\n            additional_config = vllm_config.additional_config\n            lm_head_offload_gb = (\n                float(additional_config.get("qwen_lm_head_offload_gb", 0.0))\n                if isinstance(additional_config, dict)\n                else 0.0\n            )\n            if lm_head_offload_gb > 0 and not config.tie_word_embeddings:\n                self._lm_head_uva_offloader = UVAOffloader(\n                    cpu_offload_max_bytes=int(lm_head_offload_gb * 1024**3),\n                    cpu_offload_params={"weight"},\n                )\n                self.lm_head = self._lm_head_uva_offloader.wrap_modules(\n                    iter([self.lm_head])\n                )[0]\n                logger.info_once(\n                    "Qwen LM head UVA offload enabled (budget %.2f GiB).",\n                    lm_head_offload_gb,\n                )\n        else:\n            self.lm_head = PPMissingLayer()\n'''
-if text.count(needle) != 1:
-    raise SystemExit(f"expected exactly one Qwen LM-head insertion point, found {text.count(needle)}")
-path.write_text(text.replace(needle, replacement, 1))
-PY
+    path = pathlib.Path(sys.argv[1])
+    text = path.read_text()
+    needle = (
+        "            if config.tie_word_embeddings:\n"
+        "                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n"
+        "        else:\n"
+        "            self.lm_head = PPMissingLayer()\n"
+    )
+    replacement = (
+        "            if config.tie_word_embeddings:\n"
+        "                self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)\n"
+        "\n"
+        "            additional_config = vllm_config.additional_config\n"
+        "            lm_head_offload_gb = (\n"
+        "                float(additional_config.get(\"qwen_lm_head_offload_gb\", 0.0))\n"
+        "                if isinstance(additional_config, dict)\n"
+        "                else 0.0\n"
+        "            )\n"
+        "            if lm_head_offload_gb > 0 and not config.tie_word_embeddings:\n"
+        "                self._lm_head_uva_offloader = UVAOffloader(\n"
+        "                    cpu_offload_max_bytes=int(lm_head_offload_gb * 1024**3),\n"
+        "                    cpu_offload_params={\"weight\"},\n"
+        "                )\n"
+        "                self.lm_head = self._lm_head_uva_offloader.wrap_modules(\n"
+        "                    iter([self.lm_head])\n"
+        "                )[0]\n"
+        "                logger.info_once(\n"
+        "                    \"Qwen LM head UVA offload enabled (budget %.2f GiB).\",\n"
+        "                    lm_head_offload_gb,\n"
+        "                )\n"
+        "        else:\n"
+        "            self.lm_head = PPMissingLayer()\n"
+    )
+    if text.count(needle) != 1:
+        raise SystemExit(f"expected exactly one Qwen LM-head insertion point, found {text.count(needle)}")
+    path.write_text(text.replace(needle, replacement, 1))
+    PY
 
-        ${pythonWithPip}/bin/python3.12 -m py_compile \
-          "$qwen_file"
+            ${pythonWithPip}/bin/python3.12 -m py_compile \
+              "$qwen_file"
 
-        makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
-          --set PYTHONNOUSERSITE 1 \
-          --set CUDA_HOME "${cudaJitToolkit}" \
-          --set CUDA_PATH "${cudaJitToolkit}" \
-          --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
-          --prefix PATH : "${runtimePath}"
+            makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
+              --set PYTHONNOUSERSITE 1 \
+              --set CUDA_HOME "${cudaJitToolkit}" \
+              --set CUDA_PATH "${cudaJitToolkit}" \
+              --prefix PYTHONPATH : "$out/lib/python3.12/site-packages" \
+              --prefix PATH : "${runtimePath}"
 
-        cat > "$out/bin/vllm" <<EOF2
+            cat > "$out/bin/vllm" <<EOF2
     #!/bin/sh
     export PYTHONNOUSERSITE=1
     export PYTHONPATH="$out/lib/python3.12/site-packages:\''${PYTHONPATH:-}"
@@ -202,8 +229,8 @@ PY
     export LD_LIBRARY_PATH="${runtimeLibraryPath}:\''${LD_LIBRARY_PATH:-}"
     exec ${pythonWithPip}/bin/python3.12 -m vllm.entrypoints.cli.main "\$@"
     EOF2
-        chmod 0755 "$out/bin/vllm"
+            chmod 0755 "$out/bin/vllm"
 
-        printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
+            printf '%s\n' '${runtimeLibraryPath}' > "$out/nix-support/ld-library-path"
   '';
 }
