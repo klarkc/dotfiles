@@ -40,3 +40,36 @@ diff --git a/vllm/model_executor/models/qwen3_5.py b/vllm/model_executor/models/
  
          def get_layer(prefix: str):
              return Qwen3_5DecoderLayer(
+@@ -341,13 +366,32 @@ class Qwen3_5ForCausalLMBase(
+         if get_pp_group().is_last_rank:
+             self.lm_head = ParallelLMHead(
+                 config.vocab_size,
+                 config.hidden_size,
+                 quant_config=self.quant_config,
+                 prefix=maybe_prefix(prefix, "lm_head"),
+             )
+             if config.tie_word_embeddings:
+                 self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)
++
++            additional_config = vllm_config.additional_config
++            lm_head_offload_gb = (
++                float(additional_config.get("qwen_lm_head_offload_gb", 0.0))
++                if isinstance(additional_config, dict)
++                else 0.0
++            )
++            if lm_head_offload_gb > 0 and not config.tie_word_embeddings:
++                self._lm_head_uva_offloader = UVAOffloader(
++                    cpu_offload_max_bytes=int(lm_head_offload_gb * 1024**3),
++                    cpu_offload_params={"weight"},
++                )
++                self.lm_head = self._lm_head_uva_offloader.wrap_modules(
++                    iter([self.lm_head])
++                )[0]
++                logger.info_once(
++                    "Qwen LM head UVA offload enabled (budget %.2f GiB).",
++                    lm_head_offload_gb,
++                )
+         else:
+             self.lm_head = PPMissingLayer()
+ 
+         self.logits_processor = LogitsProcessor(config.vocab_size)
