@@ -145,6 +145,7 @@ pkgs.stdenvNoCC.mkDerivation {
 
   nativeBuildInputs = with pkgs; [
     makeWrapper
+    patch
     pythonWithPip
   ];
 
@@ -163,6 +164,11 @@ pkgs.stdenvNoCC.mkDerivation {
           --find-links ${wheelhouse} \
           --target "$out/lib/python3.12/site-packages" \
           vllm
+
+        patch -p1 -d "$out/lib/python3.12/site-packages" \
+          < ${./patches/vllm-qwen3_5-embed-uva.patch}
+        ${pythonWithPip}/bin/python3.12 -m py_compile \
+          "$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
 
         makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
           --set PYTHONNOUSERSITE 1 \
