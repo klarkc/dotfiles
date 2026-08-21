@@ -2,11 +2,20 @@
 
 Context for the next agent. Captured at the end of a session whose goal was to make vLLM usable on the RTX 3060 12 GB and measure decode throughput.
 
+This file is a complete historical record. The next agent should treat it as an audit log, not a compressed status page. Do not edit to compress.
+
+Reading guide:
+- Sections above the "2026-08-21 follow-up" block describe the vLLM runtime work that is now frozen.
+- The "2026-08-21 follow-up" block is the current active focus (behavioral / model-profile tuning).
+- The "Immediate Build handoff" list at the end is the start-here checklist for the next session.
+
 Branch and HEAD
 
 - Repo: klarkc/dotfiles
 - Branch: qwen38
-- HEAD: b51e412 (perf(qwen3.8): enable decode-only CUDA graphs)
+- Local HEAD: 631f685 (docs(wip): handoff model behavior tuning plan)
+- Origin HEAD: 631f685 (synced)
+- vLLM best config commit: b51e412 (perf(qwen3.8): enable decode-only CUDA graphs)
 - Working tree at the end of session: clean except for unrelated pre-existing diffs in .config/crush/crush.json, .config/opencode/opencode.json, .fusion/settings.json, .pi/agent/models.json. They were untouched at the user's instruction and should stay untouched.
 
 Goal of the work
@@ -98,11 +107,17 @@ In strict order:
 
 A. Verify the vLLM best config is stable under the actual herdr-driven workload. The synthetic prefix-switch shows it works; now drive the real agent switching through the same endpoint and confirm the warm path in production-grade usage.
 
+   Status as of HEAD 631f685: synthetic prefix-switch pass under BF16 SSM + decode-only CUDA graphs (commit b51e412). Real herdr/OpenCode validation is still pending; that is the first action of the next session per the "Immediate Build handoff" section below.
+
 B. Consider the optional micro-tuning only after the real workload baseline is captured:
    - prefix_match_unit: current default is None. vLLM supports finer-grained cache key matching. Quantized attention block size is 3040 with FP32 SSM or 1552 with BF16 SSM. The user's prompt mentioned a possible --prefix-match-unit 32 experiment. Do not add this until the basic server is stable and the default prefix-cache behavior is benchmarked.
    - BF16 SSM was a clear win. The recurrent state dtype is now BF16, so prefix cache hashes may differ slightly. Re-run prefix-switch to confirm prefix-cache hit count and warm2 TTFT have not regressed since the cudagraph commit.
 
+   Status as of HEAD 631f685: prefix-switch re-run after the cudagraph commit shows pass with the same per-agent TTFT pattern; see commit b51e412 artifact.
+
 C. Once A and B are stable, the next big work is the Escha/SGLang comparison, only if the user opts in. The user explicitly does NOT want this started yet. The reason for the order: Escha (EschaLabs/Qwen3.8-27B-Escha-W2) keeps lm_head INT8 in GPU and may avoid the UVA bottleneck the vLLM path cannot measure. Decode TPS alone will not decide the winner; the comparison must use the same prompts and the same cold/warm sequence.
+
+   Status as of HEAD 631f685: still out of scope. The 2026-08-21 follow-up block below records the explicit user decision.
 
 Commits on qwen38 in this session (in order):
 
@@ -112,12 +127,14 @@ Commits on qwen38 in this session (in order):
 - 3a36a0b tmp(benchmark): finish prefix-switch with /metrics scrape and clamp metadata
 - c2ac808 perf(qwen3.8): enable --mamba-ssm-cache-dtype bfloat16
 - b51e412 perf(qwen3.8): enable decode-only CUDA graphs
+- 51764d2 docs(wip): handoff for next agent on qwen3.8 vLLM work
+- 631f685 docs(wip): handoff model behavior tuning plan
 
 Notes on the tmp(benchmark) commits: the prefix-switch subcommand lives in /home/klarkc/.local/bin/vllm-benchmark. They keep the tmp prefix because the user wants to drop or rename them once the post-experiment follow-ups are closed. The follow-ups called out in those commits:
-  - decide whether to broaden the /metrics counter scrape to all vllm:* names (already done; the recording is in place)
-  - decide on the prefix-token clamp margin (currently 12 percent)
-  - decide whether to merge the legacy SMALL/MEDIUM/LONG sweep with the prefix-switch subcommand (currently separate)
-  - verify that max_model_len-aware clamping matches real workload
+  - decide whether to broaden the /metrics counter scrape to all vllm:* names (done in commit 3a36a0b; the scrape now records every `vllm:*` base name and keyword-highlights cache/prefix/hit/query)
+  - decide on the prefix-token clamp margin (currently 12 percent, still pending)
+  - decide whether to merge the legacy SMALL/MEDIUM/LONG sweep with the prefix-switch subcommand (currently separate, still pending)
+  - verify that max_model_len-aware clamping matches real workload (done in principle; every prefix-switch artifact records requested_prefix_tokens, estimated_actual_prefix_tokens, chars_per_token_estimate, and clamp_reason)
 
 Things NOT to do in the next session
 
@@ -190,6 +207,25 @@ Style / workflow expectations (unchanged)
 - Always distinguish: build/JIT failure, model-load VRAM failure, KV-cache capacity failure, runtime/decode performance failure.
 - Never claim a configuration works without log evidence.
 - Always commit with the commit SHA and the exact commands to pull/build/test.
+
+## Current decision (snapshot at HEAD 631f685)
+
+The vLLM runtime work described above is frozen at commit `b51e412`. The user considers the stack usable: decode throughput is still modest but the major infrastructure wins (UVA embed + lm_head, BF16 SSM, decode-only CUDA graphs, int4 KV cache) are captured and prefix reuse is excellent. No further broad vLLM tuning campaign is to be started.
+
+Active focus is now per-model / per-agent behavioral-profile tuning and evidence-based evaluation. The detailed plan, baselines, and "Immediate Build handoff" checklist live in the 2026-08-21 follow-up block immediately below.
+
+What does NOT change yet:
+- vLLM runtime flags (BF16 SSM, decode-only CUDA graphs, two UVA offloads, int4 KV cache).
+- MAX_MODEL_LEN=49152, MAX_NUM_SEQS=2.
+- Prefix caching enabled.
+- The "things NOT to do" list above (no MTP, no torch.compile, no broad offload, no SGLang, no Escha yet, no MAX_MODEL_LEN reduction).
+- Unrelated user diffs in `.config/crush`, `.config/opencode`, `.fusion`, `.pi/agent` configs.
+
+What WILL change in the next session:
+- `vllm-config <model>` profile selection to carry both serving profile and behavioral defaults.
+- Per-model behavioral defaults propagated through OpenCode/Pi/Crush/Fusion.
+- Agent-level overrides layered on top.
+- B0/B1/B2 baseline runs and a frozen-task local harness.
 
 ## 2026-08-21 follow-up — freeze inference, move to model/agent behavior tuning
 
