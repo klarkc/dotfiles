@@ -191,4 +191,151 @@ Style / workflow expectations (unchanged)
 - Never claim a configuration works without log evidence.
 - Always commit with the commit SHA and the exact commands to pull/build/test.
 
+## 2026-08-21 follow-up — freeze inference, move to model/agent behavior tuning
+
+The user considers the current vLLM stack usable. Decode throughput is still modest, but the large infrastructure wins are already captured and prefix reuse is excellent. Do not start another broad vLLM tuning campaign now.
+
+Current priority:
+
+1. validate the current production profile in the real herdr/OpenCode workload;
+2. optionally run one isolated `prefix_match_unit=32` experiment after the real baseline is captured;
+3. otherwise freeze the inference stack;
+4. move to per-model/per-agent behavioral profile tuning and evidence-based evaluation;
+5. only after that consider Escha/SGLang.
+
+Terminology: the historical "fine tuning" done for Qwen3.6-35B-A3B was inference/model-profile tuning, not weight fine-tuning/LoRA/SFT. Keep that distinction explicit.
+
+### Current behavioral-config asymmetry
+
+The Qwen3.6-35B-A3B entry in OpenCode has explicit behavioral settings including `top_k=20`, `min_p=0`, `presence_penalty=0`, `repetition_penalty=1.1`, and `thinking_token_budget=1536` plus agent-level temperature/top_p values. The Qwen3.8-27B entry currently has essentially only name/context/output limits and therefore falls much closer to the model/template defaults.
+
+`vllm-patch-model-defaults` currently propagates model id/name, base URL, context, max tokens and max_num_seqs, but not a full behavioral profile. The desired design is for `vllm-config <model>` to select both the serving profile and the behavioral defaults for that model, with agent-level overrides layered on top.
+
+Suggested per-model fields to design around (names may change after checking client support):
+
+- MODEL_TEMPERATURE
+- MODEL_TOP_P
+- MODEL_TOP_K
+- MODEL_MIN_P
+- MODEL_PRESENCE_PENALTY
+- MODEL_REPETITION_PENALTY
+- MODEL_REASONING_EFFORT
+- MODEL_THINKING_TOKEN_BUDGET
+- MODEL_PRESERVE_THINKING
+
+Do not blindly force unsupported fields into every client. Inspect OpenCode/Pi/Crush/Fusion capabilities and only propagate a setting where it is actually supported. Preserve existing unrelated user diffs in those config files.
+
+### Qwen3.8 reasoning evidence gathered from public community testing
+
+Use these findings as hypotheses and external baselines, not as a substitute for our own benchmark.
+
+1. Doğukan Urker / BenchKit, Qwen3.8-27B on an RTX 3060 12 GB:
+   - reported 1,083 tasks per reasoning level under the same config;
+   - LOW and MEDIUM tied in the aggregate;
+   - XHIGH used about 3x the reasoning tokens and looped about 10x more without a meaningful score gain;
+   - a Q4 HumanEval+ follow-up reportedly kept the same overthinking pattern (LOW 95.1 vs XHIGH 96.3 on 164 tasks, 1.2 pp difference), so the observation was not only IQ2-specific;
+   - sampling profile used: temperature=1.0, top_p=0.95, top_k=20, min_p=0, presence_penalty=0, repetition_penalty=1.0.
+   - Source thread: https://x.com/DogukanUrker/status/2089282517010374665
+   - Harness: https://github.com/DogukanUrker/BenchKit
+
+2. Alexey Fateev (@superalesha):
+   - reported successful long-running coding-agent use of Qwen3.8-27B with vLLM and `reasoning_effort=low`, including a 67-minute 3D-game build with no reported tool-call errors;
+   - anecdotal evidence only, useful as a real-agent signal.
+   - Source: https://x.com/superalesha/status/2088928621217931567
+
+3. Tom Turney (@no_stp_on_snek), behavioral audit:
+   - 141 held-out probes plus a 56-run thinking ablation;
+   - LOW vs XHIGH used roughly 2.9x fewer reasoning tokens in LOW, with no genuine XHIGH wins on the matched integrity/code-judgment set and some XHIGH regressions;
+   - found long-agent loops could starve their own context through reasoning verbosity;
+   - important caveat: LOW was worse on some safety-adjacent cases, so "LOW always" is not a valid universal rule;
+   - identified that the pinned official template treats MEDIUM as valid but has no dedicated MEDIUM instruction branch, making MEDIUM effectively neutral/native thinking rather than a literal midpoint;
+   - Source: https://x.com/no_stp_on_snek/status/2088375653162717680
+
+4. BlackwellBoy reproducible campaign:
+   - fixed-4K reasoning study headline: OFF 68%, LOW 94%, XHIGH 88%, with XHIGH truncating 5/50;
+   - one preregistered ProgramBench agent task under otherwise frozen setup: OFF repeat 241/502, LOW 253/502, MEDIUM 308/502, XHIGH 0/502 after an agent-loop failure;
+   - MEDIUM was best quality on that one task but slowest wall time, so it is interesting evidence rather than a universal recommendation;
+   - repository: https://github.com/Blackwellboy/qwen38-27b-is-not-one-number
+
+The practical interpretation for our workload is:
+
+- XHIGH is the official/default control, but should not be assumed to be the best production setting.
+- MEDIUM should be interpreted as neutral/native thinking on the current template and is the leading first candidate for Plan/Design.
+- LOW is the leading latency candidate and should be tested especially for Explore/Scout and possibly Build.
+- thinking OFF should be evaluated only for trivial transform/summary/title-style roles.
+
+### Behavioral baseline plan
+
+Do not copy the old 35B tuning into Qwen3.8. Start from an externally grounded sampling baseline and vary one reasoning dimension first.
+
+B0 official/default control:
+- thinking=true
+- reasoning_effort=xhigh
+- temperature=1.0
+- top_p=0.95
+- top_k=20
+- min_p=0
+- presence_penalty=0
+- repetition_penalty=1.0
+- preserve_thinking=true
+
+B1 neutral thinking:
+- same as B0 except reasoning_effort=medium
+
+B2 fast thinking:
+- same as B0 except reasoning_effort=low
+
+B3 no thinking:
+- thinking=false
+- only for simple roles/tasks; do not use as the default coding-agent arm.
+
+Do not introduce a `thinking_token_budget` for Qwen3.8 in the first comparison. First measure the natural reasoning-token distribution for LOW/MEDIUM/XHIGH. If a hard budget is later useful, derive it from observed P50/P75/P90/P95 reasoning lengths per agent/task rather than guessing a value such as 1536.
+
+Keep `preserve_thinking=true` for the initial experiment because it was intentionally added for agentic coding and interacts with multi-turn continuity/prefix reuse. Any change to it requires a dedicated A/B rather than being bundled with reasoning effort.
+
+### Agent-specific hypothesis before measurement
+
+This is a starting hypothesis only, not a committed default:
+
+- Plan: MEDIUM
+- Design: MEDIUM
+- Build: MEDIUM vs LOW A/B
+- Explore: LOW
+- Scout: LOW
+- General: LOW vs MEDIUM
+- Summary: thinking OFF
+- Compaction: thinking OFF
+- Title: thinking OFF
+
+### Evaluation strategy
+
+Use two layers.
+
+External/reproducible baseline:
+- Prefer BenchKit because it supports OpenAI-compatible/vLLM endpoints and has HumanEval+, MBPP+, IFEval, Aider Polyglot, RULER, loop detection, reasoning traces, timing, JSON/CSV outputs, and an optional Pi coding-agent harness.
+- Start with a small deterministic slice to validate harness correctness, then a larger useful slice. Do not spend hours running the full suite before the harness is validated.
+
+Real workload benchmark:
+- create/extend an agent-oriented benchmark for Plan/Build/Explore/SoloSIG-like tasks using frozen repo/task snapshots;
+- measure task completion, not merely model-token efficiency;
+- record at minimum: success/quality score, wall time, TTFT, reasoning tokens, answer tokens, tool calls, failed tool calls, retries, input tokens, cached-input/prefix-hit data where available;
+- derive `time_to_success`, `tokens_to_success`, `tool_calls_to_success`, success rate and loop/failure rate.
+
+Do not infer a win simply because LOW emits fewer tokens. A slower/more thoughtful arm can still win if it avoids retries. Conversely, XHIGH should be rejected if it burns tokens/loops without improving task success.
+
+For Plan specifically, the user is currently observing obvious overthinking under Qwen3.8. The first useful A/B is MEDIUM vs LOW, with XHIGH retained as the official/default control. Do not change the production default before collecting at least a small frozen-task baseline.
+
+### Immediate Build handoff
+
+1. Read this WIP and current repo/config state before editing.
+2. Preserve the current vLLM inference profile; no MTP/compile/offload/runtime experiments in this task.
+3. Design and implement model-specific behavioral defaults that `vllm-config` can propagate to compatible clients, with agent-specific overrides remaining possible.
+4. Do not overwrite unrelated user edits in `.config/opencode/opencode.json`, `.config/crush/crush.json`, `.fusion/settings.json`, or `.pi/agent/models.json`; merge surgically.
+5. Establish B0/B1/B2 evaluation support before selecting a new Qwen3.8 production reasoning default.
+6. Prefer using/leveraging BenchKit for external quality baselines instead of reinventing standard suites; our own harness should focus on the local agent/SoloSIG workload.
+7. Keep infrastructure metrics and behavior metrics separate in artifacts so future Escha/SGLang comparisons can run both layers under the same behavioral profile.
+8. If implementation requires choosing a client-specific representation for `reasoning_effort`, first verify the client actually forwards it to the OpenAI-compatible API/template. Do not assume a field present for GPT/OpenAI automatically works for local vLLM/Qwen.
+
+End of 2026-08-21 follow-up.
+
 End of WIP.
