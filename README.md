@@ -173,6 +173,22 @@ systemctl --user enable --now fusion-backup.timer
 systemctl --user enable --now kolu
 ```
 
+To expose a user service running HTTPS on port `4443` through local port `443`,
+allow user processes to bind ports down to `443` once at the system level:
+
+```bash
+sudo install -Dm644 /dev/stdin /etc/sysctl.d/99-unprivileged-ports.conf <<'EOF'
+net.ipv4.ip_unprivileged_port_start=443
+EOF
+sudo sysctl --system
+```
+
+Then enable the socket-activated user proxy:
+
+```bash
+systemctl --user enable --now https-proxy.socket
+```
+
 #### vLLM + Fusion
 
 The vLLM/Fusion workflow is target-based. Only one vLLM model target should run at a time:
