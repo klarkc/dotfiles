@@ -465,9 +465,14 @@ be added to nix flake check.
 USAGE
 }
 
+# Default (no args) runs BOTH modes sequentially so `make test` covers
+# all scenarios in a single invocation. Legacy explicit `api-token` /
+# `oauth` still work for debugging.
 if [ $# -lt 1 ]; then
-  usage >&2
-  exit 1
+  mode_api_token || exit $?
+  mode_oauth || exit $?
+  log "PASS both modes (api-token + oauth)"
+  exit 0
 fi
 
 case "$1" in

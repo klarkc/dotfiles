@@ -14,3 +14,35 @@
 - Runtime package naming convention: when a Nix package in `.nix/` composes or builds a tool runtime intended to be installed into the user profile and consumed from `%h/.nix-profile/bin/`, name the file `<tool>-runtime.nix` (e.g. `fusion-runtime.nix`, `vllm-runtime.nix`). The corresponding flake input/output/attribute and service unit must use the same `<tool>-runtime` name so that input file, Nix attribute, and service reference tie together.
 - Services must not run `nix build`/`nix-build` at startup. Profile-managed runtime dependencies must be realized by `nix profile upgrade klarkc` and consumed from `%h/.nix-profile/bin`.
 - This repo is installed at `$HOME`; systemd `%h` is the repo root. Do not use `%h/Sources/Fusion/klarkc/dotfiles` as a flake root for this repo.
+- Smoke test contract: scripts under `.local/bin/*-smoke-test` are
+  self-executing and take no arguments. Each script runs **all of its
+  scenarios** in a single invocation (e.g. `vllm-smoke-test` runs
+  focused checks AND end-to-end; `atlassian-smoke-test` runs both
+  api-token and oauth modes). Smoke tests **never** build dependencies
+  themselves — they assume `nix profile install .` has populated PATH
+  with the required tools and runtime libs. If any prerequisite is
+  missing (binary, GPU, systemd service, env var), the smoke test
+  fails with `FATAL: <reason>` on stderr and exit 2 — there is no
+  silent skip. `make test` invokes each smoke script once with no
+  arguments; the scripts own their scenario execution.
+- vLLM smoke testing follows this three-layer procedure:
+  1. **Fast / static**: `nix flake check`. No GPU, no network, no
+     model. Catches formatting, pre-commit, archive-pack, and any
+     static derivations declared in `flake.nix` `checks`.
+  2. **Smoke (gated)**: `make test` (with `SMOKE_TESTS_ENABLED=true`,
+     the default for local devs; CI uses `SMOKE_TESTS_ENABLED=false`).
+     Runs every `.local/bin/*-smoke-test` in sequence. `vllm-smoke-test`
+     auto-detects the scenario from the runtime environment: with GPU
+     present, it runs focused checks AND end-to-end (vllm-config +
+     `/v1/models` + completion); without GPU, it runs only the focused
+     checks. Missing prerequisites fail with `FATAL`.
+  3. **Manual workstation**: nothing additional. The `vllm-smoke-test`
+     end-to-end scenario replaces the old `vllm-e2e-smoke` script and
+     covers both targets.
+     When bumping `vllmRequirement` or `version` in
+     `.nix/vllm-runtime.nix` / `flake.nix`, run the layers in order:
+     `nix flake check` (cheap sanity), then `nix profile upgrade klarkc`
+     (so PATH has the new vllm), then `make test` (covers the focused
+  - e2e scenarios via `vllm-smoke-test`). If any layer fails, the
+    bump is not complete — fix the failure and re-run from the cheapest
+    layer that still passes upward.

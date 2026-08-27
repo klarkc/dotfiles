@@ -179,3 +179,36 @@ Imported variables currently relevant to these services:
 - `VAST_API_KEY`: useful for Vast.ai automation/agent workflows.
 
 Intentionally not imported by default here: cloud LLM provider keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, and `GOOGLE_API_KEY`. Passing those into Fusion can enable cloud providers; add them explicitly only if that is desired.
+
+## Local patches against upstream vLLM
+
+The `vllm-runtime` derivation layers the following patches on top of the
+upstream vLLM wheel built from `vllmRequirement` in
+`.nix/vllm-runtime.nix`. Each patch documents its purpose and the
+condition that lets us remove it.
+
+| Patch | Source | Purpose | Removal condition |
+|---|---|---|---|
+| `vllm-qwen3_5-embed-uva.patch` | inline repo | Opt-in Qwen token embedding UVA offload via `qwen_embed_offload_gb` (frees ~2.4 GiB of VRAM by pinning `embed_tokens` to host memory). | Upstream ships the same UVA offload for Qwen 3.5/3.6/3.8 token embeddings in a stable release. Verify with `grep -R "qwen_embed_offload_gb" vllm/model_executor/models/qwen3_5.py` returning `0`. |
+| LM-head UVA rewrite (inline `installPhase` Python) | `.nix/vllm-runtime.nix:170-237` | Opt-in Qwen LM head UVA offload via `qwen_lm_head_offload_gb` (mirror of the embed patch for `lm_head`). | Same as above; the rewrite uses stable string anchors so it usually survives upstream refactors without touching its needle. |
+| `vllm-2_3-bit-autoround-humming.patch` | upstream PR [vllm-project/vllm#52890](https://github.com/vllm-project/vllm/pull/52890), head `040f4f6f3bdff505f7f8bb943c4da9c8ea77baa2` (rebased onto the local tag). Previous form: [vllm-project/vllm#52729](https://github.com/vllm-project/vllm/pull/52729) (closed unmerged). | CUDA inference of AutoRound 2/3-bit checkpoints, e.g. `huggingface.co/Intel/Qwen3.8-27B-bpw2.8-AutoRound` (the local `qwen3.6-27B` target). Upstream Marlin/GPTQ/AWQ kernels only cover 4/8-bit on CUDA, so without this routing low-bit layers would fail to load with `NotImplementedError`. | Upstream PR #52890 merges into a stable vLLM release. Verify with `grep -R CUDA_HUMMING_SUPPORTED_BITS vllm/model_executor/layers/quantization/inc/schemes/inc_wna16_scheme.py` returning `0`. |
+
+### Bumping the vLLM version
+
+When bumping `vllmRequirement` and `version` in `.nix/vllm-runtime.nix` /
+`flake.nix`, run, in this order:
+
+1. Re-apply each `---` patch with `patch -p1 --dry-run` against the new
+   upstream source to verify offsets still hold:
+   ```bash
+   for p in .nix/patches/*.patch; do patch -p1 --dry-run -d <staging_dir> < "$p"; done
+   ```
+   If a patch no longer applies cleanly, regenerate it from the upstream
+   PR/branch.
+2. Refresh `outputHash` of the wheelhouse. Nix prints the expected hash
+   on the first failing build.
+3. Rebuild `nix build .#vllm-runtime` until it closes.
+4. Run `nix profile upgrade klarkc` so the user profile picks up the
+   new derivation.
+5. Smoke-test via `.local/bin/vllm-smoke-test` — see AGENTS.md for the
+   contract.

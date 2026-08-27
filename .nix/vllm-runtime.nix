@@ -20,10 +20,43 @@ let
   };
   cuda = cudaPkgs.cudaPackages_13_0;
 
-  vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
+  # Bump note: vLLM upstream tag. v0.28.0 (2026-08-26) is the latest stable
+  # release. The previous pin `refs/pull/52729/head` was tied to upstream PR
+  # "Restore CUDA support for 2-bit and 3-bit AutoRound formats" (closed
+  # unmerged, superseded by open PR #52890). Because that fix has not yet
+  # landed on a stable tag, we forward-port it as
+  # `.nix/patches/vllm-2_3-bit-autoround-humming.patch` so the local
+  # `Intel/Qwen3.8-27B-bpw2.8-AutoRound` target keeps working.
+  # When #52890 merges into a stable vLLM release, drop that patch and bump
+  # this ref to the new tag.
+  vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@v0.28.0";
 
+  # Bump note: vLLM wheelhouse derivation. Bumping the vLLM tag above
+  # requires the following coordinated changes inside this repo:
+  # 1) bump `version` in `flake.nix` (CUDA variant label),
+  # 2) bump `vllmRequirement` Git ref/tag above,
+  # 3) update `pname` of the wheelhouse derivation to match the new tag
+  #    (so different wheelhouse revisions are easy to tell apart in
+  #    /nix/store and `nix-store -q --references`),
+  # 4) refresh `outputHash` of the wheelhouse via a failing first build
+  #    (Nix prints the expected hash in `error: hash mismatch … got:`),
+  # 5) verify each patch in `.nix/patches/*.patch` still applies against
+  #    the new upstream source (`patch -p1 --dry-run`),
+  # 6) rebuild `nix build .#vllm-runtime`,
+  # 7) `nix profile upgrade klarkc` so the user profile picks up the new
+  #    derivation (services must NOT run `nix build` at startup — see
+  #    `AGENTS.md`),
+  # 8) smoke-test the vLLM runtime via `.local/bin/vllm-smoke-test`,
+  #    which runs both focused checks (CLI flags, patch presence, INC
+  #    dispatch gate) and end-to-end (vllm-config + curl /v1/models).
+  #    See `AGENTS.md` for the smoke test contract.
+  # Coupled artifacts: CUDA 13.0 wheel index (`--extra-index-url
+  # https://download.pytorch.org/whl/cu130`), torch 2.13.0 pin in the
+  # wheelhouse buildCommand, FlashInfer index
+  # (`https://flashinfer.ai/whl/`), and the `cudaPackages_13_0` overlay in
+  # nixpkgs. Verify each before declaring the bump complete.
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
-    pname = "vllm-pr52729-wheelhouse";
+    pname = "vllm-v0.28.0-wheelhouse";
     inherit version;
 
     nativeBuildInputs = with pkgs; [
@@ -36,7 +69,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-XpIO5SsjA/6KQhdYJxjSjZE57nYrph5S/o8ZThE6b7U=";
+    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     dontUnpack = true;
 
@@ -166,6 +199,15 @@ pkgs.stdenvNoCC.mkDerivation {
             patch -p1 -d "$out/lib/python3.12/site-packages" \
               < ${./patches/vllm-qwen3_5-embed-uva.patch}
 
+            # Restore CUDA 2/3-bit AutoRound routing to the Humming kernel.
+            # Forward-port of upstream PR vllm-project/vllm#52890 (head
+            # 040f4f6f3bdf, rebased onto the v0.28.0 tag). Required for the
+            # local qwen3.6-27B target serving
+            # `Intel/Qwen3.8-27B-bpw2.8-AutoRound`. See the patch header and
+            # AGENTS.md for tracking and removal conditions.
+            patch -p1 -d "$out/lib/python3.12/site-packages" \
+              < ${./patches/vllm-2_3-bit-autoround-humming.patch}
+
             qwen_file="$out/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_5.py"
             ${pythonWithPip}/bin/python3.12 - "$qwen_file" <<'PY'
     import pathlib
@@ -211,6 +253,10 @@ pkgs.stdenvNoCC.mkDerivation {
 
             ${pythonWithPip}/bin/python3.12 -m py_compile \
               "$qwen_file"
+
+            # Sanity-check the CUDA 2/3-bit AutoRound patch parsed cleanly.
+            ${pythonWithPip}/bin/python3.12 -m py_compile \
+              "$out/lib/python3.12/site-packages/vllm/model_executor/layers/quantization/inc/schemes/inc_wna16_scheme.py"
 
             makeWrapper ${pythonWithPip}/bin/python3.12 "$out/bin/python" \
               --set PYTHONNOUSERSITE 1 \
