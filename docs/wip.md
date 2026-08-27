@@ -220,3 +220,90 @@ Verification on this worktree:
 Non-blocking observation:
 
 - The all-SKIP exit code is 1, not 6, because the failure path is "no agent returned a parseable status object" rather than "a required product is unreachable from any agent". Both exit codes are non-zero so `make test` fails correctly, but the choice between 1 and 6 is mildly inconsistent with the documented exit code table (which only lists 6). Either accept both 1 and 6 as failure or align the code to always exit 6. Not blocking; documenting for follow-up.
+
+## Hand-off: pack mcp-remote + align coding-agents-smoke-test exit code (2026-08-27)
+
+User request: close the two remaining gaps so the integration is fully self-contained.
+
+1. Pack `mcp-remote` so `.local/bin/atlassian-smoke-test oauth` runs without skipping.
+2. Make `coding-agents-smoke-test` exit 6 on all-SKIP so the documented exit table matches behavior.
+
+Constraints and facts collected by Design for Build:
+
+- `mcp-remote` is not in nixpkgs (current `nixpkgs-unstable`). Direct search for top-level and nodePackages attributes failed; `nodePackages`/`nodePackages_latest` are explicitly removed in this nixpkgs.
+- `mcp-remote` npm package latest version is `0.8.1`, repository `git+https://github.com/punkpeye/mcp-remote.git`. The project does not publish stable tags, so version pinning must use a git rev.
+- Latest commit at design time: `77bbcfcd7892d339c27b5a14818b63cb5c4d3293` (committed 2026-08-27). Locking on this rev is acceptable; the repo policy forbids live package manager resolution but a flake input + locked `flake.lock` is the standard pattern this repo already follows for Fusion and QMD.
+- Bins: `mcp-remote` (entry `dist/proxy.js`), `mcp-remote-client` (`dist/client.js`).
+- Repo convention for vendored JS CLI runtime: `.nix/<tool>-runtime.nix` exposing a `<tool>-runtime` flake attribute, wired into `packages.default` next to `fusion-runtime` and `vllm-runtime`. The Fusion runtime uses `fetchPnpmDeps` + `pnpmBuildHook` from nixpkgs. Use the same pattern: `pnpmDeps.hash` will need to be initialized (initial `nix build .#mcp-remote-runtime` prints the expected hash; commit it together with the rev).
+- The runtime should also expose `mcp-remote-client` if useful, but the smoke test only invokes `mcp-remote`, so the binary must be on PATH after `nix profile install .`.
+- AGENTS.md policy: no live `npm install` / `pnpm install` in repo-maintained Nix derivations; everything must be declared through flake inputs and locked. `fetchPnpmDeps` is offline-friendly and acceptable.
+- Follow the Fusion/QMD bump-note comment style: a `# Bump note:` annotating the version/rev/hash that must move together.
+
+Concrete steps for Build:
+
+1. Add flake input:
+
+   ```nix
+   mcp-remote-src = {
+     url = "github:punkpeye/mcp-remote/77bbcfcd7892d339c27b5a14818b63cb5c4d3293";
+     flake = false;
+   };
+   ```
+
+   with a `# Bump note:` matching the Fusion/QMD style.
+
+2. Create `.nix/mcp-remote-runtime.nix` mirroring `fusion-runtime.nix` shape: a derivation that takes `pkgs` and the `mcp-remote-src` input, uses `pkgs.fetchPnpmDeps` for the offline `pnpm-lock.yaml` deps, and `pnpmBuildHook` for the build. The `mainProgram` should be `mcp-remote`. Wrap with `makeWrapper` and a minimal `runtimePath` (nodejs, coreutils, findutils, gawk, gnugrep, gnused, curl) so the bridge can issue HTTPS requests and locate its bundle.
+
+3. Wire into `flake.nix`:
+
+   ```nix
+   mkRuntime = <tool>: src:
+     pkgs.callPackage ./.nix/${tool}-runtime.nix { inherit src; };
+
+   # in packages:
+   mcp-remote-runtime = mkRuntime "mcp-remote" mcp-remote-src;
+   default = pkgs.buildEnv {
+     paths = [..., mcp-remote-runtime, ...];
+   };
+   ```
+
+4. Run `nix build .#mcp-remote-runtime` once to obtain `pnpmDeps.hash`, commit the hash next to the bump note.
+
+5. Run `nix profile install .` and verify `which mcp-remote` resolves to the Nix profile binary. Smoke test that `.local/bin/atlassian-smoke-test oauth` no longer SKIPs because the bridge is missing (it will still likely wait on browser OAuth consent the first time, which is acceptable — the test no longer errors out on PATH lookup).
+
+6. Align `coding-agents-smoke-test` exit codes. Currently the all-SKIP path calls `fail` with default exit code `1`. Update the call (or the `fail` helper's default for that branch) so the all-SKIP path uses exit code `6`, matching the documented exit code table:
+
+   ```bash
+   fail "no coding agent returned a parseable status object" 6
+   ```
+
+   and likewise for the "no coding agent could be probed" branch which already uses `6`. Confirm only 0 and 6 are documented in the script header and used.
+
+7. Re-run `make test SKIP_SMOKE=1` and `make test` to validate end-to-end. The OAuth branch will probably still effectively no-op until the user grants browser consent once; document that expected behavior in the script's comments and README.
+
+8. Commit. Suggested message:
+
+   ```
+   feat(nix): pack mcp-remote as runtime + align smoke exit code
+
+   - add flake input mcp-remote-src pinned to commit <hash>
+   - add .nix/mcp-remote-runtime.nix following the fusion-runtime pattern
+   - wire mcp-remote-runtime into packages.default so the bridge is on
+     PATH after nix profile install
+   - update bump notes for mcp-remote-src + pnpmDeps.hash to move
+     together
+   - .local/bin/atlassian-smoke-test oauth no longer SKIPs for missing
+     bridge; first run still requires browser consent, subsequent runs
+     reuse ~/.mcp-auth
+   - .local/bin/coding-agents-smoke-test all-SKIP path now exits 6 to
+     match the documented exit code table; header comment updated
+   ```
+
+Verification targets after the Build fix:
+
+- `mcp-remote` resolves in `nix profile install .` output and is on PATH.
+- `which mcp-remote` returns the profile binary (not a missing command).
+- `make test SKIP_SMOKE=1` runs flake check only.
+- `make test` runs smoke tests; `atlassian-smoke-test api-token` PASS, `atlassian-smoke-test oauth` opens bridge (no SKIP for missing bridge), `coding-agents-smoke-test` reports SKIP per agent when no provider auth and exits 6 with the aligned message.
+- No tokens or Authorization headers printed.
+- No secrets added to `.gitignore` or `flake.nix`.
