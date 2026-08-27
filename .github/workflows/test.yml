@@ -17,8 +17,9 @@ jobs:
           fail-mode: true
       # `make test` is the standard verification entrypoint for this
       # repo. It runs `nix flake check` plus `.local/bin/*-smoke-test`
-      # scripts; the smoke tests are skipped in CI because they need
+      # scripts; the smoke tests are disabled in CI because they need
       # live Atlassian credentials that GitHub does not provide. Local
-      # developers run `make test` with the smoke tests enabled by
-      # sourcing ~/.profile_override first.
-      - run: SKIP_SMOKE=1 make test
+      # developers run `make test` (smoke tests enabled by default) with
+      # ~/.profile_override sourced to load ATLASSIAN_USER_EMAIL and
+      # ATLASSIAN_MCP_TOKEN.
+      - run: SMOKE_TESTS_ENABLED=false make test
