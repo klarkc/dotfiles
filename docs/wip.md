@@ -154,3 +154,21 @@ New finding for Build follow-up:
 Non-blocking observation:
 
 - In this shell, `BASH_ENV=/home/klarkc/.profile` can implicitly source `.profile_override` for executable bash scripts, so `env -u ATLASSIAN_USER_EMAIL -u ATLASSIAN_MCP_TOKEN .local/bin/atlassian-smoke-test api-token` may still succeed locally. Tests for missing env should set `BASH_ENV=/dev/null` or similar. This is not necessarily a product bug, but should be documented if adding tests for missing env.
+
+## Design review of Build hardening e67c963 (2026-08-27)
+
+Status: accepted. The auth-smoke blocker from the previous review is fixed, no new blockers introduced.
+
+Verified scenarios:
+
+- `BASH_ENV=/dev/null ATLASSIAN_USER_EMAIL=test@example.com ATLASSIAN_MCP_TOKEN=not-a-real-token .local/bin/atlassian-smoke-test api-token`: exit 4, message `FAIL: tools/list missing required tools: bitbucketPullRequest,getAccessibleAtlassianResources; got: addTeamworkGraphContext`. Correct: token without scopes fails the smoke test.
+- `ATLASSIAN_EXPECTED_SITE_URL=https://example.test .local/bin/atlassian-smoke-test api-token` (with valid creds): exit 5, message `FAIL: expected site https://example.test not found in resources (got urls: https://solosig.atlassian.net; raw: [...])`. Correct: site mismatch fails the smoke test.
+- `.local/bin/atlassian-smoke-test api-token` with default `ATLASSIAN_EXPECTED_SITE_URL`: exit 0, PASS, prints the expected site, resources text, and tool list (one per line, alphabetical). Correct.
+- `make test` (default): flake check + both smoke modes succeed (oauth still gracefully skips because the bridge is not installed).
+- `SMOKE_TESTS_ENABLED=false make test`: flake check only, no smoke tests run.
+
+Code-level acceptance:
+
+- `.local/bin/atlassian-smoke-test` does not reference `.profile_override`; the only place where `profile_override` appears in the broader repo set is a documentation comment in `.github/workflows/test.yml` explaining how local developers load credentials. That is acceptable.
+- The script accepts `ATLASSIAN_EXPECTED_SITE_URL` with default `https://solosig.atlassian.net`, satisfying the previously requested override knob.
+- `tools/list` and `getAccessibleAtlassianResources` parse their JSON payload and fail loudly on JSON-RPC errors, missing required tools, MCP `error -NNNN:` content text, empty resources, and missing expected site URL.
