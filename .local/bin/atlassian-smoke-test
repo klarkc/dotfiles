@@ -23,6 +23,10 @@
 # Required environment (api-token mode):
 #   ATLASSIAN_USER_EMAIL  Atlassian account email used to mint the token.
 #   ATLASSIAN_MCP_TOKEN   Personal Atlassian API token.
+# Optional environment (api-token mode):
+#   ATLASSIAN_EXPECTED_SITE_URL  Site URL that must appear in
+#                                getAccessibleAtlassianResources.
+#                                Default: https://solosig.atlassian.net.
 #
 # Required environment (oauth mode):
 #   ATLASSIAN_OAUTH_BRIDGE  Name or path of the OAuth bridge binary
@@ -34,7 +38,17 @@
 #   2  Required environment is missing.
 #   3  Initialization handshake failed.
 #   4  tools/list call failed or returned unexpected payload.
-#   5  Accessible resources call failed.
+#   5  Accessible resources call failed (or did not return the expected
+#      Atlassian site URL / Bitbucket tools).
+#
+# Acceptance for api-token mode:
+#   - initialize returns 200 with an Mcp-Session-Id
+#   - tools/list returns 200 with at least getAccessibleAtlassianResources
+#     and bitbucketPullRequest present (other tools may or may not be
+#     present depending on token scopes)
+#   - getAccessibleAtlassianResources returns 200 with parseable JSON,
+#     no top-level JSON-RPC error, no embedded "MCP error" content text,
+#     and a resource entry whose url/name matches ATLASSIAN_EXPECTED_SITE_URL.
 #
 # Output policy: this script never prints token values, Authorization
 # headers, generated Basic base64 strings, or full response bodies that
@@ -152,6 +166,8 @@ mode_api_token() {
   : "${ATLASSIAN_USER_EMAIL:?ATLASSIAN_USER_EMAIL is required for api-token mode}"
   : "${ATLASSIAN_MCP_TOKEN:?ATLASSIAN_MCP_TOKEN is required for api-token mode}"
 
+  local expected_site="${ATLASSIAN_EXPECTED_SITE_URL:-https://solosig.atlassian.net}"
+
   require_cmd curl
   require_cmd python3
 
@@ -211,7 +227,6 @@ mode_api_token() {
   rm -f "$tools_headers"
 
   if [ "$tools_status" != "200" ]; then
-    rm -f "$auth_header_file"
     local redacted
     redacted="$(redact "$(head -c 500 "$tools_body" 2>/dev/null || true)")"
     rm -f "$tools_body"
@@ -226,30 +241,61 @@ mode_api_token() {
     fail "tools/list returned no parseable JSON payload" 4
   fi
 
-  local tool_names
-  tool_names="$(
+  # Validate the tools/list payload: parse JSON, surface JSON-RPC
+  # errors, then verify that the required tools are present. We
+  # require at least one resource-discovery tool and the Bitbucket PR
+  # tool; everything else (Jira, Confluence, Teamwork Graph) is
+  # permitted but not required for the api-token smoke test.
+  local tools_validation
+  tools_validation="$(
     python3 - "$tools_json" <<'PY'
 import json, sys
-try:
-    obj = json.loads(sys.argv[1])
-except Exception:
+obj = json.loads(sys.argv[1])
+if "error" in obj and obj["error"]:
+    err = obj["error"]
+    print("error")
+    print(f"code={err.get('code')}")
+    print(f"message={err.get('message')}")
     sys.exit(0)
 result = obj.get("result") or {}
-for t in result.get("tools") or []:
-    name = t.get("name")
-    if name:
-        print(name)
+tools = result.get("tools") or []
+names = [t.get("name") for t in tools if isinstance(t, dict) and t.get("name")]
+required = [
+    "getAccessibleAtlassianResources",
+    "bitbucketPullRequest",
+]
+missing = [n for n in required if n not in names]
+if missing:
+    print("missing_tools")
+    print(",".join(sorted(missing)))
+    for n in sorted(names):
+        print(n)
+    sys.exit(0)
+print("ok")
+print(f"tool_count={len(names)}")
+for n in sorted(names):
+    print(n)
 PY
   )"
 
-  local count
-  count="$(printf '%s\n' "$tool_names" | sed '/^$/d' | wc -l | tr -d ' ')"
-  log "tools_list http_status=200 tool_count=$count"
-  if [ -n "$tool_names" ]; then
-    printf '%s\n' "$tool_names" | while IFS= read -r name; do
-      [ -n "$name" ] && log "tool=$name"
-    done
+  local tools_status_line tools_extra
+  tools_status_line="$(printf '%s\n' "$tools_validation" | head -1)"
+  if [ "$tools_status_line" = "error" ]; then
+    fail "tools/list returned JSON-RPC error: $(printf '%s\n' "$tools_validation" | tail -n +2 | paste -sd ' ' -)" 4
   fi
+  if [ "$tools_status_line" = "missing_tools" ]; then
+    local missing required_names
+    missing="$(printf '%s\n' "$tools_validation" | sed -n '2p')"
+    required_names="$(printf '%s\n' "$tools_validation" | sed -n '3p')"
+    fail "tools/list missing required tools: ${missing}; got: ${required_names}" 4
+  fi
+
+  local count
+  count="$(printf '%s\n' "$tools_validation" | sed -n 's/^tool_count=//p' | head -1)"
+  log "tools_list http_status=200 tool_count=$count"
+  printf '%s\n' "$tools_validation" | awk 'NR>=3 && $0 != "" { print "tool=" $0 }' | while IFS= read -r line; do
+    [ -n "$line" ] && log "$line"
+  done
 
   local resources_payload='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"getAccessibleAtlassianResources","arguments":{}}}'
   local resources_result resources_status resources_body resources_headers
@@ -266,26 +312,96 @@ PY
     fail "getAccessibleAtlassianResources HTTP $resources_status: $redacted" 5
   fi
 
-  local resources_json resources_summary
+  local resources_json
   resources_json="$(extract_json "$resources_body")"
   rm -f "$resources_body"
-  resources_summary="$(
-    python3 - "$resources_json" <<'PY'
-import json, sys
-try:
-    obj = json.loads(sys.argv[1])
-except Exception:
-    print("")
+
+  if [ -z "$resources_json" ]; then
+    fail "getAccessibleAtlassianResources returned no parseable JSON payload" 5
+  fi
+
+  # Inspect the resources payload: a top-level JSON-RPC error fails
+  # the smoke test; MCP errors embedded inside content[].text (for
+  # example "MCP error -32602: Tool ... not found") also fail because
+  # they indicate the token does not have access to the expected
+  # tools. Finally, the configured site URL must appear in the
+  # returned resource list (matched against url/name).
+  local resources_validation
+  resources_validation="$(
+    python3 - "$resources_json" <<PY
+import json, sys, re
+expected_site = "$expected_site"
+obj = json.loads(sys.argv[1])
+if "error" in obj and obj["error"]:
+    err = obj["error"]
+    print("error")
+    print(f"code={err.get('code')}")
+    print(f"message={err.get('message')}")
     sys.exit(0)
 result = obj.get("result") or {}
+content = result.get("content") or []
 texts = []
-for item in result.get("content") or []:
+for item in content:
     if isinstance(item, dict) and "text" in item:
         texts.append(item["text"])
-print("|".join(texts))
+combined = "|".join(texts)
+mcp_err = re.compile(r"MCP error (-?\d+):\s*(.+)")
+m = mcp_err.search(combined)
+if m:
+    print("mcp_error")
+    print(f"code={m.group(1)}")
+    print(f"message={m.group(2)}")
+    sys.exit(0)
+parsed = []
+for text in texts:
+    try:
+        data = json.loads(text)
+    except Exception:
+        continue
+    if isinstance(data, list):
+        parsed.extend(data)
+    elif isinstance(data, dict):
+        parsed.append(data)
+if not parsed:
+    print("empty")
+    print(combined)
+    sys.exit(0)
+match_url = any(isinstance(r, dict) and (r.get("url") or "") == expected_site for r in parsed)
+match_name = any(isinstance(r, dict) and (r.get("name") or "") in expected_site for r in parsed)
+if not (match_url or match_name):
+    print("missing_site")
+    urls = ",".join(str(r.get("url")) for r in parsed if isinstance(r, dict))
+    print(expected_site)
+    print(urls)
+    print(combined)
+    sys.exit(0)
+print("ok")
+print(f"resource_count={len(parsed)}")
+print(combined)
 PY
   )"
-  log "accessible_resources http_status=200"
+
+  local resources_status_line resources_summary
+  resources_status_line="$(printf '%s\n' "$resources_validation" | head -1)"
+  if [ "$resources_status_line" = "error" ]; then
+    fail "getAccessibleAtlassianResources returned JSON-RPC error: $(printf '%s\n' "$resources_validation" | tail -n +2 | paste -sd ' ' -)" 5
+  fi
+  if [ "$resources_status_line" = "mcp_error" ]; then
+    fail "getAccessibleAtlassianResources returned MCP error: $(printf '%s\n' "$resources_validation" | tail -n +2 | paste -sd ' ' -)" 5
+  fi
+  if [ "$resources_status_line" = "empty" ]; then
+    fail "getAccessibleAtlassianResources returned no resources" 5
+  fi
+  if [ "$resources_status_line" = "missing_site" ]; then
+    local expected got_urls summary
+    expected="$(printf '%s\n' "$resources_validation" | sed -n '2p')"
+    got_urls="$(printf '%s\n' "$resources_validation" | sed -n '3p')"
+    summary="$(printf '%s\n' "$resources_validation" | sed -n '4p')"
+    fail "expected site ${expected} not found in resources (got urls: ${got_urls}; raw: ${summary})" 5
+  fi
+
+  resources_summary="$(printf '%s\n' "$resources_validation" | sed -n '3p')"
+  log "accessible_resources http_status=200 expected_site=${expected_site}"
   if [ -n "$resources_summary" ]; then
     log "resources_text=$(redact "$resources_summary")"
   else
@@ -337,9 +453,11 @@ Modes:
               to the bridge binary.
 
 Environment:
-  ATLASSIAN_USER_EMAIL     api-token mode.
-  ATLASSIAN_MCP_TOKEN      api-token mode.
-  ATLASSIAN_OAUTH_BRIDGE   oauth mode; default mcp-remote.
+  ATLASSIAN_USER_EMAIL         api-token mode.
+  ATLASSIAN_MCP_TOKEN          api-token mode.
+  ATLASSIAN_EXPECTED_SITE_URL  api-token mode; default
+                               https://solosig.atlassian.net.
+  ATLASSIAN_OAUTH_BRIDGE       oauth mode; default mcp-remote.
 
 This script lives under .local/bin/ on purpose. It is an out-of-band
 smoke test that requires live network and user secrets, and must not
