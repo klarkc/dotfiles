@@ -172,3 +172,26 @@ Code-level acceptance:
 - `.local/bin/atlassian-smoke-test` does not reference `.profile_override`; the only place where `profile_override` appears in the broader repo set is a documentation comment in `.github/workflows/test.yml` explaining how local developers load credentials. That is acceptable.
 - The script accepts `ATLASSIAN_EXPECTED_SITE_URL` with default `https://solosig.atlassian.net`, satisfying the previously requested override knob.
 - `tools/list` and `getAccessibleAtlassianResources` parse their JSON payload and fail loudly on JSON-RPC errors, missing required tools, MCP `error -NNNN:` content text, empty resources, and missing expected site URL.
+
+## Design review of Build coding-agents smoke test 9f36ec8 (2026-08-27)
+
+Status: not accepted. The new `coding-agents-smoke-test` does not satisfy the user's stated acceptance question: "do the smoke tests validate that the real agent can use the real MCP to request real resources?" Current answer is no.
+
+Findings for Build follow-up:
+
+1. High: `.local/bin/coding-agents-smoke-test` does not exercise any real coding agent making MCP tool calls. It inspects deployed config files (`~/.config/opencode/opencode.json`, `~/.codex/config.toml`, `~/.pi/settings.json`) and then calls `.local/bin/atlassian-smoke-test api-token` directly for live tool discovery. Evidence: lines 149-168 define `live_tool_names()` by executing the helper script, not opencode/codex/pi; lines 240-248 call `live_tool_names`; no `opencode run`, `codex exec`, or `pi --print` path asks an agent to use MCP. This validates direct MCP auth/tool listing, not agent-mediated usage.
+2. High: The new smoke test does not request real Bitbucket/Jira/Confluence resources through the agents. It only validates tool names and `getAccessibleAtlassianResources` indirectly through `atlassian-smoke-test`. It does not ask for an actual Bitbucket PR/repo, Jira issue/search/project, or Confluence space/page. For the requested final smoke test, Build should add agent-mediated read probes that request small, known resources (or searches with explicit limits) through each active agent/toolchain being claimed as supported.
+3. High: `make test` default is likely broken in the current deployed environment because `coding-agents-smoke-test` probes deployed configs, while this branch's opencode MCP config is only in the worktree until deployed. Evidence during review: direct run of `.local/bin/coding-agents-smoke-test` reported no Atlassian MCP server configured in `/home/klarkc/.config/opencode/opencode.json` and exited 6. That may be correct for deployed state, but it means adding this script to the default smoke loop can make `make test` fail before the repo is deployed. Either document that default smoke requires deployed config, or provide a worktree-aware mode/expected workflow. Do not write outside the worktree to validate.
+4. Medium: The script comments are stale/misleading after implementation changes. Lines 22-26 still claim opencode runs `opencode mcp debug atlassian` and codex runs `codex mcp get atlassian`, but the implementation does not use those as live product/resource probes. Comments should match behavior.
+
+Suggested acceptance criteria for the next Build fix:
+
+- `atlassian-smoke-test api-token` can remain the direct MCP protocol smoke test.
+- `coding-agents-smoke-test` should be explicit about scope. If it is only a config/readiness check, rename or document it as such and do not claim it proves real agent resource access.
+- To prove real agent access, add per-agent non-interactive probes where supported:
+  - opencode: `opencode run` with a constrained prompt that must call Atlassian MCP and return a machine-parseable JSON summary for Bitbucket/Jira/Confluence reachability.
+  - codex: `codex exec` equivalent if configured with Atlassian MCP.
+  - pi: `pi --print --no-session` equivalent if it supports MCP/tools in non-interactive mode.
+- Each agent probe should ask for small real read-only resources: Bitbucket `solo_sig/solosig` repo metadata or open PR list; Jira visible projects or bounded JQL against `https://solosig.atlassian.net`; Confluence visible spaces or bounded CQL/page search.
+- The smoke should fail only for agents/products claimed as enabled, and should clearly skip unsupported/unconfigured agents.
+- Keep all secrets from environment only; no `.profile_override` loading and no shell tracing.
