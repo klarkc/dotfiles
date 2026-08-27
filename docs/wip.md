@@ -118,3 +118,20 @@ Rationale:
 - Verify whether existing ChatGPT/Atlassian connected-app OAuth consent can access `https://solosig.atlassian.net` resources and expose Jira/Bitbucket read tools; if yes, MCP may be usable via OAuth even without API-token auth.
 - If no admin access/contact path exists, prioritize direct REST wrappers with personal tokens and treat official Rovo MCP as blocked/pending admin enablement or OAuth client support.
 - Writes: current decision is read-only all allowed; writes are human/manual plus skill guidance; ask-gated write layer is deferred for the future.
+
+## Design review of Build output (2026-08-27)
+
+Status: changes are mostly aligned, but not accepted yet due to blockers.
+
+Findings for Build follow-up:
+
+1. `SKIP_SMOKE=1 make test` does not actually skip smoke tests. In `Makefile`, `smoke` has separate recipe lines; the `exit 0` only exits the first shell, then Make runs the next recipe line and executes `.local/bin/*-smoke-test` anyway. Evidence: `SKIP_SMOKE=1 make test` printed `smoke: skipped (SKIP_SMOKE=1)` and then still ran `.local/bin/atlassian-smoke-test api-token` and `oauth`. This breaks CI because `.github/workflows/test.yml` relies on `SKIP_SMOKE=1 make test`.
+2. `.local/bin/atlassian-smoke-test oauth` does not pass the Atlassian MCP endpoint to the bridge. Evidence: with a fake `ATLASSIAN_OAUTH_BRIDGE`, output was `ARGS:` empty while the script logged it was starting against `https://mcp.atlassian.com/v1/mcp/authv2`. Expected call is bridge + endpoint + forwarded args, e.g. `"$bridge" "$ENDPOINT" "$@"`.
+3. `make test` runs `nix fmt` before `nix flake check`. In CI this can auto-format files and hide formatting regressions that should fail the formatting check. Prefer `make test` -> `nix flake check` + smoke only; use a separate `make fmt` or `make fix` for mutating format.
+4. The live/debug validation process accidentally ran `bash -x` after sourcing `~/.profile_override`, printing secrets into tool output/conversation logs. No committed file matched obvious token patterns, but user should rotate exposed secrets and clear local tool-output logs. Future smoke/debug commands must never combine `set -x` with sourced secret files.
+
+Positive evidence:
+
+- No tracked file contains obvious Atlassian token literals (`ATATT`), Bearer tokens, Google/HF/Vast secret variable assignments, or old Crush references by repository grep.
+- `.local/bin/atlassian-smoke-test api-token` currently succeeds with loaded local credentials and prints only status/tool/resource summaries.
+- `nix flake check` passed after Build's static config check was fixed.
