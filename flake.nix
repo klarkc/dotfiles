@@ -181,6 +181,7 @@
               ".bash_profile"
               ".bashrc"
               ".profile"
+              ".local/bin/atlassian-smoke-test"
               ".local/bin/bench-vllm"
               ".local/bin/cleanup"
               ".local/bin/home-cleanup"
@@ -214,6 +215,54 @@
               pkgs.runCommand "archive-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
                 ''
                   archive-pack-test
+                  touch $out
+                '';
+            # Static verification that the opencode MCP integration for
+            # Atlassian Rovo MCP is configured correctly without
+            # committing any secret. The check fails if the MCP entry
+            # is missing, points at the wrong endpoint, or contains an
+            # Authorization header / Bearer / Basic value.
+            opencode-mcp-atlassian-config =
+              pkgs.runCommand "opencode-mcp-atlassian-config"
+                {
+                  nativeBuildInputs = [ pkgs.python3 ];
+                  src = ./.config/opencode/opencode.json;
+                }
+                ''
+                  python3 - "$src" <<'PY'
+                  import json
+                  import re
+                  import sys
+
+                  path = sys.argv[1]
+                  with open(path) as f:
+                      data = json.load(f)
+                  mcp = data.get("mcp") or {}
+                  atlassian = mcp.get("atlassian") or {}
+                  if not atlassian:
+                      sys.exit("FAIL: opencode config missing mcp.atlassian entry")
+                  if atlassian.get("type") != "remote":
+                      sys.exit("FAIL: mcp.atlassian.type must be 'remote'")
+                  url = atlassian.get("url") or ""
+                  expected = "https://mcp.atlassian.com/v1/mcp/authv2"
+                  if url != expected:
+                      sys.exit(f"FAIL: mcp.atlassian.url must be {expected}, got {url}")
+                  if not atlassian.get("enabled", False):
+                      sys.exit("FAIL: mcp.atlassian.enabled must be true")
+                  # Scan only the mcp.atlassian subtree so that
+                  # legitimate provider fields elsewhere in the config
+                  # (e.g. openai/vllm apiKey) don't trip the check.
+                  forbidden = re.compile(r"(?i)(authorization|basic|bearer|api[_-]?key|token|secret)")
+                  raw = json.dumps(atlassian)
+                  hits = [m.group(0) for m in forbidden.finditer(raw)]
+                  if hits:
+                      sys.exit(f"FAIL: mcp.atlassian subtree contains forbidden secrets: {hits}")
+                  if "headers" in atlassian:
+                      sys.exit("FAIL: mcp.atlassian must not define a headers block (would commit secrets)")
+                  if "oauth" in atlassian and atlassian["oauth"] is False:
+                      sys.exit("FAIL: mcp.atlassian.oauth=false would suppress OAuth auto-detection; remove the field")
+                  print(f"opencode-mcp-atlassian-config: url={url} enabled={atlassian['enabled']} no_secrets=true")
+                  PY
                   touch $out
                 '';
           };
