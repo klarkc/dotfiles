@@ -415,3 +415,50 @@ lrzip -d -o - ~/.backup/archive.lrz     # produces .tar on stdout
 lrzip -d ~/.backup/archive.lrz          # produces archive.tar
 mkdir -p restored && tar -xf archive.tar -C restored
 ```
+
+## Testing
+
+Two layers, by increasing scope:
+
+### 1. Fast checks (CI, ~3-5 min)
+
+```bash
+nix flake check
+```
+
+Runs formatting, pre-commit hooks (treefmt), `archive-pack-test`, and
+`opencode-mcp-atlassian-config` (a static check that the opencode MCP
+config is consistent with the Atlassian Rovo MCP endpoint, without
+committing any secret). Catches formatting drift and broken static
+config. Does NOT build the vLLM wheelhouse.
+
+### 2. Smoke (local devs only, gated by `SMOKE_TESTS_ENABLED`)
+
+```bash
+make test                  # SMOKE_TESTS_ENABLED=true (default)
+SMOKE_TESTS_ENABLED=false make test   # CI behavior
+make test SKIP_SMOKE=1     # legacy alias
+```
+
+Runs `nix flake check` plus every `.local/bin/*-smoke-test`. Each
+smoke script is **self-executing** (takes no arguments) and runs
+**all of its scenarios** in one invocation. If any prerequisite is
+missing (binary, GPU, systemd service, env var), the script fails
+with `FATAL: <reason>` on stderr and exit 2 — no silent skip.
+
+The vLLM coverage lives in `.local/bin/vllm-smoke-test`. It
+auto-detects the scenario from the runtime environment:
+
+- **GPU present**: runs focused checks (CLI flag compatibility,
+  patch presence in the wheel, INC dispatch gate) **and**
+  end-to-end (`vllm-config qwen3.6-27B`, polls `/v1/models`, sends
+  a minimal chat completion).
+- **No GPU**: runs only the focused checks.
+- **No `vllm` in PATH**: fails `FATAL: required command not found:
+vllm` — the smoke test never builds dependencies itself. Run
+  `nix profile install .` first.
+
+CI uses `SMOKE_TESTS_ENABLED=false` to keep CI wall time bounded
+(vLLM build + e2e would take ~30 min). Local devs run `make test`
+on a CUDA-equipped workstation with `nix profile install .` already
+applied.

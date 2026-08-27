@@ -170,8 +170,12 @@
             qmd-src = inputs.qmd-src;
           };
           vllmRuntime = pkgs.callPackage ./.nix/vllm-runtime.nix {
-            # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
-            version = "0.24.0-cu130";
+            # Bump note: vLLM runtime label (version + CUDA variant).
+            # Coupled bumps: see `.nix/vllm-runtime.nix`. v0.28.0 (2026-08-26)
+            # is the latest stable; CUDA 13.0 wheel set still applies. Smoke
+            # coverage lives in `.local/bin/vllm-smoke-test` (not in
+            # `nix flake check`); see AGENTS.md for the smoke test contract.
+            version = "0.28.0-cu130";
           };
           mcpRemoteRuntime = pkgs.callPackage ./.nix/mcp-remote-runtime.nix {
             # Bump note: `mcp-remote` runtime. Coupled bumps: see
@@ -215,6 +219,7 @@
               ".profile"
               ".local/bin/atlassian-smoke-test"
               ".local/bin/bench-vllm"
+              ".local/bin/vllm-smoke-test"
               ".local/bin/cleanup"
               ".local/bin/home-cleanup"
               ".local/bin/home-cleanup-post"

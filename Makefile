@@ -85,9 +85,11 @@ nix.Profile:
 #   SMOKE_TESTS_ENABLED=false make test Equivalent.
 #   make test SKIP_SMOKE=1             Backwards-compatible alias for disabling smoke.
 #
-# E2E/integration smoke tests that need live services/secrets/network
-# MUST live as `.local/bin/*-smoke-test` scripts. They are out-of-band
-# and must never be added to `nix flake check`.
+# Smoke test contract: each `.local/bin/*-smoke-test` script is
+# self-executing and takes no arguments. It runs ALL of its scenarios
+# in one invocation and exits with `FATAL: <reason>` if any prerequisite
+# is missing. The Makefile loop calls each script with no arguments;
+# scripts own their scenario execution.
 .PHONY: test
 test: flake.check smoke
 
@@ -117,14 +119,9 @@ smoke:
 	fi; \
 	for t in .local/bin/*-smoke-test; do \
 		[ -x "$$t" ] || continue; \
-		echo "smoke: running $$t api-token"; \
-		if ! "$$t" api-token; then \
-			echo "smoke: $$t api-token FAILED" >&2; \
-			exit 1; \
-		fi; \
-		echo "smoke: running $$t oauth"; \
-		if ! "$$t" oauth; then \
-			echo "smoke: $$t oauth FAILED" >&2; \
+		echo "smoke: running $$t"; \
+		if ! "$$t"; then \
+			echo "smoke: $$t FAILED" >&2; \
 			exit 1; \
 		fi; \
 	done
