@@ -108,19 +108,23 @@ systemctl --user daemon-reload
 
 `make test` is the standard verification entrypoint for this repo. It runs `nix flake check` (static config + no-network self-tests) followed by every `.local/bin/*-smoke-test` script (out-of-band live checks that require network and user secrets).
 
-Smoke tests are skipped when `SKIP_SMOKE` is set, so static checks can run without sourcing `~/.profile_override`.
+Smoke tests are enabled by default and can be disabled with `SMOKE_TESTS_ENABLED=false` (or the legacy `SKIP_SMOKE=1` alias) so static checks can run without sourcing `~/.profile_override`.
 
 ```bash
 # Local developer: full run with smoke tests
 make test
 
 # CI / static-only run
-make test SKIP_SMOKE=1
+SMOKE_TESTS_ENABLED=false make test
 # or
+make test SMOKE_TESTS_ENABLED=false
+# backwards-compatible alias
 SKIP_SMOKE=1 make test
 ```
 
-The CI workflow at `.github/workflows/test.yml` invokes `SKIP_SMOKE=1 make test` instead of bare `nix flake check`.
+Use `make fmt` separately if you want to apply formatting locally; CI does not auto-format.
+
+The CI workflow at `.github/workflows/test.yml` invokes `SMOKE_TESTS_ENABLED=false make test` instead of bare `nix flake check`.
 
 Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings. The first Atlassian MCP smoke test lives at `.local/bin/atlassian-smoke-test`.
 
