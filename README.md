@@ -126,7 +126,12 @@ Use `make fmt` separately if you want to apply formatting locally; CI does not a
 
 The CI workflow at `.github/workflows/test.yml` invokes `SMOKE_TESTS_ENABLED=false make test` instead of bare `nix flake check`.
 
-Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings. The first Atlassian MCP smoke test lives at `.local/bin/atlassian-smoke-test`.
+Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings.
+
+The repo ships two:
+
+- `.local/bin/atlassian-smoke-test` — verifies Rovo MCP connectivity (api-token via Basic auth, oauth via bridge) and acceptance criteria (required tools, expected Atlassian site).
+- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex, pi) can route Bitbucket, Jira, and Confluence traffic through the Atlassian MCP integration. Inspects deployed agent configs and reuses `atlassian-smoke-test` for live tool discovery. Fails if any of Bitbucket, Jira, or Confluence are not reachable from any active agent.
 
 #### OpenCode + Codex OAuth
 
