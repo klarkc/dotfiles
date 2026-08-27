@@ -343,7 +343,9 @@ main() {
   ')"
 
   local probe_count
-  probe_count="$(printf '%s' "$combined" | grep -c '^{')"
+  # `grep -c` exits with non-zero when count is zero; guard against
+  # `set -e` interpreting that as a failure.
+  probe_count="$(printf '%s' "$combined" | { grep -c '^{' || true; })"
 
   if [ "$probe_count" = "0" ]; then
     log "no coding agent returned a parseable status object (all skipped)"
