@@ -131,7 +131,7 @@ Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-o
 The repo ships two:
 
 - `.local/bin/atlassian-smoke-test` — verifies Rovo MCP connectivity (api-token via Basic auth, oauth via bridge) and acceptance criteria (required tools, expected Atlassian site).
-- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex, pi) can route Bitbucket, Jira, and Confluence traffic through the Atlassian MCP integration. Inspects deployed agent configs and reuses `atlassian-smoke-test` for live tool discovery. Fails if any of Bitbucket, Jira, or Confluence are not reachable from any active agent.
+- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex, pi) can use the Atlassian Rovo MCP integration to request real Bitbucket, Jira, and Confluence resources. The script issues a constrained prompt to each active agent asking it to call Atlassian MCP tools (e.g. `bitbucketRepository`, `getVisibleJiraProjects`, `getConfluenceSpaces`) and return a fixed JSON status object. Each probe drives the real agent with `opencode run --format json`, `codex exec --json`, or `pi -p --mode json`. The smoke fails if no agent returns a parseable status (for example, when no provider credentials are available) or if any of Bitbucket/Jira/Confluence are reported unreachable from every probed agent.
 
 #### OpenCode + Codex OAuth
 
