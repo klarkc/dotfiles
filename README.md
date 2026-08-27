@@ -26,7 +26,7 @@ git checkout main
 - CapsLock as Escape
 - Ctrl+ç as Ctrl+b through keyd, while ç remains Unicode without Ctrl
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
-- [codex](https://github.com/openai/codex), [Crush](https://github.com/charmbracelet/crush) and [opencode](https://github.com/anomalyco/opencode) as coding agents
+- [codex](https://github.com/openai/codex) and [opencode](https://github.com/anomalyco/opencode) as coding agents
 - [Fusion](https://github.com/Runfusion/Fusion) for agents orchestration
 - [kolu](https://github.com/juspay/kolu) for coding agent orchestration
 
@@ -49,7 +49,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
-- AI Agents with [crush](https://github.com/charmbracelet/crush), [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+- AI Agents with [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
 - [Fusion](https://github.com/Runfusion/Fusion)
 
 ## Supported setups
@@ -79,7 +79,7 @@ yay -Syu ffmpeg unzip htop
 > Below dependencies are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
-yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin crush btdu btop
+yay -Syu snapper pacreport yay-cache-cleanup-hook sunshine bat git-delta ripgrep handlr ollama-cuda discord enpass-bin btdu btop
 ```
 
 > Lumen
@@ -103,6 +103,26 @@ nix profile install .
 make
 systemctl --user daemon-reload
 ```
+
+#### Verification (`make test`)
+
+`make test` is the standard verification entrypoint for this repo. It runs `nix flake check` (static config + no-network self-tests) followed by every `.local/bin/*-smoke-test` script (out-of-band live checks that require network and user secrets).
+
+Smoke tests are skipped when `SKIP_SMOKE` is set, so static checks can run without sourcing `~/.profile_override`.
+
+```bash
+# Local developer: full run with smoke tests
+make test
+
+# CI / static-only run
+make test SKIP_SMOKE=1
+# or
+SKIP_SMOKE=1 make test
+```
+
+The CI workflow at `.github/workflows/test.yml` invokes `SKIP_SMOKE=1 make test` instead of bare `nix flake check`.
+
+Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings. The first Atlassian MCP smoke test lives at `.local/bin/atlassian-smoke-test`.
 
 #### OpenCode + Codex OAuth
 
@@ -198,7 +218,7 @@ The vLLM/Fusion workflow is target-based. Only one vLLM model target should run 
 
 Use `vllm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
 
-The target starts only the selected vLLM service. The vLLM service then patches local Crush/Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
+The target starts only the selected vLLM service. The vLLM service then patches local Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
 
 Pick the model interactively:
 
