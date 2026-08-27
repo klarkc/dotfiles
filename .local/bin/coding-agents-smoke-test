@@ -1,55 +1,68 @@
 #!/usr/bin/env bash
 # coding-agents-smoke-test
 #
-# Verifies that the user's active coding agents can reach Atlassian
-# Bitbucket, Jira, and Confluence through the Atlassian Rovo MCP
-# integration. Lives under .local/bin/ because it requires live
-# process invocations and depends on user state; it must NOT be added
-# to nix flake check.
+# Verifies that the user's active coding agents can use the Atlassian
+# Rovo MCP integration to request real Bitbucket, Jira, and Confluence
+# resources. This is an agent-mediated smoke test: for each active
+# coding agent (opencode, codex, pi) it issues a constrained prompt
+# asking the agent to call Atlassian MCP tools and return a fixed JSON
+# status object. The agent is REQUIRED to make real MCP tool calls
+# and return real resource data, not just speculate.
 #
-# Strategy:
-#   - Probe each active coding agent (opencode, codex, pi) for its
-#     configured Atlassian MCP entry. Two signals per agent:
-#       1. The deployed configuration references Atlassian MCP
-#          (opencode.json, ~/.codex/config.toml, pi settings).
-#       2. Live MCP discovery reports Bitbucket/Jira/Confluence tools.
-#   - For each product (bitbucket, jira, confluence), mark it reachable
-#     when at least one agent exposes a tool that targets it. The
-#     Atlassian endpoint https://mcp.atlassian.com/v1/mcp/authv2 is the
-#     authoritative signal; the script does not care which specific
-#     agent is configured, only that some active agent can route to
-#     it for the relevant product.
-#   - For opencode: inspect ~/.config/opencode/opencode.json for the
-#     `mcp.atlassian` entry, then probe live tool discovery by running
-#     `opencode mcp debug atlassian` if the server is configured.
-#   - For codex: inspect ~/.codex/config.toml for `[mcp_servers.atlassian]`,
-#     then probe live via `codex mcp get atlassian`.
-#   - For pi: inspect ~/.pi/settings.json for Atlassian/Bitbucket
-#     references.
-#   - Atlassian tool surface is then classified by name:
-#     bitbucket* → bitbucket; *jira* → jira; *confluence* → confluence.
+# Lives under .local/bin/ because it requires live process invocations
+# and depends on user state; it must NOT be added to nix flake check.
+#
+# Per-agent probe (drives the real agent, not a direct MCP call):
+#   - opencode: `opencode run --format json <prompt>` parses JSON events
+#     and looks for the final assistant message containing the
+#     expected status object.
+#   - codex:    `codex exec --json <prompt>` parses JSONL events and
+#     reads the final agent message.
+#   - pi:       `pi -p --mode json --no-session --provider <p> <prompt>`.
+#
+# Provider credential detection (env-only; never reads outside the
+# worktree):
+#   - opencode: parses the opencode.json inside the worktree (path
+#     overridable via CODING_AGENTS_OPENCODE_CONFIG). If the configured
+#     model has no usable provider credential, the probe is SKIPPED.
+#   - codex: requires OPENAI_API_KEY. Otherwise SKIPPED.
+#   - pi:     requires a provider credential (defaults to google;
+#     needs GOOGLE_KEYFILE). Otherwise SKIPPED.
+#
+# Expected prompt output (final assistant message):
+#   {"bitbucket": <bool>, "jira": <bool>, "confluence": <bool>,
+#    "bitbucket_evidence": <string>, "jira_evidence": <string>,
+#    "confluence_evidence": <string>}
+#
+# Acceptance:
+#   - At least one agent must return a parseable status object. If all
+#     agents are SKIPPED (no provider auth available), the smoke test
+#     fails because there is no proof of agent-mediated access.
+#   - For each of Bitbucket/Jira/Confluence, at least one agent that
+#     ran must report `true` for that product. If no agent reports
+#     true for a product, the smoke test fails.
+#   - SKIP markers from individual agents do not block PASS for
+#     products reported as true by other agents.
 #
 # Output policy: never print tokens, Authorization headers, generated
-# Basic base64 strings, or raw log lines that could include secrets.
-# Only status, agent name, server URL, and tool-name presence are
-# printed.
+# Basic base64 strings, or raw agent log lines that could include
+# secrets. The smoke output is reduced to per-product reachability
+# status plus the user-supplied evidence strings.
 #
 # Exit codes:
-#   0  Bitbucket, Jira, and Confluence are all reachable from at least
-#      one active coding agent.
-#   6  At least one product is not reachable from any active agent.
+#   0  All products reachable via real MCP tool calls from at least
+#      one active coding agent that returned a parseable status.
+#   6  At least one product is unreachable, or no agent returned a
+#      parseable status object (all SKIPPED).
 
 set -euo pipefail
 
-readonly ATLASSIAN_HOST='mcp.atlassian.com'
 readonly ATLASSIAN_URL='https://mcp.atlassian.com/v1/mcp/authv2'
-# Default config paths point at the user's deployed home. Each path
-# can be overridden via env var so the script can be exercised
-# against an alternate config (for example, the worktree copy of
-# .config/opencode/opencode.json) without touching the home.
 readonly OPENCODE_CONFIG="${CODING_AGENTS_OPENCODE_CONFIG:-${HOME}/.config/opencode/opencode.json}"
 readonly CODEX_CONFIG="${CODING_AGENTS_CODEX_CONFIG:-${CODEX_HOME:-${HOME}/.codex}/config.toml}"
 readonly PI_SETTINGS="${CODING_AGENTS_PI_SETTINGS:-${HOME}/.pi/settings.json}"
+readonly TIMEOUT_SECONDS="${CODING_AGENTS_TIMEOUT_SECONDS:-90}"
+readonly WORKTREE_DEFAULT_OPENCODE_CONFIG='.config/opencode/opencode.json'
 
 log() {
   printf 'coding-agents-smoke-test: %s\n' "$*"
@@ -78,94 +91,220 @@ redact() {
   printf '%s' "$value"
 }
 
-# Pull the Atlassian MCP server name out of an opencode config file
-# if present. Echoes "<name>\t<url>" on stdout, empty otherwise.
-opencode_atlassian_server() {
-  local path="$1"
-  [ -f "$path" ] || return 0
-  python3 - "$path" "$ATLASSIAN_URL" <<'PY'
+# The probe prompt: ask the agent to use Atlassian MCP and report a
+# fixed JSON status object. The prompt explicitly forbids making up
+# results; the agent must call real tools.
+build_probe_prompt() {
+  cat <<'PROMPT'
+You have an Atlassian MCP server configured (name: atlassian, endpoint: https://mcp.atlassian.com/v1/mcp/authv2).
+
+Make real MCP tool calls and fetch real resources. Do not speculate. For each of the three products below, if the corresponding MCP tool call succeeds and returns at least one real resource, the value is true; otherwise false.
+
+- Bitbucket: use bitbucketWorkspace or bitbucketRepository against workspace "solo_sig" repository "solosig".
+- Jira: use getVisibleJiraProjects against https://solosig.atlassian.net.
+- Confluence: use getConfluenceSpaces against https://solosig.atlassian.net.
+
+Reply with ONLY this JSON object, no other text:
+{"bitbucket": <bool>, "jira": <bool>, "confluence": <bool>, "bitbucket_evidence": "<one short sentence about what you got>", "jira_evidence": "<one short sentence>", "confluence_evidence": "<one short sentence>"}
+PROMPT
+}
+
+# Run a command with a hard timeout; capture stdout. Use SIGKILL after
+# the grace period so a hung agent process cannot block the smoke
+# loop indefinitely.
+run_with_timeout() {
+  local cmd_file="$1"
+  shift
+  timeout --foreground --kill-after=5 "${TIMEOUT_SECONDS}" "$@" >"$cmd_file" 2>/dev/null || return "$?"
+  return 0
+}
+
+# Extract the last JSON object from a stream. The agent may emit
+# either pure JSON (single object/array) or JSONL events; we want the
+# last assistant message containing our status object.
+extract_status_json() {
+  local raw_file="$1"
+  python3 - "$raw_file" <<'PY'
 import json, sys
-path, expected = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
 try:
     with open(path) as f:
-        data = json.load(f)
+        text = f.read()
 except Exception:
     sys.exit(0)
-mcp = data.get("mcp") or {}
-for name, cfg in mcp.items():
-    if not isinstance(cfg, dict):
+if not text.strip():
+    sys.exit(0)
+
+# Try JSONL first.
+for line in reversed(text.splitlines()):
+    line = line.strip()
+    if not line:
         continue
-    if cfg.get("type") != "remote":
+    if not (line.startswith("{") and line.endswith("}")):
         continue
-    if cfg.get("url") == expected:
-        print(f"{name}\t{cfg['url']}")
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if isinstance(obj, dict) and "bitbucket" in obj and "jira" in obj and "confluence" in obj:
+        print(json.dumps(obj))
         sys.exit(0)
+
+# Fallback: search the whole text for the status object.
+import re
+candidates = []
+for m in re.finditer(r"\{[^{}]*\"bitbucket\"[^{}]*\"jira\"[^{}]*\"confluence\"[^{}]*\}", text):
+    try:
+        obj = json.loads(m.group(0))
+    except Exception:
+        continue
+    if isinstance(obj, dict):
+        candidates.append(obj)
+if candidates:
+    print(json.dumps(candidates[-1]))
+    sys.exit(0)
+sys.exit(0)
 PY
 }
 
-# Pull the Atlassian MCP server name out of a codex config.toml.
-# Echoes "<name>\t<url>" on stdout, empty otherwise. Codex config is
-# TOML and we only need a small subset; grep is sufficient.
-codex_atlassian_server() {
-  local path="$1"
-  [ -f "$path" ] || return 0
-  # Each [mcp_servers.<name>] block has url = "..." beneath it.
-  awk -v host="$ATLASSIAN_HOST" '
-    /^\[mcp_servers\.[A-Za-z0-9_-]+\]$/ {
-      match($0, /\[mcp_servers\.(.+)\]/, a); current=a[1]
-    }
-    /^url[[:space:]]*=/ {
-      url=$0
-      sub(/^url[[:space:]]*=[[:space:]]*"?/, "", url)
-      sub(/"?[[:space:]]*$/, "", url)
-      if (index(url, host) > 0) {
-        print current "\t" url
-      }
-    }
-  ' "$path"
-}
-
-# Pull Atlassian mentions from a pi settings file. Echoes "<hint>" on
-# stdout, empty otherwise.
-pi_atlassian_hint() {
-  local path="$1"
-  [ -f "$path" ] || return 0
-  if grep -qiE 'atlassian|bitbucket|\bjira\b|confluence|mcp' "$path" 2>/dev/null; then
-    printf 'extension-mentions-atlassian\n'
-  fi
-}
-
-# Classify a tool name into the three Atlassian product families.
-# Prints "<product>" if the tool matches, nothing otherwise.
-classify_tool() {
-  local name="$1"
-  case "$name" in
-    *bitbucket*) printf 'bitbucket\n' ;;
-    *Jira*|*jira*) printf 'jira\n' ;;
-    *Confluence*|*confluence*) printf 'confluence\n' ;;
-  esac
-}
-
-# Live MCP discovery via the repo's atlassian-smoke-test. That script
-# already does the JSON-RPC handshake against
-# https://mcp.atlassian.com/v1/mcp/authv2 using Basic auth and prints
-# one `tool=<name>` line per advertised tool. Reusing it avoids
-# duplicating auth logic and centralizes the secret-handling model.
-# Echoes one "<tool>" per line on stdout. Requires ATLASSIAN_USER_EMAIL
-# and ATLASSIAN_MCP_TOKEN in the environment, same as the underlying
-# smoke test.
-live_tool_names() {
-  local script
-  script="$(dirname "$0")/atlassian-smoke-test"
-  if [ ! -x "$script" ]; then
+# opencode: drive the agent with a constrained prompt and parse the
+# JSON output. Returns 0 always. Emits either a status JSON line or a
+# skip line on stdout.
+probe_opencode() {
+  if ! have_cmd opencode; then
+    log "opencode: not installed"
     return 0
   fi
-  local raw
-  if ! raw="$("$script" api-token 2>&1)"; then
+
+  local cfg="${CODING_AGENTS_OPENCODE_CONFIG:-$WORKTREE_DEFAULT_OPENCODE_CONFIG}"
+  if [ ! -f "$cfg" ]; then
+    log "opencode: config not found at $cfg; skipping agent probe"
+    printf 'opencode: SKIP\n'
     return 0
   fi
-  raw="$(redact "$raw")"
-  printf '%s' "$raw" | sed -nE 's/^[^:]+:[[:space:]]*tool=([A-Za-z][A-Za-z0-9_]+).*/\1/p'
+
+  # Check whether the configured model/provider has a usable
+  # credential. Without provider auth, invoking `opencode run` will
+  # hang waiting for a provider or fail unhelpfully.
+  local has_auth model
+  has_auth="$(python3 - "$cfg" <<'PY'
+import json, os, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+providers = data.get("provider") or {}
+model = data.get("model") or ""
+provider_name, _, _ = model.partition("/")
+ok = False
+if provider_name and provider_name in providers:
+    api_key = providers[provider_name].get("options", {}).get("apiKey", "") or ""
+    if isinstance(api_key, str) and api_key.startswith("{env:"):
+        env_var = api_key[len("{env:"):-1]
+        if os.environ.get(env_var):
+            ok = True
+if ok:
+    print("yes")
+    sys.exit(0)
+# Fallback: any well-known provider env var present.
+for v in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+    if os.environ.get(v):
+        print("yes")
+        sys.exit(0)
+print("no")
+PY
+)"
+  model="$(python3 -c "import json; print(json.load(open('$cfg')).get('model',''))")"
+
+  if [ "$has_auth" != "yes" ]; then
+    log "opencode: provider auth not available for the configured model ($model); skipping agent probe"
+    printf 'opencode: SKIP\n'
+    return 0
+  fi
+
+  local prompt
+  prompt="$(build_probe_prompt)"
+  local raw_file
+  raw_file="$(mktemp)"
+  local status_json
+  if run_with_timeout "$raw_file" opencode run --format json -m "$model" "$prompt"; then
+    status_json="$(extract_status_json "$raw_file")"
+  else
+    status_json=""
+  fi
+  rm -f "$raw_file"
+  if [ -z "$status_json" ]; then
+    log "opencode: agent probe did not return a parseable status object"
+    printf 'opencode: SKIP\n'
+    return 0
+  fi
+  printf 'opencode: %s\n' "$(redact "$status_json")"
+}
+
+# codex: similar to opencode but using codex exec --json.
+probe_codex() {
+  if ! have_cmd codex; then
+    log "codex: not installed"
+    printf 'codex: SKIP\n'
+    return 0
+  fi
+
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    log "codex: OPENAI_API_KEY missing; skipping agent probe"
+    printf 'codex: SKIP\n'
+    return 0
+  fi
+
+  local prompt
+  prompt="$(build_probe_prompt)"
+  local raw_file
+  raw_file="$(mktemp)"
+  local status_json
+  if run_with_timeout "$raw_file" codex exec --json --skip-git-repo-check "$prompt"; then
+    status_json="$(extract_status_json "$raw_file")"
+  else
+    status_json=""
+  fi
+  rm -f "$raw_file"
+  if [ -z "$status_json" ]; then
+    log "codex: agent probe did not return a parseable status object"
+    printf 'codex: SKIP\n'
+    return 0
+  fi
+  printf 'codex: %s\n' "$(redact "$status_json")"
+}
+
+# pi: --print mode with --mode json. Requires a provider credential;
+# default provider is google.
+probe_pi() {
+  if ! have_cmd pi; then
+    log "pi: not installed"
+    printf 'pi: SKIP\n'
+    return 0
+  fi
+
+  local provider="${CODING_AGENTS_PI_PROVIDER:-google}"
+  if [ "$provider" = "google" ] && [ -z "${GOOGLE_KEYFILE:-}" ]; then
+    log "pi: GOOGLE_KEYFILE missing; skipping agent probe"
+    printf 'pi: SKIP\n'
+    return 0
+  fi
+
+  local prompt
+  prompt="$(build_probe_prompt)"
+  local raw_file
+  raw_file="$(mktemp)"
+  local status_json
+  if run_with_timeout "$raw_file" pi -p --mode json --no-session --provider "$provider" "$prompt"; then
+    status_json="$(extract_status_json "$raw_file")"
+  else
+    status_json=""
+  fi
+  rm -f "$raw_file"
+  if [ -z "$status_json" ]; then
+    log "pi: agent probe did not return a parseable status object"
+    printf 'pi: SKIP\n'
+    return 0
+  fi
+  printf 'pi: %s\n' "$(redact "$status_json")"
 }
 
 main() {
@@ -180,96 +319,73 @@ main() {
     esac
   done
 
-  log "probing active coding agents for Atlassian MCP reachability"
+  log "probing active coding agents for Atlassian MCP resource access"
 
-  local probe_output=""
-  local opencode_name=""
-  local codex_name=""
-
-  # opencode
-  if have_cmd opencode; then
-    local oc_row
-    oc_row="$(opencode_atlassian_server "$OPENCODE_CONFIG")"
-    if [ -n "$oc_row" ]; then
-      opencode_name="$(printf '%s' "$oc_row" | awk -F'\t' '{print $1}')"
-      probe_output="${probe_output}opencode-config	${oc_row}
-"
-      log "opencode: Atlassian MCP server configured (${opencode_name})"
-    else
-      log "opencode: no Atlassian MCP server configured in ${OPENCODE_CONFIG}"
-    fi
-  else
-    log "opencode: not installed"
-  fi
-
-  # codex
-  if have_cmd codex; then
-    local cx_row
-    cx_row="$(codex_atlassian_server "$CODEX_CONFIG")"
-    if [ -n "$cx_row" ]; then
-      codex_name="$(printf '%s' "$cx_row" | awk -F'\t' '{print $1}')"
-      probe_output="${probe_output}codex-config	${cx_row}
-"
-      log "codex: Atlassian MCP server configured (${codex_name})"
-    else
-      log "codex: no Atlassian MCP server configured in ${CODEX_CONFIG}"
-    fi
-  else
-    log "codex: not installed"
-  fi
-
-  # pi
-  if have_cmd pi; then
-    local pi_row
-    pi_row="$(pi_atlassian_hint "$PI_SETTINGS")"
-    if [ -n "$pi_row" ]; then
-      probe_output="${probe_output}pi-config	${pi_row}
-"
-      log "pi: Atlassian-related configuration present"
-    else
-      log "pi: no Atlassian-related configuration in ${PI_SETTINGS}"
-    fi
-  else
-    log "pi: not installed"
-  fi
+  local probe_output
+  probe_output="$(
+    probe_opencode
+    probe_codex
+    probe_pi
+  )"
 
   if [ -z "$probe_output" ]; then
-    fail "no active coding agent exposes an Atlassian MCP server" 6
+    log "no coding agent could be probed (missing provider credentials or tools)"
+    log "to enable a probe: ensure the agent's provider auth is available, then rerun"
+    fail "Bitbucket, Jira, and Confluence could not be verified via any active coding agent" 6
   fi
 
-  # Live tool discovery: reuse atlassian-smoke-test's MCP handshake to
-  # list tools advertised by the Atlassian Rovo MCP endpoint. This
-  # signal tells us whether Bitbucket/Jira/Confluence tools are
-  # actually exposed for the user's token.
-  local tool_names=""
-  log "live discovery: probing Atlassian Rovo MCP via atlassian-smoke-test"
-  if [ -n "${ATLASSIAN_USER_EMAIL:-}" ] && [ -n "${ATLASSIAN_MCP_TOKEN:-}" ]; then
-    tool_names="$(live_tool_names)"
-  else
-    log "live discovery: skipped (ATLASSIAN_USER_EMAIL or ATLASSIAN_MCP_TOKEN missing)"
+  printf '%s\n' "$probe_output"
+
+  # Combine all per-agent status objects, ignoring SKIP lines.
+  local combined=""
+  combined="$(printf '%s' "$probe_output" | awk -F': ' '
+    /^[a-z]+: \{/ { print substr($0, index($0, "{") ) }
+  ')"
+
+  local probe_count
+  probe_count="$(printf '%s' "$combined" | grep -c '^{')"
+
+  if [ "$probe_count" = "0" ]; then
+    log "no coding agent returned a parseable status object (all skipped)"
+    log "to enable probes: ensure the agent's provider auth is available, then rerun"
+    log "the direct atlassian-smoke-test still confirms the MCP endpoint is reachable"
+    log "this smoke test cannot prove agent-mediated access without provider credentials"
+    fail "no coding agent returned a parseable status object" 6
   fi
 
-  # Emit the discovered rows for visibility.
-  printf '%s\n' "$probe_output" | sed '/^$/d'
-
-  # Compute product reachability. A product is reachable if either:
-  #   - a tool name discovered by opencode_tool_names belongs to it, OR
-  #   - the Atlassian MCP server is configured for some agent AND the
-  #     Atlassian Rovo MCP is known to expose that product (current
-  #     verified set: bitbucket, jira, confluence).
   local products_status=0
-  local combined="${tool_names}${probe_output}"
   for product in bitbucket jira confluence; do
-    if printf '%s' "$combined" | grep -qiE "$product"; then
-      log "$product: reachable from at least one active coding agent"
+    local reachable=0
+    local raw
+    raw="$(printf '%s' "$combined" | python3 -c "
+import json, sys
+product = '$product'
+any_ok = False
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if isinstance(obj, dict) and obj.get(product) is True:
+        any_ok = True
+sys.stdout.write('yes' if any_ok else 'no')
+")"
+    if [ "$raw" = "yes" ]; then
+      reachable=1
+    fi
+    if [ "$reachable" = "1" ]; then
+      log "$product: reachable via real MCP tool calls from at least one active coding agent"
     else
-      log "$product: NOT reachable from any active coding agent"
+      log "$product: NOT reachable via real MCP tool calls from any active coding agent"
       products_status=1
     fi
   done
 
   if [ "$products_status" -ne 0 ]; then
-    fail "one or more Atlassian products are not reachable from any active coding agent" 6
+    fail "one or more Atlassian products are not reachable via real MCP tool calls from any active coding agent" 6
   fi
 
   log "PASS coding-agents smoke test"
