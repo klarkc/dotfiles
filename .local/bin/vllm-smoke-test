@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+# vllm-smoke-test: vLLM runtime regression + end-to-end smoke.
+#
+# Self-executing. Takes no arguments. Runs ALL scenarios sequentially
+# (the smoke test owns its own scenario execution — see AGENTS.md):
+#
+#   Scenario 1 (focused, requires vllm in PATH):
+#     - CLI flag compatibility check against runtime_command.sh
+#       snapshots for both qwen3.6-27B and qwen3.6-35B-a3b targets.
+#     - Patch presence check in the wheel (Qwen embed UVA, Qwen
+#       LM-head UVA, CUDA 2/3-bit AutoRound -> Humming dispatch).
+#     - INC dispatch gate: bits=2/3 routes to Humming, bits=4 does
+#       not, non-CUDA host does not (uses unittest.mock to stub the
+#       CUDA platform).
+#
+#   Scenario 2 (end-to-end, requires vllm in PATH + GPU + systemd
+#   user instance + jq-free curl):
+#     - vllm-config qwen3.6-27B (or override via VLLM_E2E_TARGET).
+#     - Poll GET /v1/models until 200 with the expected served model
+#       name.
+#     - POST /v1/chat/completions with max_tokens=8 and verify the
+#       response has non-empty content.
+#     - Leave the service running (set E2E_KEEP_RUNNING=0 to stop).
+#
+# Contract (see AGENTS.md "smoke test contract"):
+#   - Never builds dependencies itself.
+#   - Assumes `nix profile install .` has populated PATH with vllm
+#     and the runtime libs (LD_LIBRARY_PATH via the vllm wrapper).
+#   - If any prerequisite is missing, prints FATAL: <reason> on stderr
+#     and exits 2. No silent skip.
+#
+# Environment overrides (e2e scenario only):
+#   VLLM_E2E_TARGET    qwen3.6-27B (default) | qwen3.6-35B-a3b
+#   E2E_BASE_URL       http://127.0.0.1:8000/v1 (default)
+#   E2E_API_KEY        hackme (default, matches vllm-serve-pure)
+#   E2E_TIMEOUT_S      360 (default, model load + first response budget)
+#   E2E_KEEP_RUNNING   1 (default) | 0 (stop service after test)
+#   E2E_PROMPT         "Reply with the single word: pong" (default)
+
+set -euo pipefail
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+note() { printf '   %s\n' "$*"; }
+ok()   { printf '   \033[32mOK\033[0m   %s\n' "$*"; }
+fail() { printf '   \033[31mFATAL\033[0m %s\n' "$*" >&2; exit 2; }
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || \
+    fail "required command not found: $1 (smoke test cannot proceed without it)"
+}
+
+require_file() {
+  [ -e "$1" ] || fail "required path missing: $1"
+}
+
+require_gpu() {
+  [ -e /proc/driver/nvidia/gpus/0 ] 2>/dev/null || \
+    nvidia-smi -L >/dev/null 2>&1 || \
+    fail "GPU not detected (no /proc/driver/nvidia/gpus/0 and nvidia-smi unavailable)"
+}
+
+require_systemd_user() {
+  systemctl --user is-active >/dev/null 2>&1 || \
+    fail "systemd --user instance not running (XDG_RUNTIME_DIR / systemd user bus)"
+}
+
+# ============================================================================
+# Prerequisite checks (fail loud if any missing — no silent skip)
+# ============================================================================
+note "vllm-smoke-test: prerequisite check"
+
+require_cmd vllm
+require_cmd systemctl
+require_cmd curl
+require_cmd python3
+
+# Both scenarios need a usable vllm wrapper. Resolve site-packages and
+# the runtime root from the wrapper script.
+vllm_bin="$(command -v vllm)"
+site_pkgs="$(grep -oE '/nix/store/[^ ]+/lib/python3\.12/site-packages' "$vllm_bin" | head -n1)"
+[ -n "$site_pkgs" ] || fail "could not derive site-packages from vllm wrapper at $vllm_bin"
+[ -d "$site_pkgs" ] || fail "site-packages dir does not exist: $site_pkgs"
+# site_pkgs = <runtime>/lib/python3.12/site-packages → runtime = 2 dirname up
+runtime_dir="$(dirname "$(dirname "$(dirname "$site_pkgs")")")"
+[ -d "$runtime_dir/bin" ] || fail "could not locate runtime bin at $runtime_dir/bin"
+ld_lib="$(cat "$runtime_dir/nix-support/ld-library-path" 2>/dev/null || true)"
+
+qwen_file="$site_pkgs/vllm/model_executor/models/qwen3_5.py"
+inc_file="$site_pkgs/vllm/model_executor/layers/quantization/inc/schemes/inc_wna16_scheme.py"
+require_file "$qwen_file"
+require_file "$inc_file"
+
+note "vllm=$(command -v vllm) runtime_dir=$runtime_dir"
+
+# ============================================================================
+# Scenario 1 (focused): CLI flags + patch presence + INC dispatch gate
+# ============================================================================
+note ""
+note "==> scenario=focused (CLI flags + patches + INC dispatch gate)"
+"$vllm_bin" --version
+
+# (1) CLI flag compatibility — auto-discover from ~/.cache/vllm-*/
+note "(1) CLI flag compatibility"
+VLLM_TARGET_DEVICE=cpu "$vllm_bin" serve --help=all >"$tmpdir/help" 2>&1 || true
+pass=0
+fail_count=0
+for target in qwen3.6-27B qwen3.6-35B-a3b; do
+  snapshot="$HOME/.cache/vllm-${target}/runtime_command.sh"
+  if [ ! -f "$snapshot" ]; then
+    fail "no runtime_command.sh snapshot at $snapshot — run vllm-config $target once to populate"
+  fi
+  cmd_args="$(sed -E 's|^/nix/store/[^ ]+/bin/vllm serve |serve |' "$snapshot")"
+  unknown=()
+  for tok in $cmd_args; do
+    case "$tok" in
+      --*)
+        flag="${tok%%=*}"
+        [[ "$tok" == *=* ]] && continue
+        if ! grep -qF -e "$flag" "$tmpdir/help"; then
+          unknown+=("$flag")
+        fi
+        ;;
+    esac
+  done
+  if [ "${#unknown[@]}" -gt 0 ]; then
+    note "FAIL $target: --help missing flags: ${unknown[*]}"
+    fail_count=$((fail_count + 1))
+  else
+    note "OK   $target: every flag recognized"
+    pass=$((pass + 1))
+  fi
+done
+[ "$fail_count" -eq 0 ] || fail "$fail_count target(s) have unrecognized flags"
+
+# (2) Patch presence in wheel
+note "(2) patch presence in wheel"
+patch_markers=(
+  "from vllm.model_executor.offloader.uva import UVAOffloader"
+  "_embed_uva_offloader"
+  "_lm_head_uva_offloader"
+  "CUDA_HUMMING_SUPPORTED_BITS = {2, 3}"
+)
+for marker in "${patch_markers[@]}"; do
+  if ! grep -qF -e "$marker" "$qwen_file" "$inc_file" 2>/dev/null; then
+    fail "patch marker missing: $marker"
+  fi
+done
+ok "all 3 patches present"
+
+# (3) INC dispatch gate (uses unittest.mock to stub CUDA platform and
+# _build_humming_* helpers; doesn't actually instantiate Humming kernels)
+note "(3) INC dispatch gate"
+LD_LIBRARY_PATH="$ld_lib" "$runtime_dir/bin/python" - <<'PY' || fail "INC dispatch gate failed"
+from unittest import mock
+import vllm.model_executor.layers.quantization.inc.schemes.inc_wna16_scheme as inc
+from vllm.platforms import current_platform
+
+assert inc.CUDA_HUMMING_SUPPORTED_BITS == {2, 3}, \
+    f"expected {{2, 3}}, got {inc.CUDA_HUMMING_SUPPORTED_BITS}"
+
+class FakeCfg:
+    bits = 2; group_size = 128; sym = True
+    is_wna16_int = True; is_gptq = True; is_awq = False
+
+class DummyVllmCfg: pass
+class DummyLayer: moe_config = object()
+
+SENTINEL_LINEAR = object()
+SENTINEL_MOE = object()
+
+with mock.patch.object(inc, "_build_humming_linear_method", return_value=SENTINEL_LINEAR), \
+     mock.patch.object(inc, "_build_humming_moe_method", return_value=SENTINEL_MOE), \
+     mock.patch.object(current_platform, "is_cuda", return_value=True), \
+     mock.patch.object(current_platform, "is_xpu", return_value=False), \
+     mock.patch.object(current_platform, "is_cpu", return_value=False):
+    scheme = inc.INCWna16Scheme()
+    m2 = scheme.get_linear_method(DummyVllmCfg(), DummyLayer(), "x.0", FakeCfg())
+    assert m2 is SENTINEL_LINEAR, f"bits=2 did not route to Humming (got {m2!r})"
+    m_moe = scheme.get_moe_method(DummyVllmCfg(), DummyLayer(), "x.0", FakeCfg())
+    assert m_moe is SENTINEL_MOE, f"MoE bits=2 did not route to Humming (got {m_moe!r})"
+
+print("OK: INC dispatch routes 2/3-bit CUDA layers to Humming")
+PY
+
+note ""
+ok "scenario=focused passed"
+
+# ============================================================================
+# Scenario 2 (e2e): vllm-config + curl /v1/models + completion
+# ============================================================================
+note ""
+note "==> scenario=e2e (vllm-config + curl /v1/models + completion)"
+
+# Both scenarios require vllm + curl + systemd + GPU + vllm-config.
+require_gpu
+require_systemd_user
+require_cmd vllm-config
+
+target="${VLLM_E2E_TARGET:-qwen3.6-27B}"
+case "$target" in
+  qwen3.6-27B)     served_model=qwen3.8-27b ;;
+  qwen3.6-35B-a3b) served_model=qwen3.6-35b-a3b ;;
+  *) fail "unknown VLLM_E2E_TARGET: $target (expected qwen3.6-27B or qwen3.6-35B-a3b)" ;;
+esac
+
+base_url="${E2E_BASE_URL:-http://127.0.0.1:8000/v1}"
+api_key="${E2E_API_KEY:-hackme}"
+timeout_s="${E2E_TIMEOUT_S:-360}"
+keep_running="${E2E_KEEP_RUNNING:-1}"
+prompt="${E2E_PROMPT:-Reply with the single word: pong}"
+
+# (a) start the service
+note "starting $target via vllm-config"
+if ! vllm-config "$target" >"$tmpdir/config.log" 2>&1; then
+  note "vllm-config failed; last 40 lines of log:"
+  tail -40 "$tmpdir/config.log" >&2
+  fail "vllm-config $target exited non-zero"
+fi
+ok "service active"
+
+# (b) poll /v1/models
+note "polling $base_url/models for $served_model"
+elapsed=0
+interval=3
+models_json="$tmpdir/models.json"
+while :; do
+  if curl -fsS -H "Authorization: Bearer $api_key" "$base_url/models" >"$models_json" 2>/dev/null; then
+    if grep -q "\"id\":\"$served_model\"" "$models_json"; then
+      break
+    fi
+  fi
+  elapsed=$((elapsed + interval))
+  if [ "$elapsed" -ge "$timeout_s" ]; then
+    note "FAIL: /v1/models did not list $served_model in ${timeout_s}s"
+    note "---- last response ----"
+    cat "$models_json" >&2 || true
+    note "---- tail of journalctl ----"
+    journalctl --user-unit "vllm@${target}.service" -n 80 --no-pager -o short-iso >&2 || true
+    fail "model $served_model never became ready"
+  fi
+  sleep "$interval"
+done
+ok "model ready"
+
+# (c) minimal completion
+note "sending minimal chat completion (max_tokens=8)"
+completion_json="$tmpdir/completion.json"
+http_code="$(curl -sS -o "$completion_json" -w '%{http_code}' \
+  -X POST \
+  -H "Authorization: Bearer $api_key" \
+  -H "Content-Type: application/json" \
+  -d "$(printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":8,"temperature":0}' "$served_model" "$prompt")" \
+  "$base_url/chat/completions")"
+[ "$http_code" = "200" ] || {
+  note "FAIL: completion request returned HTTP $http_code"
+  head -5 "$completion_json" >&2
+  fail "completion HTTP $http_code"
+}
+if ! grep -q '"content":"[^"]\+"' "$completion_json"; then
+  note "FAIL: completion response has no content (model did not decode)"
+  head -5 "$completion_json" >&2
+  fail "completion response had no content"
+fi
+content="$(grep -oE '"content":"[^"]+"' "$completion_json" | head -n1)"
+note "completion decoded: ${content:0:80}"
+
+# (d) tear down or leave running
+if [ "$keep_running" = "0" ]; then
+  note "stopping vllm-${target}.target"
+  systemctl --user stop "vllm-${target}.target" 2>/dev/null || true
+else
+  note "leaving service running (set E2E_KEEP_RUNNING=0 to stop)"
+fi
+
+ok "scenario=e2e passed (target=$target)"
+note ""
+ok "vllm-smoke-test: ALL SCENARIOS PASSED (focused + e2e)"
