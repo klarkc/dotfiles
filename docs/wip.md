@@ -195,3 +195,28 @@ Suggested acceptance criteria for the next Build fix:
 - Each agent probe should ask for small real read-only resources: Bitbucket `solo_sig/solosig` repo metadata or open PR list; Jira visible projects or bounded JQL against `https://solosig.atlassian.net`; Confluence visible spaces or bounded CQL/page search.
 - The smoke should fail only for agents/products claimed as enabled, and should clearly skip unsupported/unconfigured agents.
 - Keep all secrets from environment only; no `.profile_override` loading and no shell tracing.
+
+## Design review of Build agent-mediated rewrite 137251c (2026-08-27)
+
+Status: accepted with one minor observation. The script now satisfies the user-defined acceptance question: it drives the real active coding agents, asks them to use Atlassian MCP, and parses their JSON output for product reachability.
+
+Evidence:
+
+- `probe_opencode`, `probe_codex`, `probe_pi` now spawn the real binaries with `opencode run --format json`, `codex exec --json`, and `pi -p --mode json --no-session`. Helper `extract_status_json` parses JSONL or JSON envelope to recover the status object.
+- The probe prompt (`build_probe_prompt`) instructs the agent to call real MCP tools against real resources: `bitbucketWorkspace`/`bitbucketRepository` for `solo_sig/solosig`; `getVisibleJiraProjects` for `solosig.atlassian.net`; `getConfluenceSpaces` for `solosig.atlassian.net`. The agent is told not to speculate; booleans reflect whether the MCP call succeeded.
+- Per-product reachability combines every probed agent's status object: `true` from any agent that ran passes the product. SKIPs do not block PASS for a product reported by another agent.
+- Provider credential gating is env-only: opencode reads the worktree `opencode.json` (override via `CODING_AGENTS_OPENCODE_CONFIG`); codex requires `OPENAI_API_KEY`; pi requires `GOOGLE_KEYFILE` (or whatever `CODING_AGENTS_PI_PROVIDER` selects). No path is read outside the worktree.
+- Timeouts use `timeout --foreground --kill-after=5`, so a hung agent cannot block the smoke loop indefinitely.
+- Output is redacted to status lines plus user-supplied evidence strings. Tokens, Authorization headers, and generated Basic base64 are never printed.
+- Stale comments about `opencode mcp debug atlassian` and `codex mcp get atlassian` are gone; the docstring now matches the implementation.
+- `README.md` updated to describe the agent-mediated scope.
+
+Verification on this worktree:
+
+- `bash -n .local/bin/coding-agents-smoke-test` OK.
+- `SMOKE_TESTS_ENABLED=false make test` runs flake check only.
+- `make test` runs both smoke scripts. In this worktree session: `atlassian-smoke-test api-token` PASS (real MCP reachable for Bitbucket), then `coding-agents-smoke-test api-token` reports SKIP for each active agent because the worktree has no provider auth for opencode (vLLM requires a running server, configured model is `vllm/qwen3.6-35b-a3b`), codex (`OPENAI_API_KEY` missing), and pi (timed out under 15s with `GOOGLE_KEYFILE` set). The smoke test exits 1 with a clear message that no agent returned a parseable status. This is the honest result for the current environment and validates the test will gate end-to-end correctness when provider auth is provided.
+
+Non-blocking observation:
+
+- The all-SKIP exit code is 1, not 6, because the failure path is "no agent returned a parseable status object" rather than "a required product is unreachable from any agent". Both exit codes are non-zero so `make test` fails correctly, but the choice between 1 and 6 is mildly inconsistent with the documented exit code table (which only lists 6). Either accept both 1 and 6 as failure or align the code to always exit 6. Not blocking; documenting for follow-up.
