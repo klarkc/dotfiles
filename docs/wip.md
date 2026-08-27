@@ -307,3 +307,28 @@ Verification targets after the Build fix:
 - `make test` runs smoke tests; `atlassian-smoke-test api-token` PASS, `atlassian-smoke-test oauth` opens bridge (no SKIP for missing bridge), `coding-agents-smoke-test` reports SKIP per agent when no provider auth and exits 6 with the aligned message.
 - No tokens or Authorization headers printed.
 - No secrets added to `.gitignore` or `flake.nix`.
+
+## Design review of Build fixup 2d9c66d + 50916b1 (2026-08-27)
+
+Status: accepted. Both gaps closed; no new blockers.
+
+Acceptance evidence:
+
+- `nix build .#mcp-remote-runtime` succeeds and the resulting bin reports `mcp-remote --version` as `0.1.38`.
+- `nix build .#default` succeeds; the resulting profile `bin/` includes `mcp-remote` and `mcp-remote-client`. Conflict resolution: `fusionRuntime` and `mcpRemoteRuntime` are merged via `pkgs.symlinkJoin` into `jsRuntimes` before being added to `packages.default`, and the top-level `nodejs` entry is dropped because the wrapped `mcp-remote` and `fusion` runtimes already expose nodejs on their wrapped PATH. This is a clean match for the Fusion/QMD runtime pattern this repo already uses.
+- `.local/bin/atlassian-smoke-test oauth` no longer SKIPs for missing bridge. Verified by hand-running with the profile `mcp-remote` on PATH: the bridge opens a browser OAuth flow against `https://mcp.atlassian.com/v1/mcp/authv2`, prints `Proxy established successfully between local STDIO and remote StreamableHTTPClientTransport`, and exits with `atlassian-smoke-test: PASS oauth bridge invocation completed` (exit 0).
+- `SMOKE_TESTS_ENABLED=false make test` runs flake check only.
+- `make test` end-to-end: `atlassian-smoke-test api-token` PASS, `atlassian-smoke-test oauth` PASS, `coding-agents-smoke-test api-token` FAIL with the aligned message `FAIL: no coding agent returned a parseable status object 6` and `real_coding_exit=6`.
+- No tokens, Authorization headers, bearer tokens, or base64 Basic strings were committed. A repo-wide grep for `ATATT|Authorization: Bearer|api_key=|token=|secret=` matches only the redactor regex pattern itself in `coding-agents-smoke-test`.
+- Bump notes match the Fusion/QMD style: `# Bump note:` comments next to the version/rev/hash declarations in both `flake.nix` and `.nix/mcp-remote-runtime.nix`.
+
+Code-level notes:
+
+- `.nix/mcp-remote-runtime.nix` mirrors the Fusion runtime shape: `fetchPnpmDeps` for the offline `pnpm-lock.yaml` deps, `pnpmBuildHook` for the tsup build, `makeWrapper` to expose `mcp-remote` and `mcp-remote-client` on the wrapped PATH, and `__structuredAttrs = true; strictDeps = true;` to keep `pnpmInstallFlags` as a real shell array for the install hook. The runtime PATH is `coreutils curl findutils gawk gnugrep gnused nodejs` (no `nix`/`git`/`docker-client` like Fusion ships, since the bridge is a small Node CLI).
+- `flake.lock` updated with the `mcp-remote-src` input pinned to `github:punkpeye/mcp-remote/77bbcfc`. No live `npm install` / `pnpm install` in the derivation; the dependency closure is fetched and locked via `fetchPnpmDeps`.
+- The exit-code alignment fix is minimal and surgical: `grep -c '^{' || true` lets the count return zero without tripping `set -e`, so the `fail "..." 6` branch is reached and the documented exit table matches behavior.
+
+Non-blocking observations (deferred for follow-up, not blocking acceptance):
+
+- `.nix/mcp-remote-runtime.nix` declares `version = "0.1.38"` (the upstream `package.json` reported by the source tree at the pinned commit). It does NOT match the npm registry's `0.8.1` because the project has not bumped `package.json` for the latest 0.8.x release. The bump note in the derivation calls this out and instructs future bumps to update the upstream `package.json` version, the source rev, and the `pnpmDeps.hash` together. Acceptable since `0.1.38` is the canonical version reported by the source tree at the pinned commit and the bridge is invoked as a runtime helper rather than a long-lived API surface; future bumps will catch up to the npm version line.
+- The smoke test still relies on the operator having completed the first browser OAuth consent for `~/.mcp-auth` (or `MCP_REMOTE_CONFIG_DIR`) to cache the OAuth session. Until that cache exists, `atlassian-smoke-test oauth` will open a browser, then exit 0 with a clear message; the test does not gate on a cached session. If you want to enforce cached-session verification later, the script can call `mcp-remote` once first to populate the cache, or check `~/.mcp-auth` for a session file before invoking the bridge. Defer.
