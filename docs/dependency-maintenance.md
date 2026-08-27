@@ -10,7 +10,7 @@ This system provides automated monitoring of upstream dependencies for the dotfi
 |------|-----------|----------|--------------|
 | Critical | Weekly | Core engine, foundational tooling, base system | Fusion, skills.sh, nixpkgs-unstable |
 | Moderate | Monthly | Build/formatting tooling, daily-use disruptive tools | flake-parts, nix-fast-build, treefmt-nix, Tmux, Alacritty, Vim |
-| Low | Quarterly | Nice-to-have, non-critical tools | Lemurs, Nord, Papirus, crush, codex, lumen, Sunshine, etc. |
+| Low | Quarterly | Nice-to-have, non-critical tools | Lemurs, Nord, Papirus, codex, lumen, Sunshine, etc. |
 
 ## How It Works
 

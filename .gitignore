@@ -50,6 +50,7 @@
 /.local/*
 !/.local/bin
 /.local/bin/*
+!/.local/bin/atlassian-smoke-test
 !/.local/bin/home-cleanup
 !/.local/bin/home-cleanup-post
 !/.local/bin/pacman-clean
@@ -81,11 +82,6 @@
 !/.config/yay
 /.config/yay/*
 !/.config/yay/config.json
-
-# crush
-!/.config/crush
-/.config/crush/*
-!/.config/crush/crush.json
 
 # codex
 !/.codex
