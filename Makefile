@@ -72,6 +72,49 @@ xmonad.LemursInstall: .local/bin/xmonad-session
 nix.Profile:
 	nix --extra-experimental-features "nix-command flakes" profile install .
 
+# `make test` is the standard verification entrypoint for this repo.
+# It runs `nix flake check` (static config + no-network self-tests)
+# followed by `.local/bin/*-smoke-test` scripts (out-of-band live
+# checks that require network and user secrets). Smoke tests are
+# skipped when SKIP_SMOKE is set so a developer or CI can run static
+# checks without sourcing `~/.profile_override`.
+#
+# Usage:
+#   make test              Run flake check + smoke tests.
+#   make test SKIP_SMOKE=1 Run flake check only (CI default).
+#   SKIP_SMOKE=1 make test Equivalent.
+#
+# E2E/integration smoke tests that need live services/secrets/network
+# MUST live as `.local/bin/*-smoke-test` scripts. They are out-of-band
+# and must never be added to `nix flake check`.
+.PHONY: test
+test: flake.check smoke
+
+.PHONY: flake.check
+flake.check:
+	nix --extra-experimental-features "nix-command flakes" fmt
+	nix --extra-experimental-features "nix-command flakes" flake check
+
+.PHONY: smoke
+smoke:
+	@if [ -n "$$SKIP_SMOKE" ]; then \
+		echo "smoke: skipped (SKIP_SMOKE=$$SKIP_SMOKE)"; \
+		exit 0; \
+	fi
+	@for t in .local/bin/*-smoke-test; do \
+		[ -x "$$t" ] || continue; \
+		echo "smoke: running $$t api-token"; \
+		if ! "$$t" api-token; then \
+			echo "smoke: $$t api-token FAILED" >&2; \
+			exit 1; \
+		fi; \
+		echo "smoke: running $$t oauth"; \
+		if ! "$$t" oauth; then \
+			echo "smoke: $$t oauth FAILED" >&2; \
+			exit 1; \
+		fi; \
+	done
+
 .PHONY: clean
 clean: .themes/Nordic/clean $(ICONS)/Papirus/clean
 	rm .local/bin/dir_colors
