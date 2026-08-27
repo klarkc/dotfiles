@@ -76,13 +76,14 @@ nix.Profile:
 # It runs `nix flake check` (static config + no-network self-tests)
 # followed by `.local/bin/*-smoke-test` scripts (out-of-band live
 # checks that require network and user secrets). Smoke tests are
-# skipped when SKIP_SMOKE is set so a developer or CI can run static
-# checks without sourcing `~/.profile_override`.
+# enabled by default and can be disabled via SMOKE_TESTS_ENABLED=false
+# (or the legacy SKIP_SMOKE=1 alias for backwards compatibility).
 #
 # Usage:
-#   make test              Run flake check + smoke tests.
-#   make test SKIP_SMOKE=1 Run flake check only (CI default).
-#   SKIP_SMOKE=1 make test Equivalent.
+#   make test                          Run flake check + smoke tests (default).
+#   make test SMOKE_TESTS_ENABLED=false Run flake check only (CI default).
+#   SMOKE_TESTS_ENABLED=false make test Equivalent.
+#   make test SKIP_SMOKE=1             Backwards-compatible alias for disabling smoke.
 #
 # E2E/integration smoke tests that need live services/secrets/network
 # MUST live as `.local/bin/*-smoke-test` scripts. They are out-of-band
@@ -92,16 +93,29 @@ test: flake.check smoke
 
 .PHONY: flake.check
 flake.check:
-	nix --extra-experimental-features "nix-command flakes" fmt
 	nix --extra-experimental-features "nix-command flakes" flake check
+
+.PHONY: fmt
+fmt:
+	nix --extra-experimental-features "nix-command flakes" fmt
 
 .PHONY: smoke
 smoke:
-	@if [ -n "$$SKIP_SMOKE" ]; then \
-		echo "smoke: skipped (SKIP_SMOKE=$$SKIP_SMOKE)"; \
+	@set -e; \
+	if [ -n "$$SKIP_SMOKE" ]; then \
+		smoke_enabled=0; \
+	else \
+		case "$${SMOKE_TESTS_ENABLED:-true}" in \
+			1|true|TRUE|yes|YES|on|ON) smoke_enabled=1 ;; \
+			0|false|FALSE|no|NO|off|OFF|"") smoke_enabled=0 ;; \
+			*) echo "smoke: invalid SMOKE_TESTS_ENABLED='$$SMOKE_TESTS_ENABLED'" >&2; exit 2 ;; \
+		esac; \
+	fi; \
+	if [ "$$smoke_enabled" != "1" ]; then \
+		echo "smoke: skipped (SMOKE_TESTS_ENABLED=$${SMOKE_TESTS_ENABLED:-false} SKIP_SMOKE=$${SKIP_SMOKE:-})"; \
 		exit 0; \
-	fi
-	@for t in .local/bin/*-smoke-test; do \
+	fi; \
+	for t in .local/bin/*-smoke-test; do \
 		[ -x "$$t" ] || continue; \
 		echo "smoke: running $$t api-token"; \
 		if ! "$$t" api-token; then \

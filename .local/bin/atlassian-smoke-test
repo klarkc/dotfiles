@@ -316,8 +316,10 @@ mode_oauth() {
   #
   # The bridge handles its own lifecycle; here we just print what it
   # reports and let it exit cleanly. Bridge-specific flags are forwarded
-  # by the caller.
-  "$bridge" "$@"
+  # by the caller. The Atlassian Rovo MCP endpoint is always passed as
+  # the first positional argument so the bridge can connect even when
+  # the caller supplies no extra flags.
+  "$bridge" "$ENDPOINT" "$@"
   log "PASS oauth bridge invocation completed"
 }
 
