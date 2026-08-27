@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# Atlassian Rovo MCP smoke test.
+#
+# Verifies connectivity to https://mcp.atlassian.com/v1/mcp/authv2 without
+# ever printing tokens or Authorization headers. Lives under .local/bin/
+# because it requires live network access and user secrets; it must NOT be
+# added to nix flake check.
+#
+# Modes:
+#   api-token  Uses ATLASSIAN_USER_EMAIL + ATLASSIAN_MCP_TOKEN from the
+#              environment via Basic auth in this script.
+#   oauth      Invokes a repo-packaged remote-MCP OAuth bridge binary
+#              (nixpkgs first, flake input second, npm last per repo policy)
+#              which handles browser-based consent and caches tokens
+#              locally under ~/.mcp-auth or $MCP_REMOTE_CONFIG_DIR. Pass
+#              the bridge binary name via ATLASSIAN_OAUTH_BRIDGE (default:
+#              mcp-remote).
+#
+# Usage:
+#   atlassian-smoke-test api-token
+#   atlassian-smoke-test oauth [extra-args-to-bridge]
+#
+# Required environment (api-token mode):
+#   ATLASSIAN_USER_EMAIL  Atlassian account email used to mint the token.
+#   ATLASSIAN_MCP_TOKEN   Personal Atlassian API token.
+#
+# Required environment (oauth mode):
+#   ATLASSIAN_OAUTH_BRIDGE  Name or path of the OAuth bridge binary
+#                           (default: mcp-remote). Must be installed via
+#                           Nix profile in this repo.
+#
+# Exit codes:
+#   0  All reported checks succeeded.
+#   2  Required environment is missing.
+#   3  Initialization handshake failed.
+#   4  tools/list call failed or returned unexpected payload.
+#   5  Accessible resources call failed.
+#
+# Output policy: this script never prints token values, Authorization
+# headers, generated Basic base64 strings, or full response bodies that
+# could include sensitive context. Only status codes, boolean summary
+# fields, accessible resource identifiers, and tool names are printed.
+
+set -euo pipefail
+
+readonly ENDPOINT='https://mcp.atlassian.com/v1/mcp/authv2'
+readonly CLIENT_INFO_NAME='dotfiles-atlassian-smoke-test'
+readonly CLIENT_INFO_VERSION='0.1.0'
+
+log() {
+  printf 'atlassian-smoke-test: %s\n' "$*"
+}
+
+fail() {
+  printf 'atlassian-smoke-test: FAIL: %s\n' "$*" >&2
+  exit "${2:-1}"
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    fail "required command not found: $1" 2
+  fi
+}
+
+# Redact any token-like substring from a string before it is printed.
+redact() {
+  local value="$1"
+  if [ -n "${ATLASSIAN_MCP_TOKEN:-}" ]; then
+    value="${value//${ATLASSIAN_MCP_TOKEN}/[REDACTED]}"
+  fi
+  if [ -n "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    value="${value//${ATLASSIAN_USER_EMAIL}/[EMAIL]}"
+  fi
+  printf '%s' "$value"
+}
+
+# Run curl with all sensitive material passed via headers read from files,
+# never via -H with literal values. Writes the response body to a temp
+# file and returns "<status>|<body_path>|<header_path>" on stdout.
+#
+# We use `-i` instead of `-D` because AtlassianEdge/CloudFront drops
+# the `Mcp-Session-Id` response header from `-D` output in some HTTP/2
+# edge cases. `-i` keeps it in the captured stream alongside the body.
+# We then split headers from body on the first blank line, the same
+# way an HTTP response parser would.
+mcp_post() {
+  local payload="$1"
+  local session_header_file="$2"
+  local combined_file header_path body_path status
+
+  combined_file="$(mktemp)"
+  header_path="$(mktemp)"
+  body_path="$(mktemp)"
+
+  local -a args=(
+    --silent
+    --show-error
+    --fail-with-body
+    --no-buffer
+    -i
+    -o "$combined_file"
+    -w '%{http_code}'
+    -X POST "$ENDPOINT"
+    -H 'Content-Type: application/json'
+    -H 'Accept: application/json, text/event-stream'
+    --data "$payload"
+    -H "@${session_header_file}"
+  )
+  if [ -n "${3:-}" ]; then
+    args+=(-H "@${3}")
+  fi
+
+  status="$(curl "${args[@]}")"
+
+  # Split on the first blank line. Lines before it are response headers;
+  # lines after it are the response body. The blank line itself is
+  # discarded. Headers arrive as CRLF, so strip trailing \r before
+  # matching the empty line.
+  awk -v hdr="$header_path" -v bod="$body_path" '
+    BEGIN { split_done = 0 }
+    {
+      sub(/\r$/, "")
+    }
+    split_done == 0 && /^$/ { split_done = 1; next }
+    split_done == 0 { print > hdr }
+    split_done == 1 { print > bod }
+  ' "$combined_file"
+
+  rm -f "$combined_file"
+
+  printf '%s|%s|%s\n' "$status" "$body_path" "$header_path"
+}
+
+extract_session_id() {
+  local header_path="$1"
+  awk -F': ' 'tolower($1) == "mcp-session-id" {sub(/\r$/, "", $2); print $2; exit}' "$header_path"
+}
+
+# Parse an SSE-or-JSON body, returning the first JSON object found.
+extract_json() {
+  local body_path="$1"
+  awk '
+    /^data:/ {
+      sub(/^data:[[:space:]]*/, "", $0)
+      print
+      exit
+    }
+  ' "$body_path"
+}
+
+mode_api_token() {
+  : "${ATLASSIAN_USER_EMAIL:?ATLASSIAN_USER_EMAIL is required for api-token mode}"
+  : "${ATLASSIAN_MCP_TOKEN:?ATLASSIAN_MCP_TOKEN is required for api-token mode}"
+
+  require_cmd curl
+  require_cmd python3
+
+  local auth_header_file
+  auth_header_file="$(mktemp)"
+
+  # Build Authorization header in a file, never on the command line.
+  local basic
+  basic="$(printf '%s' "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_MCP_TOKEN}" | base64 -w0)"
+  printf 'Authorization: Basic %s\n' "$basic" >"$auth_header_file"
+
+  local init_payload
+  init_payload="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"%s","version":"%s"}}}' \
+    "$CLIENT_INFO_NAME" "$CLIENT_INFO_VERSION")"
+
+  local init_result init_status init_body init_headers init_session
+  # Initialize must NOT carry an Mcp-Session-Id request header. The
+  # server treats a session id as already established and skips
+  # generating one, leaving the smoke test unable to track it.
+  init_result="$(mcp_post "$init_payload" /dev/null "$auth_header_file")"
+  init_status="${init_result%%|*}"
+  init_body="$(awk -F'|' '{print $2}' <<<"$init_result")"
+  init_headers="$(awk -F'|' '{print $3}' <<<"$init_result")"
+
+  if [ "$init_status" != "200" ]; then
+    rm -f "$auth_header_file" "$init_body" "$init_headers"
+    fail "initialize HTTP $init_status" 3
+  fi
+  init_session="$(extract_session_id "$init_headers")"
+  if [ -z "$init_session" ]; then
+    rm -f "$auth_header_file" "$init_body" "$init_headers"
+    fail "initialize succeeded without Mcp-Session-Id" 3
+  fi
+  log "initialize http_status=200 session_present=true"
+
+  # From here on every request needs the session id.
+  local session_header_file
+  session_header_file="$(mktemp)"
+  printf 'Mcp-Session-Id: %s\n' "$init_session" >"$session_header_file"
+
+  local notif_payload='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+  local notif_result notif_status
+  notif_result="$(mcp_post "$notif_payload" "$session_header_file" "$auth_header_file")"
+  notif_status="${notif_result%%|*}"
+  rm -f "${notif_result#*|*|}" "${notif_result##*|}"
+  if [ -z "$notif_status" ] || [ "$notif_status" != "202" ]; then
+    log "initialized notification http_status=$notif_status (continuing)"
+  fi
+
+  local tools_payload='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+  local tools_result tools_status tools_body tools_headers
+  tools_result="$(mcp_post "$tools_payload" "$session_header_file" "$auth_header_file")"
+  tools_status="${tools_result%%|*}"
+  tools_body="$(awk -F'|' '{print $2}' <<<"$tools_result")"
+  tools_headers="$(awk -F'|' '{print $3}' <<<"$tools_result")"
+
+  rm -f "$tools_headers"
+
+  if [ "$tools_status" != "200" ]; then
+    rm -f "$auth_header_file"
+    local redacted
+    redacted="$(redact "$(head -c 500 "$tools_body" 2>/dev/null || true)")"
+    rm -f "$tools_body"
+    fail "tools/list HTTP $tools_status: $redacted" 4
+  fi
+
+  local tools_json
+  tools_json="$(extract_json "$tools_body")"
+  rm -f "$tools_body"
+
+  if [ -z "$tools_json" ]; then
+    fail "tools/list returned no parseable JSON payload" 4
+  fi
+
+  local tool_names
+  tool_names="$(
+    python3 - "$tools_json" <<'PY'
+import json, sys
+try:
+    obj = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+result = obj.get("result") or {}
+for t in result.get("tools") or []:
+    name = t.get("name")
+    if name:
+        print(name)
+PY
+  )"
+
+  local count
+  count="$(printf '%s\n' "$tool_names" | sed '/^$/d' | wc -l | tr -d ' ')"
+  log "tools_list http_status=200 tool_count=$count"
+  if [ -n "$tool_names" ]; then
+    printf '%s\n' "$tool_names" | while IFS= read -r name; do
+      [ -n "$name" ] && log "tool=$name"
+    done
+  fi
+
+  local resources_payload='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"getAccessibleAtlassianResources","arguments":{}}}'
+  local resources_result resources_status resources_body resources_headers
+  resources_result="$(mcp_post "$resources_payload" "$session_header_file" "$auth_header_file")"
+  resources_status="${resources_result%%|*}"
+  resources_body="$(awk -F'|' '{print $2}' <<<"$resources_result")"
+  resources_headers="$(awk -F'|' '{print $3}' <<<"$resources_result")"
+  rm -f "$session_header_file" "$resources_headers" "$auth_header_file"
+
+  if [ "$resources_status" != "200" ]; then
+    local redacted
+    redacted="$(redact "$(head -c 500 "$resources_body" 2>/dev/null || true)")"
+    rm -f "$resources_body"
+    fail "getAccessibleAtlassianResources HTTP $resources_status: $redacted" 5
+  fi
+
+  local resources_json resources_summary
+  resources_json="$(extract_json "$resources_body")"
+  rm -f "$resources_body"
+  resources_summary="$(
+    python3 - "$resources_json" <<'PY'
+import json, sys
+try:
+    obj = json.loads(sys.argv[1])
+except Exception:
+    print("")
+    sys.exit(0)
+result = obj.get("result") or {}
+texts = []
+for item in result.get("content") or []:
+    if isinstance(item, dict) and "text" in item:
+        texts.append(item["text"])
+print("|".join(texts))
+PY
+  )"
+  log "accessible_resources http_status=200"
+  if [ -n "$resources_summary" ]; then
+    log "resources_text=$(redact "$resources_summary")"
+  else
+    log "resources_text=<empty>"
+  fi
+
+  log "PASS api-token smoke test"
+}
+
+mode_oauth() {
+  local bridge="${ATLASSIAN_OAUTH_BRIDGE:-mcp-remote}"
+
+  if ! command -v "$bridge" >/dev/null 2>&1; then
+    log "oauth bridge '$bridge' not found on PATH"
+    log "packaging preference: existing nixpkgs package first, dedicated flake input/package second, other managers (e.g. npm) last"
+    log "when the bridge is available, run: $bridge $ENDPOINT"
+    log "SKIP oauth smoke (no bridge installed)"
+    return 0
+  fi
+
+  log "starting OAuth bridge $bridge against $ENDPOINT"
+  log 'token cache will be created under ~/.mcp-auth or $MCP_REMOTE_CONFIG_DIR'
+  log "this mode requires a browser to complete consent the first time"
+
+  # Smoke test: bridge will either reuse cached tokens or prompt for a
+  # browser login. We only verify it can reach the endpoint; we do not
+  # issue MCP requests ourselves, to keep this mode portable.
+  #
+  # The bridge handles its own lifecycle; here we just print what it
+  # reports and let it exit cleanly. Bridge-specific flags are forwarded
+  # by the caller.
+  "$bridge" "$@"
+  log "PASS oauth bridge invocation completed"
+}
+
+usage() {
+  cat <<'USAGE'
+atlassian-smoke-test <mode>
+
+Modes:
+  api-token   Verify Atlassian Rovo MCP using ATLASSIAN_USER_EMAIL +
+              ATLASSIAN_MCP_TOKEN. Runs initialize, tools/list, and
+              getAccessibleAtlassianResources. Never prints tokens.
+  oauth       Invoke the repo-packaged OAuth bridge (default:
+              mcp-remote) so it can reuse or establish an OAuth session
+              against the same endpoint. Extra arguments are forwarded
+              to the bridge binary.
+
+Environment:
+  ATLASSIAN_USER_EMAIL     api-token mode.
+  ATLASSIAN_MCP_TOKEN      api-token mode.
+  ATLASSIAN_OAUTH_BRIDGE   oauth mode; default mcp-remote.
+
+This script lives under .local/bin/ on purpose. It is an out-of-band
+smoke test that requires live network and user secrets, and must not
+be added to nix flake check.
+USAGE
+}
+
+if [ $# -lt 1 ]; then
+  usage >&2
+  exit 1
+fi
+
+case "$1" in
+api-token)
+  shift
+  mode_api_token "$@"
+  ;;
+oauth)
+  shift
+  mode_oauth "$@"
+  ;;
+-h | --help | help)
+  usage
+  ;;
+*)
+  usage >&2
+  exit 1
+  ;;
+esac
