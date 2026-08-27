@@ -183,6 +183,23 @@
         "type": "github"
       }
     },
+    "mcp-remote-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787842872,
+        "narHash": "sha256-5HxChS3XgGF0TXwip3wCr48Y6u8l5TuOCkEEYI5B0YI=",
+        "owner": "punkpeye",
+        "repo": "mcp-remote",
+        "rev": "77bbcfcd7892d339c27b5a14818b63cb5c4d3293",
+        "type": "github"
+      },
+      "original": {
+        "owner": "punkpeye",
+        "repo": "mcp-remote",
+        "rev": "77bbcfcd7892d339c27b5a14818b63cb5c4d3293",
+        "type": "github"
+      }
+    },
     "nix-fast-build": {
       "inputs": {
         "flake-parts": "flake-parts",
@@ -269,6 +286,7 @@
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
+        "mcp-remote-src": "mcp-remote-src",
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
