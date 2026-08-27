@@ -69,7 +69,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    outputHash = "sha256-903ODnIPL2ezj7jS3vJrV46UPTngdEYuZzk3vX9Sj18=";
 
     dontUnpack = true;
 
