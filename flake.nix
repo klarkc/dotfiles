@@ -40,6 +40,19 @@
       url = "github:tobi/qmd/v2.1.0";
       flake = false;
     };
+    # Bump note: `mcp-remote` source. Used by
+    # `.local/bin/atlassian-smoke-test oauth` as the OAuth bridge for the
+    # Atlassian Rovo MCP integration. The upstream project does not publish
+    # stable tags, so the rev is pinned to a commit hash. To bump:
+    #   1) update this `url` to the new commit hash, and
+    #   2) rerun `nix build .#mcp-remote-runtime`; the initial build will
+    #      print the expected `pnpmDeps.hash`; commit it in
+    #      `.nix/mcp-remote-runtime.nix` together with the rev bump so the
+    #      source, the lockfile hash, and the build reference stay together.
+    mcp-remote-src = {
+      url = "github:punkpeye/mcp-remote/77bbcfcd7892d339c27b5a14818b63cb5c4d3293";
+      flake = false;
+    };
   };
 
   outputs =
@@ -160,6 +173,25 @@
             # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
             version = "0.24.0-cu130";
           };
+          mcpRemoteRuntime = pkgs.callPackage ./.nix/mcp-remote-runtime.nix {
+            # Bump note: `mcp-remote` runtime. Coupled bumps: see
+            # `.nix/mcp-remote-runtime.nix`. The source rev and
+            # `pnpmDeps.hash` in that derivation must move together.
+            mcp-remote-src = inputs.mcp-remote-src;
+          };
+          # `buildEnv` rejects paths that share the same subpath. Both
+          # `fusionRuntime` and `mcpRemoteRuntime` ship their own
+          # `lib/node_modules/.pnpm/...` tree, so we merge them with
+          # `symlinkJoin` first. `symlinkJoin` recursively merges and
+          # last-write-wins on conflicts, which is what we want for
+          # duplicated npm hoisted stores.
+          jsRuntimes = pkgs.symlinkJoin {
+            name = "klarkc-dotfiles_js-runtimes";
+            paths = [
+              fusionRuntime
+              mcpRemoteRuntime
+            ];
+          };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -274,6 +306,13 @@
             ];
           };
 
+          # `buildEnv` rejects paths that share the same subpath. Both
+          # `fusionRuntime` and `mcpRemoteRuntime` ship their own
+          # `lib/node_modules/.pnpm/...` tree, so we merge them with
+          # `symlinkJoin` first (see the `let` binding). `symlinkJoin`
+          # recursively merges and last-write-wins on conflicts, which
+          # is what we want for duplicated npm hoisted stores.
+
           packages.default = pkgs.buildEnv {
             name = "klarkc-dotfiles_profile";
             paths =
@@ -290,7 +329,6 @@
                 nix-output-monitor
                 nix-fast-build
                 flake-edit
-                nodejs
                 uv
                 gh
                 codex
@@ -301,8 +339,8 @@
                 backupTools.testScript
                 kolu
                 herdr
-                fusionRuntime
                 vllmRuntime
+                jsRuntimes
               ];
           };
 
@@ -311,6 +349,7 @@
           packages.archive-pack-test = backupTools.testScript;
           packages.fusion-runtime = fusionRuntime;
           packages.vllm-runtime = vllmRuntime;
+          packages.mcp-remote-runtime = mcpRemoteRuntime;
         }
       );
 }
