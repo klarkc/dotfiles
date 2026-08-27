@@ -135,3 +135,22 @@ Positive evidence:
 - No tracked file contains obvious Atlassian token literals (`ATATT`), Bearer tokens, Google/HF/Vast secret variable assignments, or old Crush references by repository grep.
 - `.local/bin/atlassian-smoke-test api-token` currently succeeds with loaded local credentials and prints only status/tool/resource summaries.
 - `nix flake check` passed after Build's static config check was fixed.
+
+## Design review of Build fixup 4c2c272 (2026-08-27)
+
+Status: prior Makefile/OAuth-endpoint blockers are fixed, but implementation is not accepted yet due to one auth-smoke blocker.
+
+Fixed evidence:
+
+- `SMOKE_TESTS_ENABLED=false make test` now runs `nix flake check` and does not run smoke tests (`PASS_SMOKE_SKIPPED`).
+- `SKIP_SMOKE=1 make test` remains a working backwards-compatible skip alias.
+- `.local/bin/atlassian-smoke-test oauth` now passes `https://mcp.atlassian.com/v1/mcp/authv2` as arg1 to the configured bridge; verified with a fake bridge showing `arg1=https://mcp.atlassian.com/v1/mcp/authv2`.
+- `make test` no longer runs mutating `nix fmt`; `make fmt` exists separately.
+
+New finding for Build follow-up:
+
+1. High: `.local/bin/atlassian-smoke-test api-token` can report PASS for invalid credentials. Evidence: with `BASH_ENV=/dev/null ATLASSIAN_USER_EMAIL=test@example.com ATLASSIAN_MCP_TOKEN=not-a-real-token .local/bin/atlassian-smoke-test api-token`, the script returned exit 0 and printed `PASS api-token smoke test`, even though `tools/list` had only Teamwork Graph tools and `resources_text=MCP error -32602: Tool getAccessibleAtlassianResources not found`. The script currently treats any HTTP 200 as success and does not inspect JSON-RPC errors or content text MCP errors. Acceptance should require either `getAccessibleAtlassianResources` to return parseable non-empty Atlassian resources including the expected site (`https://solosig.atlassian.net` by default), or fail loudly. It should also fail if the expected Bitbucket tools are absent in API-token mode.
+
+Non-blocking observation:
+
+- In this shell, `BASH_ENV=/home/klarkc/.profile` can implicitly source `.profile_override` for executable bash scripts, so `env -u ATLASSIAN_USER_EMAIL -u ATLASSIAN_MCP_TOKEN .local/bin/atlassian-smoke-test api-token` may still succeed locally. Tests for missing env should set `BASH_ENV=/dev/null` or similar. This is not necessarily a product bug, but should be documented if adding tests for missing env.
