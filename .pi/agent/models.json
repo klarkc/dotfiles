@@ -4,7 +4,7 @@
 			"name": "local-vllm",
 			"baseUrl": "http://localhost:8000/v1",
 			"api": "openai-completions",
-			"apiKey": "VLLM_API_KEY",
+			"apiKey": "$VLLM_API_KEY",
 			"compat": {
 				"supportsDeveloperRole": false,
 				"supportsReasoningEffort": false,
