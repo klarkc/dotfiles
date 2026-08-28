@@ -64,11 +64,14 @@ require_gpu() {
 require_systemd_user() {
   # Accept "running" or "degraded" — degraded just means some unit failed,
   # but the user instance is up and can manage services.
+  # Note: `is-system-running` exits 1 in degraded state but still prints
+  # the state on stdout; we use `|| true` to swallow the exit code and
+  # capture only the printed value.
   local state
-  state="$(systemctl --user is-system-running 2>/dev/null || echo unknown)"
+  state="$(systemctl --user is-system-running 2>/dev/null || true)"
   case "$state" in
     running|degraded) ;;
-    *) fail "systemd --user instance unavailable (is-system-running=$state). XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}" ;;
+    *) fail "systemd --user instance unavailable (is-system-running='$state'). XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}" ;;
   esac
 }
 
