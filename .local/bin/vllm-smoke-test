@@ -35,7 +35,10 @@
 #   E2E_API_KEY        hackme (default, matches vllm-serve-pure)
 #   E2E_TIMEOUT_S      360 (default, model load + first response budget)
 #   E2E_KEEP_RUNNING   1 (default) | 0 (stop service after test)
-#   E2E_PROMPT         "Reply with the single word: pong" (default)
+#   E2E_PROMPT         pong (default — single-word prompt)
+#   E2E_MAX_TOKENS     64 (default — leaves room for reasoning chain
+#                       before the actual answer on reasoning-capable
+#                       models like qwen3.x)
 
 set -euo pipefail
 
@@ -218,7 +221,11 @@ base_url="${E2E_BASE_URL:-http://127.0.0.1:8000/v1}"
 api_key="${E2E_API_KEY:-hackme}"
 timeout_s="${E2E_TIMEOUT_S:-360}"
 keep_running="${E2E_KEEP_RUNNING:-1}"
-prompt="${E2E_PROMPT:-Reply with the single word: pong}"
+prompt="${E2E_PROMPT:-pong}"
+# Reasoning-capable models (qwen3+) spend tokens on the <think> chain
+# before producing content. Default 64 leaves room for both reasoning and
+# the actual answer; the assertion below only requires non-empty content.
+max_tokens="${E2E_MAX_TOKENS:-64}"
 
 # (a) start the service
 note "starting $target via vllm-config"
@@ -254,13 +261,13 @@ done
 ok "model ready"
 
 # (c) minimal completion
-note "sending minimal chat completion (max_tokens=8)"
+note "sending minimal chat completion (max_tokens=$max_tokens)"
 completion_json="$tmpdir/completion.json"
 http_code="$(curl -sS -o "$completion_json" -w '%{http_code}' \
   -X POST \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" \
-  -d "$(printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":8,"temperature":0}' "$served_model" "$prompt")" \
+  -d "$(printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":%d,"temperature":0}' "$served_model" "$prompt" "$max_tokens")" \
   "$base_url/chat/completions")"
 [ "$http_code" = "200" ] || {
   note "FAIL: completion request returned HTTP $http_code"
