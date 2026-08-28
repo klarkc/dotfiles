@@ -36,9 +36,11 @@
 #   E2E_TIMEOUT_S      360 (default, model load + first response budget)
 #   E2E_KEEP_RUNNING   1 (default) | 0 (stop service after test)
 #   E2E_PROMPT         pong (default — single-word prompt)
-#   E2E_MAX_TOKENS     64 (default — leaves room for reasoning chain
-#                       before the actual answer on reasoning-capable
-#                       models like qwen3.x)
+#   E2E_MAX_TOKENS     256 (default — safe margin for reasoning models)
+#   E2E_DISABLE_THINKING 1 (default; sends enable_thinking=false in
+#                       chat_template_kwargs so reasoning-capable models
+#                       respond directly instead of spending all tokens
+#                       on <think>. Set to 0 to use the server default.)
 
 set -euo pipefail
 
@@ -223,9 +225,14 @@ timeout_s="${E2E_TIMEOUT_S:-360}"
 keep_running="${E2E_KEEP_RUNNING:-1}"
 prompt="${E2E_PROMPT:-pong}"
 # Reasoning-capable models (qwen3+) spend tokens on the <think> chain
-# before producing content. Default 64 leaves room for both reasoning and
-# the actual answer; the assertion below only requires non-empty content.
-max_tokens="${E2E_MAX_TOKENS:-64}"
+# before producing content. Disable thinking via chat_template_kwargs so
+# the smoke test gets a direct response; bump max_tokens to 256 as a
+# safety margin even with thinking off.
+max_tokens="${E2E_MAX_TOKENS:-256}"
+# Set to 0 to disable chat_template_kwargs (use whatever the server
+# defaults to). Default 1 sends {"enable_thinking": false} in the
+# request body so reasoning-capable models respond directly.
+disable_thinking="${E2E_DISABLE_THINKING:-1}"
 
 # (a) start the service
 note "starting $target via vllm-config"
@@ -263,11 +270,25 @@ ok "model ready"
 # (c) minimal completion
 note "sending minimal chat completion (max_tokens=$max_tokens)"
 completion_json="$tmpdir/completion.json"
+# Build request body. Use python3 to safely embed JSON args (handles
+# quotes and unicode without escaping surprises).
+request_body="$(python3 -c "
+import json, sys
+payload = {
+  'model': sys.argv[1],
+  'messages': [{'role': 'user', 'content': sys.argv[2]}],
+  'max_tokens': int(sys.argv[3]),
+  'temperature': 0,
+}
+if sys.argv[4] == '1':
+    payload['chat_template_kwargs'] = {'enable_thinking': False}
+print(json.dumps(payload))
+" "$served_model" "$prompt" "$max_tokens" "$disable_thinking")"
 http_code="$(curl -sS -o "$completion_json" -w '%{http_code}' \
   -X POST \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" \
-  -d "$(printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":%d,"temperature":0}' "$served_model" "$prompt" "$max_tokens")" \
+  -d "$request_body" \
   "$base_url/chat/completions")"
 [ "$http_code" = "200" ] || {
   note "FAIL: completion request returned HTTP $http_code"
