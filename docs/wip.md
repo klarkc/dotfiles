@@ -508,3 +508,87 @@ not pushed yet (push pending explicit user authorization).
   allowlist does not list these files; they follow the "tracked in
   code" pattern established for other `*-smoke-test` and vllm wrapper
   scripts.
+
+### Hand-off to Design for review
+
+User wants this rodada reviewed before push (Item 4 of the previous
+hand-off, awaiting explicit user authorization).
+
+Design should validate:
+
+1. **vLLM bump correctness**:
+   - `vllmRequirement` points at the v0.28.0 tag (not a PR head); review
+     that the choice is the right balance between determinism and
+     "latest stable".
+   - `outputHash = "sha256-903ODnIPL2ezj7jS3vJrV46UPTngdEYuZzk3vX9Sj18="`
+     matches the wheelhouse that was actually built. The hash was
+     captured via the standard Nix failure-first-build path; the
+     store path is
+     `/nix/store/y6mjx9c6z8yk4krdhl1mdkb32wrqkyf2-vllm-runtime-0.28.0-cu130`.
+
+2. **Forward-port patch**: `.nix/patches/vllm-2_3-bit-autoround-humming.patch`
+   is the literal forward-port of upstream PR #52890 head
+   `040f4f6f3bdf` rebased onto v0.28.0. Verify the patch applies
+   cleanly against `vllm/model_executor/layers/quantization/inc/schemes/inc_wna16_scheme.py`
+   at the v0.28.0 tag (the Build-time verification confirmed this; the
+   `-p1 --dry-run` against the extracted source was clean).
+
+3. **Smoke test contract**: the contract documented in AGENTS.md and
+   enforced by `.local/bin/vllm-smoke-test` is:
+   - self-executing (no args)
+   - runs ALL scenarios in one invocation
+   - never builds dependencies itself
+   - fails loud (`FATAL: <reason>` + exit 2) on missing prereq
+   - no silent skip
+
+   Verify the contract is honored end-to-end and that the four
+   `fix(vllm-smoke-test)` commits do not weaken any clause.
+
+4. **atlassian-smoke-test adaptation**: the default (no-args)
+   invocation now runs both api-token and oauth modes sequentially.
+   Verify that this doesn't break existing CI/dev workflows that
+   relied on api-token being exclusive. The legacy `atlassian-smoke-test
+   api-token` and `atlassian-smoke-test oauth` invocations still
+   work for debugging.
+
+5. **CI shape**: `.github/workflows/test.yml` is reverted to
+   origin/main's single-job shape (uses `make test` with
+   `SMOKE_TESTS_ENABLED=false`). vLLM smoke is gated by
+   `SMOKE_TESTS_ENABLED` (not by CI). This is the architecture
+   review: is `make test` the right entrypoint for local devs, and
+   is `SMOKE_TESTS_ENABLED` the right knob?
+
+6. **flake.nix cleanup**: the `vllm-runtime-smoke-test` derivation is
+   removed from `checks`. Verify no other artifact references it
+   and that `nix flake check` still passes (5/5 confirmed).
+
+7. **Docs**: `docs/fusion-vllm.md` "Local patches against upstream
+   vLLM" table catalogs the 3 patches with source URL, purpose,
+   and removal condition. The "Bumping the vLLM version" checklist
+   is the operational procedure for the next bump. Review for
+   correctness and completeness.
+
+### Open questions for Design review (non-blocking)
+
+- The qwen3.6-35B-a3b e2e OOM during validation was an environmental
+  issue (concurrent workload). Should we add an `E2E_MIN_FREE_MEM_GB`
+  guard in `vllm-smoke-test` that bails loud before launching
+  `vllm-config` if there isn't enough RAM? Or is the fail-loud journal
+  capture already sufficient?
+- `atlassian-smoke-test` no-args now runs both modes sequentially.
+  This roughly doubles the runtime of that script when run via
+  `make test`. Acceptable for local dev, but should the Makefile
+  expose a knob (e.g. `ATLASSIAN_SMOKE_MODES=api-token`) for
+  shorter runs during iteration?
+- The smoke script uses `unittest.mock` to stub the Humming helpers
+  because the Humming import chain requires the CUDA flash-attn
+  extensions. This is a documented gap (real Humming kernels are
+  not exercised by the smoke). If we wanted full integration, we'd
+  need a CUDA host in CI. Is the documented limitation acceptable?
+- `vllm-smoke-test` discovers the runtime store path by grepping the
+  vllm wrapper's PYTHONPATH. This works for Nix-installed vllm. If a
+  developer runs the smoke with a non-Nix vllm (pip install in a
+  venv), the script fails loud with `FATAL: could not derive
+  site-packages from vllm wrapper`. Acceptable for this repo (vllm
+  is always Nix-installed) but worth noting in the smoke test
+  contract.
