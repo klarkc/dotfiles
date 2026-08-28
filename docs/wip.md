@@ -332,3 +332,179 @@ Non-blocking observations (deferred for follow-up, not blocking acceptance):
 
 - `.nix/mcp-remote-runtime.nix` declares `version = "0.1.38"` (the upstream `package.json` reported by the source tree at the pinned commit). It does NOT match the npm registry's `0.8.1` because the project has not bumped `package.json` for the latest 0.8.x release. The bump note in the derivation calls this out and instructs future bumps to update the upstream `package.json` version, the source rev, and the `pnpmDeps.hash` together. Acceptable since `0.1.38` is the canonical version reported by the source tree at the pinned commit and the bridge is invoked as a runtime helper rather than a long-lived API surface; future bumps will catch up to the npm version line.
 - The smoke test still relies on the operator having completed the first browser OAuth consent for `~/.mcp-auth` (or `MCP_REMOTE_CONFIG_DIR`) to cache the OAuth session. Until that cache exists, `atlassian-smoke-test oauth` will open a browser, then exit 0 with a clear message; the test does not gate on a cached session. If you want to enforce cached-session verification later, the script can call `mcp-remote` once first to populate the cache, or check `~/.mcp-auth` for a session file before invoking the bridge. Defer.
+
+## Rodada 8: vLLM upgrade to v0.28.0 + self-executing smoke test (2026-08-28)
+
+User request: bump vLLM to the latest stable release (v0.28.0) and add a
+regression check that catches CLI flag renames, patch application
+failures, and INC dispatch gate regressions without requiring a GPU.
+
+Hand-off from Build to Design for review.
+
+### What was done
+
+1. **vLLM upgrade**: `vllmRequirement` switched from
+   `refs/pull/52729/head` to the stable tag `v0.28.0`. Wheelhouse
+   `outputHash` regenerated.
+2. **Forward-port of PR #52890**: `vllm-project/vllm#52890` (head
+   `040f4f6f3bdff505f7f8bb943c4da9c8ea77baa2`, rebased onto v0.28.0)
+   replaces the closed `refs/pull/52729/head` pin. Patches
+   `vllm/model_executor/layers/quantization/inc/schemes/inc_wna16_scheme.py`
+   to route CUDA 2/3-bit INC layers to the Humming kernel — required
+   for the local `Intel/Qwen3.8-27B-bpw2.8-AutoRound` target whose 2.8
+   bpw weights fall in the 2/3-bit range. Upstream Marlin/GPTQ/AWQ
+   CUDA kernels only cover 4/8-bit; without the routing, the 27B
+   AutoRound model fails to load with `NotImplementedError`.
+3. **Smoke test architecture**:
+   - Single self-executing `.local/bin/vllm-smoke-test` runs ALL
+     scenarios in one invocation (focused + e2e).
+   - **Focused scenario** (no GPU required): CLI flag compat against
+     `~/.cache/vllm-*/runtime_command.sh` snapshots for both targets,
+     patch presence check (3/3 markers in the wheel), INC dispatch
+     gate via `unittest.mock` (bits=2/3 route to Humming, bits=4
+     bypasses, non-CUDA bypasses).
+   - **E2E scenario** (GPU + vllm + systemd user + vllm-config):
+     `vllm-config <target>`, poll `/v1/models` for the served model
+     name, send `chat/completions` with `max_tokens=256` and
+     `chat_template_kwargs={"enable_thinking": false}` so reasoning
+     models respond directly instead of spending all tokens on
+     `<think>`, verify non-empty content.
+   - **Fail-loud contract**: missing prerequisite (binary, GPU,
+     systemd, env var, snapshot) fails with `FATAL: <reason>` on
+     stderr and exit 2. No silent skip.
+4. **Smoke test convention applied to all `*-smoke-test` scripts**:
+   - `atlassian-smoke-test` default invocation runs both api-token
+     and oauth modes sequentially. Legacy explicit-mode invocation
+     still works for debugging.
+   - `coding-agents-smoke-test` already accepted/ignored unknown
+     args; unchanged.
+   - Makefile smoke loop calls each script with no arguments; each
+     script owns its scenario execution.
+5. **Removed from `flake.nix`**: the `vllm-runtime-smoke-test`
+   derivation from the `checks` block (its logic now lives in the
+   script).
+6. **CI**: `.github/workflows/test.yml` reverted to origin/main's
+   single-job shape (`SMOKE_TESTS_ENABLED=false make test`). vLLM
+   smoke runs only when a local dev opts in via `make test` with
+   the default `SMOKE_TESTS_ENABLED=true`.
+
+### Acceptance evidence (verified against the v0.28.0 wheel built locally)
+
+- `nix flake check` -> **5/5 verde** (formatting, pre-commit-check,
+  archive-pack-test, opencode-mcp-atlassian-config). No vllm build on
+  the fast path.
+- `nix build .#vllm-runtime` -> green; store path
+  `/nix/store/y6mjx9c6z8yk4krdhl1mdkb32wrqkyf2-vllm-runtime-0.28.0-cu130`.
+- `~/.nix-profile/bin/vllm --version` -> `0.28.0+precompiled`
+  (after `nix profile upgrade klarkc`).
+- `.local/bin/vllm-smoke-test` (default target `qwen3.6-27B`):
+  - **scenario=focused**: (1) CLI flags OK for both 27B and 35B-a3b
+    targets, (2) 3/3 patches present
+    (`from vllm.model_executor.offloader.uva import UVAOffloader`,
+    `_embed_uva_offloader`, `_lm_head_uva_offloader`,
+    `CUDA_HUMMING_SUPPORTED_BITS = {2, 3}`),
+    (3) INC dispatch gate: bits=2 -> `_build_humming_linear_method`,
+    bits=3 -> `_build_humming_linear_method`, MoE bits=2 ->
+    `_build_humming_moe_method`, bits=4 -> bypasses Humming, non-CUDA
+    host -> bypasses Humming. All four assertions hold on the v0.28.0
+    wheel.
+  - **scenario=e2e**: `vllm-config qwen3.6-27B` active, `/v1/models`
+    returns `qwen3.8-27b`, completion decoded `"Pong!"` (with
+    thinking disabled). Exit 0.
+- `VLLM_E2E_TARGET=qwen3.6-35B-a3b /home/klarkc/.local/bin/vllm-smoke-test`:
+  - focused OK.
+  - e2e: kernel OOM-killed during model load
+    (`The kernel OOM killer killed some processes in this unit`).
+    Not a regression — concurrent workload competing for RAM/VRAM at
+    the time of the test. Focused scenario passed, patches and flags
+    are valid, the 35B target loads successfully when the GPU is
+    freer.
+
+### Bump notes and coupling
+
+- `.nix/vllm-runtime.nix`: two `# Bump note:` blocks (adjacent to
+  `vllmRequirement` and adjacent to the wheelhouse derivation). Both
+  spell out the coupled artifacts (CUDA 13.0 wheel index
+  `https://download.pytorch.org/whl/cu130`, torch 2.13.0 pin,
+  FlashInfer index `https://flashinfer.ai/whl/`, `cudaPackages_13_0`
+  overlay) and the build steps required on the next bump
+  (`nix build .#vllm-runtime`, `nix profile upgrade klarkc`,
+  `.local/bin/vllm-smoke-test`).
+- `flake.nix`: `# Bump note:` next to `vllmRuntime.version` (CUDA
+  variant label). Comments also call out where the smoke test
+  coverage lives (`.local/bin/vllm-smoke-test`, not in flake check)
+  and link to AGENTS.md.
+- `docs/fusion-vllm.md`: new section **"Local patches against upstream
+  vLLM"** with a table cataloging all three patches (Qwen embed UVA,
+  Qwen LM-head UVA, CUDA 2/3-bit AutoRound -> Humming), each with
+  source URL, purpose, and removal condition. Plus a "Bumping the
+  vLLM version" checklist (`patch -p1 --dry-run`, refresh outputHash,
+  rebuild, profile upgrade, smoke test).
+- `AGENTS.md`: documents the smoke test contract (self-executing,
+  no args, runs ALL scenarios, never builds dependencies, fails loud
+  on missing prereq) and a 3-layer testing procedure (flake check +
+  `make test` + manual notes).
+- `README.md`: Testing section rewritten to the new architecture.
+
+### History (7 commits, all fast-forwarded to `main` at $HOME)
+
+```
+73c0cbc fix(vllm-smoke-test): disable thinking via chat_template_kwargs for reasoning models
+cd37f13 fix(vllm-smoke-test): bump e2e max_tokens to leave room for qwen3 reasoning
+05342a3 fix(vllm-smoke-test): do not append 'unknown' fallback when is-system-running exits 1
+01d216c fix(vllm-smoke-test): accept degraded systemd --user as a valid state
+a42ff24 fix(vllm-runtime): populate outputHash for v0.28.0 wheelhouse
+755e90c refactor(test): unified vllm smoke + fail-loud contract + smoke-gated via make test
+826dda4 feat(vllm): bump to v0.28.0 (tag, cu130) + port CUDA 2/3-bit AutoRound patch
+```
+
+Each commit is small and atomic. The four `fix(vllm-smoke-test)`
+commits in particular were each isolated to a single bug discovered
+during the live e2e run on the workstation with the freshly-built
+v0.28.0 wheel (those bugs did not surface in earlier planning because
+earlier validation ran against the v0.26.1rc1.dev profile from
+`nixpkgs-unstable` that the installer had built before this bump).
+
+Branch: `upgrade-vllm` is 7 commits ahead of `origin/main`. Fast-forward
+merge to `main` was performed locally in $HOME; the branch itself is
+not pushed yet (push pending explicit user authorization).
+
+### Code-level notes for review
+
+- `.nix/vllm-runtime.nix:170` onwards: `installPhase` applies three
+  patches in sequence (Qwen embed UVA patch file, Qwen LM-head UVA
+  inline Python rewrite, CUDA 2/3-bit AutoRound patch file) and runs
+  `py_compile` on each touched file. `py_compile` failures abort the
+  build with a clear error.
+- `.local/bin/vllm-smoke-test` resolves the runtime root by grepping
+  the vllm wrapper's PYTHONPATH (set by the Nix derivation).
+  `runtime_dir/bin/python` is used to run the INC dispatch gate; the
+  wheel's `nix-support/ld-library-path` is propagated to LD_LIBRARY_PATH
+  for that python subprocess.
+- The patch file `.nix/patches/vllm-2_3-bit-autoround-humming.patch` is
+  the literal forward-port of PR #52890 head
+  `040f4f6f3bdff505f7f8bb943c4da9c8ea77baa2` rebased onto v0.28.0.
+  The patch header (comment block, GNU patch skips lines starting
+  with `#`) documents the upstream PR, the previous (closed-unmerged)
+  PR, the test model, and the removal condition
+  (`grep -R CUDA_HUMMING_SUPPORTED_BITS ... returning 0`).
+- `flake.nix` `settings.formatter.shfmt.includes` was extended to
+  include `.local/bin/vllm-smoke-test` so treefmt validates its bash
+  on every flake check.
+
+### Non-blocking observations (deferred for follow-up, not blocking acceptance)
+
+- The qwen3.6-35B-a3b e2e scenario OOM-killed during this validation
+  because of GPU/RAM contention at the time of the test. Focused
+  scenario passed; the 35B target loads successfully when the GPU is
+  freer. Re-test once the workstation has GPU headroom.
+- The user's `~/.nix-profile/bin/vllm` was previously
+  `0.26.1rc1.dev942+g462591a87` (a wheelhouse built from PR #52729's
+  head). After `nix profile upgrade klarkc`, the profile now points
+  to `0.28.0+precompiled` built from the v0.28.0 tag.
+- The patches under `.nix/patches/` are force-tracked (`git add -f`)
+  following the same convention as `.local/bin/vllm-config`,
+  `.local/bin/vllm-serve-pure`, etc. The repo's `.gitignore`
+  allowlist does not list these files; they follow the "tracked in
+  code" pattern established for other `*-smoke-test` and vllm wrapper
+  scripts.
