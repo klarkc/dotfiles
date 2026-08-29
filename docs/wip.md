@@ -245,12 +245,12 @@ Pre-existing user modifications to `.config/opencode/opencode.json` (model swap 
 3. Run `make fmt` to ensure the files are properly formatted.
 4. Re-run `nix flake check` to verify the formatting check passes.
 
-### Pre-commit symlink fix
+### Pre-commit symlink fix (completed)
 
-- The `.pre-commit-config.yaml` symlink points to `/nix/store/sfsrbc8kq9mk4izqsrl7fr9mh6rd2v4h-pre-commit-config.json`, which no longer exists in the store (GC'd after `nix profile upgrade` hash swap).
+- The `.pre-commit-config.yaml` symlink pointed to `/nix/store/sfsrbc8kq9mk4izqsrl7fr9mh6rd2v4h-pre-commit-config.json`, which no longer existed in the store (GC'd after `nix profile upgrade` hash swap).
 - The correct file is `/nix/store/kmxd5njlkm05vwbnzwp4zj20z9hqy6qx-pre-commit-config.json` (contains the flake-follows and treefmt hooks).
 - Note: the symlink name is `.pre-commit-config.yaml` but it points to a `.json` file. Pre-commit expects a `.yaml` file, not a `.json` file. This might cause problems.
-- Fix: re-point the symlink to the correct file. Or consider having the flake generate the `.pre-commit-config.yaml` file directly (instead of relying on a symlink).
+- Fix: re-pointed the symlink to the correct file. Committed as `037e207 docs(wip): hand off pi removal`.
 
 ### Build handoff (Rodada 5)
 
@@ -258,10 +258,8 @@ Build should implement the following:
 
 1. **Fix the patcher**: Change all three `json.dump` calls in `.local/bin/vllm-patch-model-defaults` to use `indent="\t"`.
 2. **Re-tab the files**: Re-tab `.config/opencode/opencode.json`, `.fusion/settings.json`, and `.fusion/agent/auth.json` to match the repo's tab convention.
-3. **Fix the pre-commit symlink**: Re-point `.pre-commit-config.yaml` to `/nix/store/kmxd5njlkm05vwbnzwp4zj20z9hqy6qx-pre-commit-config.json`.
-4. **Verify**: Run `make fmt`, `nix flake check`, and `SMOKE_TESTS_ENABLED=false make test` to verify everything passes.
+3. **Verify**: Run `make fmt`, `nix flake check`, and `SMOKE_TESTS_ENABLED=false make test` to verify everything passes.
 
 Acceptance criteria:
 - `nix flake check` passes (especially the `formatting` check).
 - `SMOKE_TESTS_ENABLED=false make test` passes.
-- The `.pre-commit-config.yaml` symlink resolves to a valid file.
