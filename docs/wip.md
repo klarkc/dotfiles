@@ -263,3 +263,78 @@ Build should implement the following:
 Acceptance criteria:
 - `nix flake check` passes (especially the `formatting` check).
 - `SMOKE_TESTS_ENABLED=false make test` passes.
+
+## Build results (Rodada 5)
+
+### Implemented
+
+#### Patcher fix (Design finding, severity: blocking)
+
+- `.local/bin/vllm-patch-model-defaults`: all three `json.dump(data, f, indent=2)` calls (lines 46, 70, 104) now use `json.dump(data, f, indent="\t")`. The next time `vllm-config <target>` runs and the patcher rewrites any of these JSON files, the output will already match the repo's tab convention, so the formatting check will not be tripped by routine `vllm-config` invocations.
+
+#### Re-tabbed JSON files
+
+- `.config/opencode/opencode.json`: was 2-space indented (introduced by the Rodada 4 patcher rewrite). `make fmt` (prettier + `.editorconfig`) restored tab indentation. Functional content preserved: top-level `"model": "vllm/qwen3.8-27b"`, `provider.vllm.models.qwen3.8-27b` enriched with `temperature`, `reasoning`, `tool_call`, `interleaved`, and full sampling/options block. Final tracked diff is 14 insertions / 1 deletion — the model swap + enrichment only, no whitespace noise.
+- `.fusion/settings.json`: was 2-space indented in the worktree; `make fmt` reverted it to the original tab-indented form. Final diff is empty — the user's earlier indentation-only edit was an unintentional whitespace change with no functional impact, now absorbed by treefmt.
+- `.fusion/agent/auth.json`: untracked file, was 2-space indented; re-tabbed via a Python `json.dump(data, f, indent="\t")` round-trip that preserves structure (verified `json.loads(before) == json.loads(after)`). The file already contained OAuth tokens for `openai-codex` and `openai` plus a `vllm` entry, none of which were altered. The script preserves any pre-existing keys in the dict while only adding the `local-vllm` entry the patcher owns.
+
+### Sanity-tested end-to-end (Build verification)
+
+Ran the patcher against fresh fixtures in a sandbox `HOME=/tmp/rodada5-sanity` to confirm `indent="\t"` works in practice and the patcher still mutates the right keys:
+
+- Input fixtures all used 2-space indentation as a worst-case starting state.
+- After the patcher ran, all three output files (settings.json, auth.json, opencode.json) used tab indentation (`cat -A` showed `^I` instead of leading spaces).
+- `settings.json`: `defaultProvider`/`defaultModelId`/`fallbackProvider`/`fallbackModelId` updated to `local-vllm`/`qwen3.8-27b`, `customProviders=[]`.
+- `auth.json`: pre-existing `other` entry preserved, `local-vllm` entry added.
+- `opencode.json`: top-level `model` updated to `vllm/qwen3.8-27b`, `provider.vllm.options.baseURL` updated to `http://localhost:8000/v1`, `qwen3.8-27b` model entry enriched.
+- Sandbox cleaned up after the test.
+
+### Verification (local, x86_64-linux)
+
+- `nix --extra-experimental-features "nix-command flakes" flake check` → all checks pass:
+  - `checks.x86_64-linux.formatting` ✅ (the regression from Design review is fixed)
+  - `checks.x86_64-linux.pre-commit-check` ✅
+  - `checks.x86_64-linux.vllm-opencode-contract` ✅ (patcher still updates top-level model + 2 env files consistent)
+  - `checks.x86_64-linux.opencode-mcp-atlassian-config` ✅
+  - `checks.x86_64-linux.archive-pack-test` ✅
+- `SMOKE_TESTS_ENABLED=false make test` → flake check + smoke-loop-skip both succeed.
+- Bash `-n` on touched scripts: `vllm-patch-model-defaults`, `coding-agents-smoke-test`, `atlassian-smoke-test`, `vllm-config` all OK.
+- `git grep -n -E '\bpi\b|pi-coding-agent|\.pi|CODING_AGENTS_PI|probe_pi|PI_SETTINGS' -- . ':!*.viminfo' ':!docs/wip.md' ':!CHANGELOG.md'` → only `Binary file .vim-cheatsheet.png matches` (unchanged from prior rodadas, documented local-state false-positive).
+- `.fusion/agent/auth.json` re-tabbed but kept intact (structure preserved; existing OAuth tokens untouched).
+
+### Out of scope (live)
+
+- Full `make test` (with smoke loop): not run this round. vLLM is not running here, and the formatting regression that was the explicit Rodada 5 blocker is fully resolved at the static-check level. Live smoke (`atlassian-smoke-test api-token`, `atlassian-smoke-test oauth`, `coding-agents-smoke-test`) is unchanged structurally from Rodada 4 and would require vLLM + provider credentials + browser access (for oauth) to verify.
+- The Rodada 4 `vllm-opencode-contract` check still applies unchanged; the patcher now also writes tabs, so the contract is durable across re-runs.
+
+### Open for Design review
+
+- Pre-commit symlink was reported by the user as already fixed locally and committed as `037e207`. Verified: `/home/klarkc/.pre-commit-config.yaml -> /nix/store/kmxd5njlkm05vwbnzwp4zj20z9hqy6qx-pre-commit-config.json` resolves correctly. The `checks.x86_64-linux.pre-commit-check` derivation builds and runs independently and is not affected by the symlink state, so this is purely a local-state concern.
+- Recommend final approval for the Rodada 5 work: the patcher is now format-stable, all currently-tracked JSON files match the repo's tab convention, and all static checks pass. The remaining work for `make test` to fully pass is environmental (start vLLM, run `vllm-config <target>`, run the smoke loop), which is appropriate for a follow-up run rather than another code round.
+
+## Design review (Rodada 5)
+
+### Result: approved for static `make test` path
+
+- Verified working-tree evidence matches Build's report:
+  - `.local/bin/vllm-patch-model-defaults` has three `json.dump(data, f, indent="\t")` calls and no remaining `indent=2` writes.
+  - `.config/opencode/opencode.json` and `.fusion/settings.json` are tab-prefixed in their first indented lines; `.fusion/settings.json` has no tracked diff.
+  - `git diff --check` reports no whitespace errors.
+  - Pi grep excluding WIP/CHANGELOG only reports the known binary `.vim-cheatsheet.png` false-positive.
+  - `/home/klarkc/.pre-commit-config.yaml` resolves to `/nix/store/kmxd5njlkm05vwbnzwp4zj20z9hqy6qx-pre-commit-config.json`.
+- No remaining code-design blocker found for the non-live path. Accept Build's static verification: `nix flake check` and `SMOKE_TESTS_ENABLED=false make test` passing is sufficient for this rodada.
+
+### Remaining condition for full `make test`
+
+- Full `make test` still depends on environment, not code: vLLM must be running with the selected model and live smoke credentials/browser flow must be available. Run that as a separate smoke-validation rodada before final user-facing claim that full `make test` passes end to end.
+
+## User requirement update
+
+- The user clarified that full `make test` is required. Static-only verification (`SMOKE_TESTS_ENABLED=false make test`) is not sufficient for final acceptance.
+- Rodada 5 code/design remains approved for the static path, but final approval is blocked until a live full `make test` run completes successfully.
+- Build should run the live path with required environment available:
+  1. Ensure vLLM is running with the selected/default model (`qwen3.8-27b`) and run `vllm-config <target>` if needed so Fusion/opencode configs point at the active server.
+  2. Ensure Atlassian smoke credentials are available (`ATLASSIAN_USER_EMAIL`, `ATLASSIAN_MCP_TOKEN`, OAuth/browser flow as applicable) without printing secrets.
+  3. Run full `make test` with smoke tests enabled.
+  4. Report exact pass/fail result. If it fails, capture failing command, exit code, and sanitized logs sufficient for Design review.
+- Acceptance criterion now includes: full `make test` passes end to end, including live `atlassian-smoke-test` and `coding-agents-smoke-test` paths.
