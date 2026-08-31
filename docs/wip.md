@@ -531,3 +531,52 @@ Acceptance criteria for final approval:
 - `coding-agents-smoke-test` no longer requires `OPENAI_API_KEY` for the normal Codex path.
 - Codex OAuth auth detection is covered by at least a bash/Python syntax check and a small fixture/sanity check that proves top-level and `tokens`-nested auth shapes are accepted without printing secrets.
 - Local vLLM/opencode remains configured for `qwen3.8-27b` on this machine.
+
+## Design review (Rodada 7 interrupted)
+
+### Result: not approved; unauthorized model limit change found
+
+- User interrupted Build after seeing changes outside the intended Rodada 7 scope. Design agrees the work is not ready for approval.
+- Rodada 7 scope was Codex OAuth smoke detection plus docs/tests for that detection. It did not authorize changing model context sizes, output limits, runtime capacity settings, or timeout defaults.
+
+### Finding 1: opencode context limit was reduced
+
+- Severity: blocking.
+- Evidence: current diff for `.config/opencode/opencode.json` changes `provider.vllm.models.qwen3.8-27b.limit.context` from `43008` to `10240`.
+- Impact: this weakens the local-model contract and was not requested. The user's requirement is to prove the selected model runs on this machine, not to reduce its declared capability.
+- Required fix: restore the `qwen3.8-27b` context limit to `43008` unless the user explicitly approves a different value. Do not change model limits, context windows, max token settings, vLLM env capacity knobs, or smoke timeouts as part of the Codex OAuth fix.
+
+### Finding 2: Rodada 7 still mentions/uses `OPENAI_API_KEY` fallback
+
+- Severity: blocking until aligned with user instruction.
+- Evidence: current `coding-agents-smoke-test` draft keeps `OPENAI_API_KEY` as an optional fallback in comments and runtime logic (`OAuth auth unavailable ... OPENAI_API_KEY not set`, `using OPENAI_API_KEY fallback`).
+- Impact: the user explicitly questioned where `OPENAI_API_KEY` came from and stated the repo uses Codex GPT OAuth. Keeping API-key fallback in the normal smoke-test path preserves the stale model and can hide OAuth regressions.
+- Required fix: make Codex OAuth the only normal Codex auth path for this repo's smoke test. Remove API-key fallback behavior and docs unless the user explicitly asks to support it. The detector should skip only when Codex OAuth auth is missing/invalid.
+
+### Finding 3: JSON formatting drift is still visible in opencode config
+
+- Severity: medium, but can block `flake check` if not formatted before test.
+- Evidence: current `.config/opencode/opencode.json` diff expands short arrays such as `include`, `modalities.input`, and `modalities.output` from inline arrays into multi-line arrays.
+- Impact: this is consistent with Build's note that `json.dump` can still dirty files in a way prettier/treefmt rewrites. It is not a functional change and should not be committed as noise.
+- Required fix: run `make fmt` after restoring the unauthorized context change and after any patcher run. Final diff should not contain JSON formatting churn unrelated to functional changes.
+
+### Allowed Rodada 7 changes
+
+Build may keep/rework only the intended changes:
+
+1. Remove Pi references that are already part of the approved prior rodadas.
+2. Fix `coding-agents-smoke-test` so Codex uses `${CODEX_HOME:-$HOME/.codex}/auth.json` OAuth state.
+3. Add a minimal selftest/fixture path for the OAuth detector if useful, but keep it simple and do not require or document `OPENAI_API_KEY`.
+4. Update README/script comments to describe Codex OAuth detection.
+5. Preserve local vLLM/opencode model identity and limits: `qwen3.8-27b`, context `43008`, output `4096`.
+6. Run full `make test` with smoke tests enabled.
+
+### Build handoff correction
+
+- Do not wholesale reset user/Build work. Restore only the unauthorized model limit and remove API-key fallback references/logic from the Rodada 7 draft.
+- Re-run formatting and verification:
+  - `make fmt`
+  - `CODING_AGENTS_SELFTEST=1 .local/bin/coding-agents-smoke-test` (if the selftest remains)
+  - `bash -n .local/bin/coding-agents-smoke-test`
+  - full `make test`
+- Final acceptance remains: full `make test` passes end to end on this machine with smoke tests enabled.
