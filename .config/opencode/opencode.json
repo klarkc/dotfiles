@@ -1,6 +1,6 @@
 {
 	"$schema": "https://opencode.ai/config.json",
-	"model": "vllm/qwen3.6-35b-a3b",
+	"model": "vllm/qwen3.8-27b",
 	"tool_output": {
 		"max_lines": 300,
 		"max_bytes": 16000
@@ -90,9 +90,22 @@
 				},
 				"qwen3.8-27b": {
 					"name": "Qwen3.8 27B",
+					"temperature": true,
+					"reasoning": true,
+					"tool_call": true,
+					"interleaved": {
+						"field": "reasoning"
+					},
 					"limit": {
 						"context": 43008,
 						"output": 4096
+					},
+					"options": {
+						"top_k": 20,
+						"min_p": 0.0,
+						"presence_penalty": 0.0,
+						"repetition_penalty": 1.1,
+						"thinking_token_budget": 1536
 					}
 				}
 			}

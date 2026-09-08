@@ -4,7 +4,7 @@
 # Verifies that the user's active coding agents can use the Atlassian
 # Rovo MCP integration to request real Bitbucket, Jira, and Confluence
 # resources. This is an agent-mediated smoke test: for each active
-# coding agent (opencode, codex, pi) it issues a constrained prompt
+# coding agent (opencode, codex) it issues a constrained prompt
 # asking the agent to call Atlassian MCP tools and return a fixed JSON
 # status object. The agent is REQUIRED to make real MCP tool calls
 # and return real resource data, not just speculate.
@@ -18,16 +18,18 @@
 #     expected status object.
 #   - codex:    `codex exec --json <prompt>` parses JSONL events and
 #     reads the final agent message.
-#   - pi:       `pi -p --mode json --no-session --provider <p> <prompt>`.
 #
-# Provider credential detection (env-only; never reads outside the
-# worktree):
+# Provider credential detection:
 #   - opencode: parses the opencode.json inside the worktree (path
 #     overridable via CODING_AGENTS_OPENCODE_CONFIG). If the configured
 #     model has no usable provider credential, the probe is SKIPPED.
-#   - codex: requires OPENAI_API_KEY. Otherwise SKIPPED.
-#   - pi:     requires a provider credential (defaults to google;
-#     needs GOOGLE_KEYFILE). Otherwise SKIPPED.
+#   - codex: Codex CLI uses its own ChatGPT/Codex OAuth state at
+#     ${CODEX_HOME:-$HOME/.codex}/auth.json. The probe considers auth
+#     available when the JSON file contains non-empty access_token
+#     and refresh_token fields either at the top level or nested
+#     under a `tokens` object. The probe never prints token values;
+#     it only logs boolean diagnostics such as
+#     `codex: OAuth auth available`.
 #
 # Expected prompt output (final assistant message):
 #   {"bitbucket": <bool>, "jira": <bool>, "confluence": <bool>,
@@ -60,7 +62,6 @@ set -euo pipefail
 readonly ATLASSIAN_URL='https://mcp.atlassian.com/v1/mcp/authv2'
 readonly OPENCODE_CONFIG="${CODING_AGENTS_OPENCODE_CONFIG:-${HOME}/.config/opencode/opencode.json}"
 readonly CODEX_CONFIG="${CODING_AGENTS_CODEX_CONFIG:-${CODEX_HOME:-${HOME}/.codex}/config.toml}"
-readonly PI_SETTINGS="${CODING_AGENTS_PI_SETTINGS:-${HOME}/.pi/settings.json}"
 readonly TIMEOUT_SECONDS="${CODING_AGENTS_TIMEOUT_SECONDS:-90}"
 readonly WORKTREE_DEFAULT_OPENCODE_CONFIG='.config/opencode/opencode.json'
 
@@ -100,7 +101,7 @@ You have an Atlassian MCP server configured (name: atlassian, endpoint: https://
 
 Make real MCP tool calls and fetch real resources. Do not speculate. For each of the three products below, if the corresponding MCP tool call succeeds and returns at least one real resource, the value is true; otherwise false.
 
-- Bitbucket: use bitbucketWorkspace or bitbucketRepository against workspace "solo_sig" repository "solosig".
+- Bitbucket: use bitbucketRepository against workspace "solo_sig" repository "solosig".
 - Jira: use getVisibleJiraProjects against https://solosig.atlassian.net.
 - Confluence: use getConfluenceSpaces against https://solosig.atlassian.net.
 
@@ -121,7 +122,7 @@ run_with_timeout() {
 
 # Extract the last JSON object from a stream. The agent may emit
 # either pure JSON (single object/array) or JSONL events; we want the
-# last assistant message containing our status object.
+# last assistant/agent message containing our status object.
 extract_status_json() {
   local raw_file="$1"
   python3 - "$raw_file" <<'PY'
@@ -135,6 +136,54 @@ except Exception:
 if not text.strip():
     sys.exit(0)
 
+
+def as_status(obj):
+    if isinstance(obj, dict) and all(k in obj for k in ("bitbucket", "jira", "confluence")):
+        return obj
+    return None
+
+
+def status_from_text(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        obj = json.loads(value)
+    except Exception:
+        obj = None
+    status = as_status(obj)
+    if status:
+        return status
+    import re
+    candidates = []
+    for m in re.finditer(r"\{[^{}]*\"bitbucket\"[^{}]*\"jira\"[^{}]*\"confluence\"[^{}]*\}", value):
+        try:
+            obj = json.loads(m.group(0))
+        except Exception:
+            continue
+        status = as_status(obj)
+        if status:
+            candidates.append(status)
+    return candidates[-1] if candidates else None
+
+
+def candidate_texts(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for key in ("text", "content", "message", "output"):
+            value = obj.get(key)
+            if isinstance(value, str):
+                yield value
+        item = obj.get("item")
+        if isinstance(item, dict):
+            yield from candidate_texts(item)
+        part = obj.get("part")
+        if isinstance(part, dict):
+            yield from candidate_texts(part)
+        message = obj.get("message")
+        if isinstance(message, dict):
+            yield from candidate_texts(message)
+
 # Try JSONL first.
 for line in reversed(text.splitlines()):
     line = line.strip()
@@ -146,22 +195,20 @@ for line in reversed(text.splitlines()):
         obj = json.loads(line)
     except Exception:
         continue
-    if isinstance(obj, dict) and "bitbucket" in obj and "jira" in obj and "confluence" in obj:
-        print(json.dumps(obj))
+    status = as_status(obj)
+    if status:
+        print(json.dumps(status))
         sys.exit(0)
+    for value in candidate_texts(obj):
+        status = status_from_text(value)
+        if status:
+            print(json.dumps(status))
+            sys.exit(0)
 
 # Fallback: search the whole text for the status object.
-import re
-candidates = []
-for m in re.finditer(r"\{[^{}]*\"bitbucket\"[^{}]*\"jira\"[^{}]*\"confluence\"[^{}]*\}", text):
-    try:
-        obj = json.loads(m.group(0))
-    except Exception:
-        continue
-    if isinstance(obj, dict):
-        candidates.append(obj)
-if candidates:
-    print(json.dumps(candidates[-1]))
+status = status_from_text(text)
+if status:
+    print(json.dumps(status))
     sys.exit(0)
 sys.exit(0)
 PY
@@ -239,7 +286,143 @@ PY
   printf 'opencode: %s\n' "$(redact "$status_json")"
 }
 
-# codex: similar to opencode but using codex exec --json.
+# Detect Codex OAuth auth state from the Codex CLI auth file. Echoes
+# "available" if both access_token and refresh_token are present
+# (non-empty strings) at the top level or under a `tokens` object.
+# Echoes "missing" otherwise. Echoes "invalid" if the file is not
+# parseable JSON. Never prints token values.
+codex_oauth_status() {
+  local auth_file="$1"
+  python3 - "$auth_file" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+if not path or not os.path.exists(path):
+    print("missing")
+    sys.exit(0)
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("invalid")
+    sys.exit(0)
+if not isinstance(data, dict):
+    print("invalid")
+    sys.exit(0)
+
+
+def first_nonempty(*vals):
+    for v in vals:
+        if isinstance(v, str) and v:
+            return v
+        if isinstance(v, (list, dict)) and v:
+            return v
+    return None
+
+
+top_access = first_nonempty(data.get("access_token"), data.get("access"))
+top_refresh = first_nonempty(data.get("refresh_token"), data.get("refresh"))
+nested = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
+nested_access = first_nonempty(
+    nested.get("access_token"), nested.get("access")
+)
+nested_refresh = first_nonempty(
+    nested.get("refresh_token"), nested.get("refresh")
+)
+
+if (top_access and top_refresh) or (nested_access and nested_refresh):
+    print("available")
+else:
+    print("missing")
+PY
+}
+
+# Self-test for codex_oauth_status. Builds fixtures for top-level
+# and `tokens`-nested auth shapes, runs the bash codex_oauth_status
+# function against each, asserts the expected status, and verifies
+# no token values appear in the output. Triggered by
+# `CODING_AGENTS_SELFTEST=1`.
+codex_oauth_selftest() {
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  cat > "$tmpdir/top_level.json" <<'JSON'
+{"access_token": "AT_TOP", "refresh_token": "RT_TOP"}
+JSON
+  cat > "$tmpdir/nested.json" <<'JSON'
+{"tokens": {"access_token": "AT_NESTED", "refresh_token": "RT_NESTED"}}
+JSON
+  cat > "$tmpdir/missing_refresh.json" <<'JSON'
+{"tokens": {"access_token": "AT_NESTED"}}
+JSON
+  cat > "$tmpdir/fallback_only.json" <<'JSON'
+{"OPENAI_API_KEY": "fallback"}
+JSON
+  echo '{}' > "$tmpdir/empty.json"
+  cat > "$tmpdir/codex-agent-message.jsonl" <<'JSONL'
+{"type":"thread.started","thread_id":"fixture"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"bitbucket\": true, \"jira\": true, \"confluence\": true, \"bitbucket_evidence\": \"fixture bitbucket\", \"jira_evidence\": \"fixture jira\", \"confluence_evidence\": \"fixture confluence\"}"}}
+{"type":"turn.completed"}
+JSONL
+
+  local actual_top actual_nested actual_missing_refresh actual_fallback actual_empty
+  actual_top="$(codex_oauth_status "$tmpdir/top_level.json")"
+  actual_nested="$(codex_oauth_status "$tmpdir/nested.json")"
+  actual_missing_refresh="$(codex_oauth_status "$tmpdir/missing_refresh.json")"
+  actual_fallback="$(codex_oauth_status "$tmpdir/fallback_only.json")"
+  actual_empty="$(codex_oauth_status "$tmpdir/empty.json")"
+
+  if [ "$actual_top" != "available" ]; then
+    fail "codex_oauth_status top_level: got '$actual_top', expected 'available'" 1
+  fi
+  if [ "$actual_nested" != "available" ]; then
+    fail "codex_oauth_status nested: got '$actual_nested', expected 'available'" 1
+  fi
+  if [ "$actual_missing_refresh" != "missing" ]; then
+    fail "codex_oauth_status missing_refresh: got '$actual_missing_refresh', expected 'missing'" 1
+  fi
+  if [ "$actual_fallback" != "missing" ]; then
+    fail "codex_oauth_status fallback_only: got '$actual_fallback', expected 'missing'" 1
+  fi
+  if [ "$actual_empty" != "missing" ]; then
+    fail "codex_oauth_status empty: got '$actual_empty', expected 'missing'" 1
+  fi
+
+  local actual_codex_message
+  actual_codex_message="$(extract_status_json "$tmpdir/codex-agent-message.jsonl")"
+  if ! printf '%s' "$actual_codex_message" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if not (data.get("bitbucket") is True and data.get("jira") is True and data.get("confluence") is True):
+    raise SystemExit(1)
+'; then
+    fail "extract_status_json codex agent_message fixture did not parse" 1
+  fi
+
+  # Verify no token values appear in any output.
+  for token in AT_NESTED RT_NESTED AT_TOP RT_TOP; do
+    if [ "$actual_top" = *"$token"* ] || [ "$actual_nested" = *"$token"* ]; then
+      fail "codex_oauth_status leaked '$token' in detector output" 1
+    fi
+  done
+
+  # Missing file path returns "missing" without erroring.
+  local actual_missing_file
+  actual_missing_file="$(codex_oauth_status "$tmpdir/does_not_exist.json")"
+  if [ "$actual_missing_file" != "missing" ]; then
+    fail "codex_oauth_status missing_file: got '$actual_missing_file', expected 'missing'" 1
+  fi
+
+  rm -rf "$tmpdir"
+  log "codex_oauth_status selftest OK"
+}
+
+# codex: similar to opencode but using codex exec --json. Codex CLI
+# uses its own OAuth auth state at ${CODEX_HOME:-$HOME/.codex}/auth.json;
+# the smoke script never requires OPENAI_API_KEY and only logs
+# boolean diagnostics.
 probe_codex() {
   if ! have_cmd codex; then
     log "codex: not installed"
@@ -247,11 +430,18 @@ probe_codex() {
     return 0
   fi
 
-  if [ -z "${OPENAI_API_KEY:-}" ]; then
-    log "codex: OPENAI_API_KEY missing; skipping agent probe"
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local auth_file="$codex_home/auth.json"
+  local oauth_status
+  oauth_status="$(codex_oauth_status "$auth_file")"
+
+  if [ "$oauth_status" != "available" ]; then
+    log "codex: OAuth auth unavailable at $auth_file; skipping agent probe"
     printf 'codex: SKIP\n'
     return 0
   fi
+
+  log "codex: OAuth auth available at $auth_file"
 
   local prompt
   prompt="$(build_probe_prompt)"
@@ -272,41 +462,6 @@ probe_codex() {
   printf 'codex: %s\n' "$(redact "$status_json")"
 }
 
-# pi: --print mode with --mode json. Requires a provider credential;
-# default provider is google.
-probe_pi() {
-  if ! have_cmd pi; then
-    log "pi: not installed"
-    printf 'pi: SKIP\n'
-    return 0
-  fi
-
-  local provider="${CODING_AGENTS_PI_PROVIDER:-google}"
-  if [ "$provider" = "google" ] && [ -z "${GOOGLE_KEYFILE:-}" ]; then
-    log "pi: GOOGLE_KEYFILE missing; skipping agent probe"
-    printf 'pi: SKIP\n'
-    return 0
-  fi
-
-  local prompt
-  prompt="$(build_probe_prompt)"
-  local raw_file
-  raw_file="$(mktemp)"
-  local status_json
-  if run_with_timeout "$raw_file" pi -p --mode json --no-session --provider "$provider" "$prompt"; then
-    status_json="$(extract_status_json "$raw_file")"
-  else
-    status_json=""
-  fi
-  rm -f "$raw_file"
-  if [ -z "$status_json" ]; then
-    log "pi: agent probe did not return a parseable status object"
-    printf 'pi: SKIP\n'
-    return 0
-  fi
-  printf 'pi: %s\n' "$(redact "$status_json")"
-}
-
 main() {
   # Accept and ignore mode arguments so this script can be driven by
   # the generic `make test` smoke loop, which calls every script with
@@ -319,13 +474,19 @@ main() {
     esac
   done
 
+  # Selftest mode: exercise the codex OAuth detector only and skip
+  # the live agent probes.
+  if [ "${CODING_AGENTS_SELFTEST:-0}" = "1" ]; then
+    codex_oauth_selftest "$0"
+    return 0
+  fi
+
   log "probing active coding agents for Atlassian MCP resource access"
 
   local probe_output
   probe_output="$(
     probe_opencode
     probe_codex
-    probe_pi
   )"
 
   if [ -z "$probe_output" ]; then

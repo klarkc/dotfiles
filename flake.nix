@@ -297,6 +297,113 @@
                   PY
                   touch $out
                 '';
+            # Static verification that the vllm/opencode model-defaults
+            # contract is durable across renames. Two checks:
+            #   (a) vllm-patch-model-defaults must update the opencode
+            #       top-level `model` to `vllm/<served-model-name>` so
+            #       that `vllm-config` alone is enough to switch the
+            #       default agent model after a target change.
+            #   (b) Every SERVED_MODEL_NAME declared in
+            #       `.config/vllm/*.env` must exist as a key in
+            #       `provider.vllm.models` in
+            #       `.config/opencode/opencode.json`. Otherwise
+            #       `vllm-config` cannot keep opencode in sync with
+            #       the active vLLM target.
+            vllm-opencode-contract =
+              pkgs.runCommand "vllm-opencode-contract"
+                {
+                  nativeBuildInputs = [ pkgs.python3 ];
+                  patcher = ./.local/bin/vllm-patch-model-defaults;
+                  opencodeConfig = ./.config/opencode/opencode.json;
+                  vllmConfigs = ./.config/vllm;
+                }
+                ''
+                  python3 - "$patcher" "$opencodeConfig" "$vllmConfigs" <<'PY'
+                  import json
+                  import re
+                  import sys
+                  from pathlib import Path
+
+                  patcher_path = sys.argv[1]
+                  opencode_path = sys.argv[2]
+                  vllm_dir = Path(sys.argv[3])
+
+                  # (a) The patcher must update opencode top-level model.
+                  patcher_src = Path(patcher_path).read_text(encoding="utf-8")
+                  patch_pattern = re.compile(
+                      r"data\[\s*['\"]model['\"]\s*\]\s*=\s*f?\s*['\"]vllm/"
+                  )
+                  if not patch_pattern.search(patcher_src):
+                      sys.exit(
+                          "FAIL: vllm-patch-model-defaults does not set "
+                          "data[\"model\"] = f\"vllm/{served_model_name}\"; "
+                          "opencode top-level model must follow the active vLLM target"
+                      )
+
+                  # (b) Every tracked .env SERVED_MODEL_NAME must exist in
+                  #     provider.vllm.models.
+                  with open(opencode_path, encoding="utf-8") as f:
+                      opencode = json.load(f)
+                  if not isinstance(opencode, dict):
+                      sys.exit(f"FAIL: {opencode_path} must contain a JSON object")
+                  models = (
+                      opencode.get("provider", {})
+                      .get("vllm", {})
+                      .get("models", {})
+                  )
+                  if not isinstance(models, dict):
+                      sys.exit(
+                          f"FAIL: {opencode_path}: provider.vllm.models must be a JSON object"
+                      )
+
+                  env_files = sorted(
+                      p for p in vllm_dir.glob("*.env") if p.is_file()
+                  )
+                  if not env_files:
+                      sys.exit(f"FAIL: no tracked *.env files under {vllm_dir}")
+
+                  missing = []
+                  warned = []
+                  for env_file in env_files:
+                      served = None
+                      for raw in env_file.read_text(encoding="utf-8").splitlines():
+                          line = raw.strip()
+                          if not line or line.startswith("#"):
+                              continue
+                          key, sep, value = line.partition("=")
+                          if not sep:
+                              continue
+                          if key.strip() == "SERVED_MODEL_NAME":
+                              served = (
+                                  value.strip().strip('"').strip("'")
+                              )
+                              break
+                      if not served:
+                          warned.append(env_file.name)
+                          continue
+                      if served not in models:
+                          missing.append(
+                              f"{env_file.name}: SERVED_MODEL_NAME={served} "
+                              f"not in provider.vllm.models"
+                          )
+                  for name in warned:
+                      print(
+                          f"vllm-opencode-contract: WARN: {name} has no SERVED_MODEL_NAME"
+                      )
+                  if missing:
+                      for line in missing:
+                          print(f"FAIL: {line}")
+                      sys.exit(
+                          f"FAIL: {len(missing)} env file(s) have SERVED_MODEL_NAME "
+                          f"absent from provider.vllm.models"
+                      )
+                  print(
+                      f"vllm-opencode-contract: patcher=updates_top_level_model "
+                      f"env_files={len(env_files)} all_served_models_present=true"
+                  )
+                  PY
+                  touch $out
+                '';
           };
 
           devShells.default = pkgs.mkShell {
@@ -332,7 +439,6 @@
                 uv
                 gh
                 codex
-                pi-coding-agent
                 opencodeWithCodexAuth
                 opencodeCodexAuthTools
                 backupTools.packScript

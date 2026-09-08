@@ -131,7 +131,10 @@ Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-o
 The repo ships two:
 
 - `.local/bin/atlassian-smoke-test` — verifies Rovo MCP connectivity (api-token via Basic auth, oauth via bridge) and acceptance criteria (required tools, expected Atlassian site).
-- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex, pi) can use the Atlassian Rovo MCP integration to request real Bitbucket, Jira, and Confluence resources. The script issues a constrained prompt to each active agent asking it to call Atlassian MCP tools (e.g. `bitbucketRepository`, `getVisibleJiraProjects`, `getConfluenceSpaces`) and return a fixed JSON status object. Each probe drives the real agent with `opencode run --format json`, `codex exec --json`, or `pi -p --mode json`. The smoke fails if no agent returns a parseable status (for example, when no provider credentials are available) or if any of Bitbucket/Jira/Confluence are reported unreachable from every probed agent.
+- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex) can use the Atlassian Rovo MCP integration to request real Bitbucket, Jira, and Confluence resources. The script issues a constrained prompt to each active agent asking it to call Atlassian MCP tools (e.g. `bitbucketRepository`, `getVisibleJiraProjects`, `getConfluenceSpaces`) and return a fixed JSON status object. Each probe drives the real agent with `opencode run --format json` or `codex exec --json`. The smoke fails if no agent returns a parseable status or if any of Bitbucket/Jira/Confluence are reported unreachable from every probed agent. Auth detection:
+  - **opencode**: parses the tracked `~/.config/opencode/opencode.json`; if the configured model's provider has a usable credential (e.g. `{env:VLLM_API_KEY}` for the local vLLM provider), the probe runs. Otherwise SKIPPED.
+  - **codex**: uses Codex/ChatGPT OAuth state at `${CODEX_HOME:-$HOME/.codex}/auth.json`. The probe considers auth available when the JSON file contains non-empty `access_token` and `refresh_token` fields either at the top level or nested under a `tokens` object. The probe never prints token values; it logs only boolean diagnostics (`codex: OAuth auth available` / `OAuth auth unavailable`).
+  - Run `CODING_AGENTS_SELFTEST=1 .local/bin/coding-agents-smoke-test` to exercise the Codex OAuth detector against the top-level and `tokens`-nested auth shapes without driving the live agents.
 
 #### OpenCode + Codex OAuth
 
@@ -227,7 +230,7 @@ The vLLM/Fusion workflow is target-based. Only one vLLM model target should run 
 
 Use `vllm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
 
-The target starts only the selected vLLM service. The vLLM service then patches local Fusion/Pi defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
+The target starts only the selected vLLM service. The vLLM service then patches local Fusion and opencode defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
 
 Pick the model interactively:
 

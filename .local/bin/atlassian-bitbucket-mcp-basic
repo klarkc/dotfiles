@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""Minimal stdio MCP bridge for Atlassian Bitbucket repository reads."""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+ENDPOINT = os.environ.get(
+    "ATLASSIAN_MCP_ENDPOINT", "https://mcp.atlassian.com/v1/mcp/authv2"
+)
+
+
+def respond(obj: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(obj, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def error_response(request_id: Any, code: int, message: str) -> None:
+    respond({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}})
+
+
+def parse_sse_or_json(body: str) -> dict[str, Any]:
+    for line in body.splitlines():
+        if line.startswith("data:"):
+            return json.loads(line.split(":", 1)[1].strip())
+    return json.loads(body)
+
+
+def split_http(raw: str) -> tuple[str, str]:
+    parts = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return "", raw
+
+
+def curl_post(payload: dict[str, Any], header_files: list[Path]) -> tuple[str, str, str]:
+    with tempfile.NamedTemporaryFile("w", delete=False) as data_file:
+        json.dump(payload, data_file, separators=(",", ":"))
+        data_path = Path(data_file.name)
+    with tempfile.NamedTemporaryFile("w", delete=False) as output_file:
+        output_path = Path(output_file.name)
+    try:
+        args = [
+            "curl",
+            "--silent",
+            "--show-error",
+            "--fail-with-body",
+            "--no-buffer",
+            "-i",
+            "-o",
+            str(output_path),
+            "-w",
+            "%{http_code}",
+            "-X",
+            "POST",
+            ENDPOINT,
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Accept: application/json, text/event-stream",
+            "--data",
+            f"@{data_path}",
+        ]
+        for header_file in header_files:
+            args.extend(["-H", f"@{header_file}"])
+        proc = subprocess.run(args, text=True, capture_output=True, timeout=45, check=False)
+        raw = output_path.read_text(encoding="utf-8", errors="replace")
+        headers, body = split_http(raw)
+        return proc.stdout.strip(), headers, body
+    finally:
+        data_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
+
+
+def remote_bitbucket_repository(arguments: dict[str, Any]) -> dict[str, Any]:
+    email = os.environ.get("ATLASSIAN_USER_EMAIL")
+    token = os.environ.get("ATLASSIAN_MCP_TOKEN")
+    if not email or not token:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "ATLASSIAN_USER_EMAIL and ATLASSIAN_MCP_TOKEN are required",
+                }
+            ],
+            "isError": True,
+        }
+
+    workspace_id = (
+        arguments.get("workspaceId")
+        or arguments.get("workspace")
+        or arguments.get("workspaceSlug")
+        or "solo_sig"
+    )
+    repo_id = (
+        arguments.get("repoId")
+        or arguments.get("repository")
+        or arguments.get("repositoryId")
+        or arguments.get("repoSlug")
+        or arguments.get("slug")
+        or "solosig"
+    )
+    action = arguments.get("action") or "get"
+
+    auth_file = tempfile.NamedTemporaryFile("w", delete=False)
+    session_file: tempfile.NamedTemporaryFile[str] | None = None
+    try:
+        basic = base64.b64encode(f"{email}:{token}".encode()).decode()
+        auth_file.write(f"Authorization: Basic {basic}\n")
+        auth_file.close()
+
+        init_payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "atlassian-bitbucket-mcp-basic", "version": "0.1.0"},
+            },
+        }
+        status, headers, body = curl_post(init_payload, [Path(auth_file.name)])
+        session_id = None
+        for line in headers.splitlines():
+            if line.lower().startswith("mcp-session-id:"):
+                session_id = line.split(":", 1)[1].strip()
+                break
+        if status != "200" or not session_id:
+            return {"content": [{"type": "text", "text": "remote MCP initialize failed"}], "isError": True}
+
+        session_file = tempfile.NamedTemporaryFile("w", delete=False)
+        session_file.write(f"Mcp-Session-Id: {session_id}\n")
+        session_file.close()
+        header_files = [Path(auth_file.name), Path(session_file.name)]
+
+        curl_post(
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+            header_files,
+        )
+        status, _, body = curl_post(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "bitbucketRepository",
+                    "arguments": {
+                        "action": action,
+                        "workspaceId": workspace_id,
+                        "repoId": repo_id,
+                    },
+                },
+            },
+            header_files,
+        )
+        if status != "200":
+            return {"content": [{"type": "text", "text": "remote MCP bitbucketRepository failed"}], "isError": True}
+        remote = parse_sse_or_json(body)
+        result = remote.get("result")
+        if isinstance(result, dict):
+            content = result.get("content")
+            if isinstance(content, list) and content:
+                text = content[0].get("text") if isinstance(content[0], dict) else None
+                if isinstance(text, str):
+                    try:
+                        repo = json.loads(text).get("data") or {}
+                    except Exception:
+                        repo = {}
+                    if isinstance(repo, dict) and repo.get("full_name"):
+                        return {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        {
+                                            "full_name": repo.get("full_name"),
+                                            "name": repo.get("name"),
+                                            "slug": repo.get("slug"),
+                                            "workspace": (repo.get("workspace") or {}).get("slug")
+                                            if isinstance(repo.get("workspace"), dict)
+                                            else None,
+                                        },
+                                        separators=(",", ":"),
+                                    ),
+                                }
+                            ],
+                            "isError": False,
+                        }
+        return result or {"content": [{"type": "text", "text": json.dumps(remote)}]}
+    except Exception as exc:  # Keep errors token-free.
+        return {"content": [{"type": "text", "text": f"bridge error: {type(exc).__name__}"}], "isError": True}
+    finally:
+        Path(auth_file.name).unlink(missing_ok=True)
+        if session_file is not None:
+            Path(session_file.name).unlink(missing_ok=True)
+
+
+TOOL = {
+    "name": "bitbucketRepository",
+    "description": "Read Bitbucket repository data through Atlassian MCP Basic auth.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["get", "list"], "default": "get"},
+            "workspaceId": {"type": "string", "default": "solo_sig"},
+            "repoId": {"type": "string", "default": "solosig"},
+        },
+        "additionalProperties": True,
+    },
+}
+
+
+for raw_line in sys.stdin:
+    if not raw_line.strip():
+        continue
+    try:
+        request = json.loads(raw_line)
+    except Exception:
+        continue
+    request_id = request.get("id")
+    method = request.get("method")
+    if method == "initialize":
+        respond(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {"listChanged": False}},
+                    "serverInfo": {"name": "atlassian-bitbucket-mcp-basic", "version": "0.1.0"},
+                },
+            }
+        )
+    elif method == "notifications/initialized":
+        continue
+    elif method == "tools/list":
+        respond({"jsonrpc": "2.0", "id": request_id, "result": {"tools": [TOOL]}})
+    elif method == "tools/call":
+        params = request.get("params") if isinstance(request.get("params"), dict) else {}
+        if params.get("name") != "bitbucketRepository":
+            error_response(request_id, -32601, "unknown tool")
+            continue
+        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        respond(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": remote_bitbucket_repository(arguments),
+            }
+        )
+    elif request_id is not None:
+        error_response(request_id, -32601, "unknown method")
