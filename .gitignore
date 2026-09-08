@@ -51,6 +51,7 @@
 !/.local/bin
 /.local/bin/*
 !/.local/bin/atlassian-smoke-test
+!/.local/bin/atlassian-bitbucket-mcp-basic
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/home-cleanup
 !/.local/bin/home-cleanup-post
@@ -94,11 +95,6 @@
 !/.fusion
 /.fusion/*
 !/.fusion/settings.json
-!/.pi
-/.pi/*
-!/.pi/agent
-/.pi/agent/*
-!/.pi/agent/models.json
 
 # vllm
 !/.config/vllm

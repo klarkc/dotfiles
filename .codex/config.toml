@@ -54,3 +54,11 @@ theme = "ansi"
 [hooks.state."/home/klarkc/.codex/hooks.json:session_start:0:0"]
 trusted_hash = "sha256:e6bb14fbfec4414e0f8d2e88c24531104da78cd85d71cd1034c01f46043386a0"
 enabled = true
+
+[mcp_servers.atlassian]
+command = "/home/klarkc/.local/bin/atlassian-bitbucket-mcp-basic"
+args = []
+env_vars = ["ATLASSIAN_USER_EMAIL", "ATLASSIAN_MCP_TOKEN"]
+
+[mcp_servers.atlassian.tools.bitbucketRepository]
+approval_mode = "approve"

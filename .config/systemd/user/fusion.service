@@ -33,7 +33,7 @@ ProtectKernelModules=yes
 InaccessiblePaths=%h/.codex
 
 ReadOnlyPaths=%h/.nix-profile/bin/fusion %h/.nix-profile/bin/fn %h/.fusion/ssh_config
-ReadWritePaths=%h/Sources/Fusion %h/.fusion %h/.pi %C/fusion-systemd %h/.config/qmd %t/fusion
+ReadWritePaths=%h/Sources/Fusion %h/.fusion %C/fusion-systemd %h/.config/qmd %t/fusion
 
 [Install]
 WantedBy=default.target
