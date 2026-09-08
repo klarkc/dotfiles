@@ -1,6 +1,6 @@
-# Fusion + vLLM + Pi runtime notes
+# Fusion + vLLM runtime notes
 
-This repo runs Fusion through a user `systemd` service and uses local vLLM through Pi's model registry.
+This repo runs Fusion through a user `systemd` service and serves local models through a vLLM target.
 
 ## Working provider identity
 
@@ -11,49 +11,11 @@ Use `local-vllm` consistently everywhere:
   - `fallbackProvider = local-vllm`
 - `~/.fusion/agent/auth.json`
   - key: `local-vllm`
-- `~/.pi/agent/models.json`
-  - provider: `providers.local-vllm`
+- `~/.config/opencode/opencode.json`
+  - provider: `provider.vllm`
+  - top-level `model`: `vllm/<served-model-name>`
 
-Do not use Fusion `customProviders` for this path. In this setup, Pi/Fusion agent execution resolves the configured model through Pi's model registry, not through dashboard custom providers.
-
-## Pi models registry schema
-
-For the bundled Pi version in Fusion 0.31.0, the working schema is object-shaped:
-
-```json
-{
-  "providers": {
-    "local-vllm": {
-      "name": "local-vllm",
-      "baseUrl": "http://localhost:8000/v1",
-      "api": "openai-completions",
-      "apiKey": "VLLM_API_KEY",
-      "models": [
-        {
-          "id": "qwen3.6-35b-a3b",
-          "name": "Qwen3.6 35B A3B"
-        }
-      ]
-    }
-  }
-}
-```
-
-A list-shaped `providers: [...]` file was tested and did not load through the bundled Pi `ModelRegistry`.
-
-The `apiKey` value should be the environment variable name without a dollar sign:
-
-```json
-"apiKey": "VLLM_API_KEY"
-```
-
-Do not use:
-
-```json
-"apiKey": "$VLLM_API_KEY"
-```
-
-That can be treated as a literal string in some config paths.
+Do not use Fusion `customProviders` for this path. In this setup, Fusion resolves the configured model through the vLLM provider, not through dashboard custom providers.
 
 ## Auth file
 
@@ -68,7 +30,7 @@ Keep this entry in `~/.fusion/agent/auth.json`:
 }
 ```
 
-The `vllm-patch-model-defaults` script maintains this file and the Pi registry when `vllm-config` selects a model.
+The `vllm-patch-model-defaults` script maintains this file, Fusion `defaultProvider`/`defaultModelId`, and the opencode `vllm` provider block (including the currently served model entry) when `vllm-config` selects a model.
 
 ## systemd user environment imports
 
@@ -152,8 +114,8 @@ Reasoning: opencode with frequent compaction is usually dominated by small/mediu
 After `git pull` and `vllm-config qwen3.6-35B-a3b`:
 
 ```bash
-jq '.providers."local-vllm" | {baseUrl, api, apiKey, models: [.models[].id]}' ~/.pi/agent/models.json
 jq '."local-vllm"' ~/.fusion/agent/auth.json
+jq '.provider.vllm.models | keys' ~/.config/opencode/opencode.json
 ```
 
 Expected model listing through Fusion:
@@ -172,7 +134,7 @@ Expected entries:
 
 Imported variables currently relevant to these services:
 
-- `VLLM_API_KEY`: required when vLLM is started with `--api-key`; Fusion/Pi must resolve this for local inference.
+- `VLLM_API_KEY`: required when vLLM is started with `--api-key`; Fusion and opencode must resolve this for local inference.
 - `HF_TOKEN`, `HF_HUB_TOKEN`, `HUGGING_FACE_HUB_TOKEN`: used by vLLM/Hugging Face model downloads.
 - `GITHUB_TOKEN`: passed to Fusion for GitHub-backed workflows.
 - `FUSION_DASHBOARD_TOKEN`, `FUSION_DAEMON_TOKEN`: Fusion auth tokens when auth is enabled.

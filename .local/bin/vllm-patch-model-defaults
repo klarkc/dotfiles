@@ -13,7 +13,7 @@ if [ "$client_context_window" -lt 1024 ]; then
   client_context_window=1024
 fi
 
-mkdir -p "$HOME/.fusion/agent" "$HOME/.pi/agent"
+mkdir -p "$HOME/.fusion/agent"
 cat > "$HOME/.fusion/vllm-defaults.env" <<EOF
 VLLM_BASE_URL=$base_url
 VLLM_MODEL=$model_id
@@ -43,7 +43,7 @@ data['fallbackModelId'] = model_id
 data['customProviders'] = []
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent="\t")
     f.write('\n')
 os.replace(tmp, path)
 PY
@@ -67,68 +67,7 @@ data['local-vllm'] = {'type': 'api_key', 'key': 'VLLM_API_KEY'}
 os.makedirs(os.path.dirname(path), exist_ok=True)
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-os.replace(tmp, path)
-PY
-
-pi_models="$HOME/.pi/agent/models.json"
-python3 - "$pi_models" "$client_context_window" "$max_tokens" "$max_num_seqs" "$base_url" <<'PY'
-import json
-import os
-import sys
-
-path, context_window, max_tokens, max_num_seqs, base_url = sys.argv[1:]
-context_window = int(context_window)
-max_tokens = int(max_tokens)
-models = [
-    {
-        'id': 'qwen3.6-35b-a3b',
-        'name': 'Qwen3.6 35B A3B',
-        'reasoning': True,
-        'input': ['text'],
-        'contextWindow': context_window,
-        'maxTokens': max_tokens,
-        'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
-    },
-    {
-        'id': 'qwen3.8-27b',
-        'name': 'Qwen3.8 27B',
-        'reasoning': True,
-        'input': ['text'],
-        'contextWindow': context_window,
-        'maxTokens': max_tokens,
-        'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0},
-    },
-]
-provider = {
-    'name': 'local-vllm',
-    'baseUrl': base_url,
-    'api': 'openai-completions',
-    'apiKey': 'VLLM_API_KEY',
-    'compat': {
-        'supportsDeveloperRole': False,
-        'supportsReasoningEffort': False,
-        'maxTokensField': 'max_tokens',
-    },
-    'models': models,
-}
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-except FileNotFoundError:
-    data = {}
-if not isinstance(data, dict):
-    data = {}
-providers = data.get('providers')
-if not isinstance(providers, dict):
-    providers = {}
-providers['local-vllm'] = provider
-data['providers'] = providers
-os.makedirs(os.path.dirname(path), exist_ok=True)
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent="\t")
     f.write('\n')
 os.replace(tmp, path)
 PY
@@ -145,6 +84,7 @@ with open(path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 if not isinstance(data, dict):
     raise SystemExit(f'{path} must contain a JSON object')
+data['model'] = f"vllm/{model_id}"
 try:
     data['provider']['vllm']['options']['baseURL'] = base_url
 except (KeyError, TypeError):
@@ -161,7 +101,7 @@ else:
     models[model_id] = {'name': model_name, 'limit': {'context': int(context_window), 'output': int(max_tokens)}}
 tmp = path + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent="\t")
     f.write('\n')
 os.replace(tmp, path)
 PY
