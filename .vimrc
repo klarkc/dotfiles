@@ -148,6 +148,7 @@ augroup END
   let g:DiffUnit = 'Word1'
   let g:DiffUnitSyntax = 2
   let g:signify_smart_diff_max_line_distance = 0.6
+  let g:signify_smart_diff_block_min_lines = 8
 
   function! s:SignifyLineDistance(old, new) abort
     let l:old = split(a:old, '\zs')
@@ -192,10 +193,44 @@ augroup END
     return 1
   endfunction
 
-  function! s:SignifySmartDiffUnit(lines) abort
+  function! s:SignifyBlockDistance(removed, added) abort
+    let l:span = max([len(a:removed), len(a:added)])
+    if l:span == 0
+      return 0.0
+    endif
+
+    let l:pairs = min([len(a:removed), len(a:added)])
+    let l:distance = (l:span - l:pairs) * 1.0
+    if l:pairs > 0
+      for l:i in range(0, l:pairs - 1)
+        let l:distance += s:SignifyLineDistance(
+              \ a:removed[l:i],
+              \ a:added[l:i])
+      endfor
+    endif
+
+    return l:distance / l:span
+  endfunction
+
+  function! s:SignifyBlockUsesBlock(removed, added) abort
+    let l:span = max([len(a:removed), len(a:added)])
+    if l:span < g:signify_smart_diff_block_min_lines
+      return 0
+    endif
+
+    if empty(a:removed) || empty(a:added)
+      return 1
+    endif
+
+    return s:SignifyBlockDistance(a:removed, a:added)
+          \ > g:signify_smart_diff_max_line_distance
+  endfunction
+
+  function! s:SignifySmartDiffMode(lines) abort
     let l:removed = []
     let l:added = []
     let l:has_pairs = 0
+    let l:has_word = 0
 
     for l:line in a:lines + [' ']
       if l:line =~# '^-'
@@ -203,9 +238,13 @@ augroup END
       elseif l:line =~# '^+'
         call add(l:added, l:line[1:])
       else
+        if s:SignifyBlockUsesBlock(l:removed, l:added)
+          return 'Block'
+        endif
+
         let l:decision = s:SignifyBlockUsesChar(l:removed, l:added)
         if l:decision == 0
-          return 'Word1'
+          let l:has_word = 1
         elseif l:decision == 1
           let l:has_pairs = 1
         endif
@@ -214,7 +253,25 @@ augroup END
       endif
     endfor
 
+    if l:has_word
+      return 'Word1'
+    endif
     return l:has_pairs ? 'Char' : 'Word1'
+  endfunction
+
+  function! s:SignifyClearDiffUnitHighlights(popup) abort
+    let l:syntax = win_execute(a:popup, 'silent syntax list')
+    let l:groups = []
+    for l:line in split(l:syntax, "\n")
+      let l:group = matchstr(l:line, '^diffunitsyntax\S*')
+      if !empty(l:group) && index(l:groups, l:group) < 0
+        call add(l:groups, l:group)
+      endif
+    endfor
+
+    for l:group in l:groups
+      call win_execute(a:popup, 'silent! syntax clear ' . l:group)
+    endfor
   endfunction
 
   let s:signify_smart_popup = 0
@@ -263,9 +320,15 @@ augroup END
     let l:popup = l:candidates[-1]
     let s:signify_smart_popup = l:popup
     let l:buffer = winbufnr(l:popup)
-    let l:unit = s:SignifySmartDiffUnit(getbufline(l:buffer, 1, '$'))
-    call setbufvar(l:buffer, 'DiffUnit', l:unit)
-    call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
+    let l:mode = s:SignifySmartDiffMode(getbufline(l:buffer, 1, '$'))
+    call setbufvar(l:buffer, 'SignifySmartDiffMode', l:mode)
+
+    if l:mode ==# 'Block'
+      call s:SignifyClearDiffUnitHighlights(l:popup)
+    else
+      call setbufvar(l:buffer, 'DiffUnit', l:mode)
+      call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
+    endif
   endfunction
 
   function! s:SignifySmartHunkDiff() abort
