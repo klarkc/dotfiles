@@ -550,6 +550,7 @@ map <leader>hl :call LoadHi()<CR>
 call plug#end()
 
 "{{ Colors
+  let g:nord_uniform_diff_background = 1
 	colorscheme nord
 "}}
 
