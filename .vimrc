@@ -143,8 +143,97 @@ augroup END
 	Plug 'junegunn/gv.vim'
 	Plug 'Xuyuanp/nerdtree-git-plugin'
 	Plug 'mhinz/vim-signify'
+	Plug 'rickhowe/diffunitsyntax'
 
-  nmap <leader>ss :SignifyHunkDiff<CR>
+  let g:DiffUnit = 'Word1'
+  let g:DiffUnitSyntax = 2
+  let g:signify_smart_diff_max_line_distance = 0.6
+
+  function! s:SignifyLineDistance(old, new) abort
+    let l:old = split(a:old, '\zs')
+    let l:new = split(a:new, '\zs')
+    let l:maxlen = max([len(l:old), len(l:new)])
+    if l:maxlen == 0
+      return 0.0
+    endif
+    if empty(l:old) || empty(l:new)
+      return 1.0
+    endif
+
+    let l:previous = range(0, len(l:new))
+    for l:i in range(1, len(l:old))
+      let l:current = [l:i]
+      for l:j in range(1, len(l:new))
+        let l:cost = l:old[l:i - 1] ==# l:new[l:j - 1] ? 0 : 1
+        call add(l:current, min([
+              \ l:current[l:j - 1] + 1,
+              \ l:previous[l:j] + 1,
+              \ l:previous[l:j - 1] + l:cost,
+              \ ]))
+      endfor
+      let l:previous = l:current
+    endfor
+
+    return l:previous[-1] * 1.0 / l:maxlen
+  endfunction
+
+  function! s:SignifyBlockUsesChar(removed, added) abort
+    let l:pairs = min([len(a:removed), len(a:added)])
+    if l:pairs == 0
+      return -1
+    endif
+
+    for l:i in range(0, l:pairs - 1)
+      if s:SignifyLineDistance(a:removed[l:i], a:added[l:i])
+            \ > g:signify_smart_diff_max_line_distance
+        return 0
+      endif
+    endfor
+    return 1
+  endfunction
+
+  function! s:SignifySmartDiffUnit(lines) abort
+    let l:removed = []
+    let l:added = []
+    let l:has_pairs = 0
+
+    for l:line in a:lines + [' ']
+      if l:line =~# '^-'
+        call add(l:removed, l:line[1:])
+      elseif l:line =~# '^+'
+        call add(l:added, l:line[1:])
+      else
+        let l:decision = s:SignifyBlockUsesChar(l:removed, l:added)
+        if l:decision == 0
+          return 'Word1'
+        elseif l:decision == 1
+          let l:has_pairs = 1
+        endif
+        let l:removed = []
+        let l:added = []
+      endif
+    endfor
+
+    return l:has_pairs ? 'Char' : 'Word1'
+  endfunction
+
+  function! s:SignifySmartHunkDiff() abort
+    let l:before = popup_list()
+    SignifyHunkDiff
+    let l:after = popup_list()
+    let l:new_popups = filter(copy(l:after), 'index(l:before, v:val) < 0')
+    if empty(l:new_popups)
+      return
+    endif
+
+    let l:popup = l:new_popups[-1]
+    let l:buffer = winbufnr(l:popup)
+    let l:unit = s:SignifySmartDiffUnit(getbufline(l:buffer, 1, '$'))
+    call setbufvar(l:buffer, 'DiffUnit', l:unit)
+    call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
+  endfunction
+
+  nmap <leader>ss :call <SID>SignifySmartHunkDiff()<CR>
   let g:which_key_map.s.s = 'diff'
   nmap <leader>sm :SignifyHunkUndo<CR>
   let g:which_key_map.s.m = 'diff undo'
