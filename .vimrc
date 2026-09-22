@@ -217,20 +217,72 @@ augroup END
     return l:has_pairs ? 'Char' : 'Word1'
   endfunction
 
-  function! s:SignifySmartHunkDiff() abort
-    let l:before = popup_list()
-    SignifyHunkDiff
-    let l:after = popup_list()
-    let l:new_popups = filter(copy(l:after), 'index(l:before, v:val) < 0')
-    if empty(l:new_popups)
+  let s:signify_smart_popup = 0
+  let s:signify_smart_source_win = 0
+  let s:signify_smart_anchor_line = 0
+  let s:signify_smart_anchor_col = 1
+  let s:signify_smart_before_popups = []
+  let s:signify_smart_timer = -1
+
+  function! s:SignifySmartPopupReposition() abort
+    if s:signify_smart_popup == 0
+          \ || empty(popup_getpos(s:signify_smart_popup))
+          \ || !has_key(v:event, string(s:signify_smart_source_win))
       return
     endif
 
-    let l:popup = l:new_popups[-1]
+    let l:screen = screenpos(
+          \ s:signify_smart_source_win,
+          \ s:signify_smart_anchor_line,
+          \ s:signify_smart_anchor_col)
+    if empty(l:screen) || l:screen.row == 0
+      call popup_close(s:signify_smart_popup)
+      let s:signify_smart_popup = 0
+      return
+    endif
+
+    call popup_move(s:signify_smart_popup, {'line': l:screen.row + 1})
+  endfunction
+
+  augroup SignifySmartPopup
+    autocmd!
+    autocmd WinScrolled * call <SID>SignifySmartPopupReposition()
+  augroup END
+
+  function! s:SignifySmartAttach(timer) abort
+    let l:candidates = filter(copy(popup_list()),
+          \ 'index(s:signify_smart_before_popups, v:val) < 0')
+    let l:candidates = filter(l:candidates,
+          \ 'getbufvar(winbufnr(v:val), "&syntax") ==# "diff"')
+    if empty(l:candidates)
+      return
+    endif
+
+    call timer_stop(a:timer)
+    let s:signify_smart_timer = -1
+    let l:popup = l:candidates[-1]
+    let s:signify_smart_popup = l:popup
     let l:buffer = winbufnr(l:popup)
     let l:unit = s:SignifySmartDiffUnit(getbufline(l:buffer, 1, '$'))
     call setbufvar(l:buffer, 'DiffUnit', l:unit)
     call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
+  endfunction
+
+  function! s:SignifySmartHunkDiff() abort
+    if s:signify_smart_timer != -1
+      call timer_stop(s:signify_smart_timer)
+    endif
+
+    let s:signify_smart_popup = 0
+    let s:signify_smart_source_win = win_getid()
+    let s:signify_smart_anchor_line = line('.')
+    let s:signify_smart_anchor_col = max([1, col('.')])
+    let s:signify_smart_before_popups = popup_list()
+    SignifyHunkDiff
+    let s:signify_smart_timer = timer_start(
+          \ 10,
+          \ function('<SID>SignifySmartAttach'),
+          \ {'repeat': 200})
   endfunction
 
   nmap <leader>ss :call <SID>SignifySmartHunkDiff()<CR>
