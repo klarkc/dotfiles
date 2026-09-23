@@ -149,11 +149,14 @@ augroup END
   let g:DiffUnitSyntax = 2
   let g:signify_smart_diff_max_line_distance = 0.6
   let g:signify_smart_diff_block_min_lines = 8
+  let g:signify_smart_diff_debounce_ms = 20
 
   function! s:SignifyLineDistance(old, new) abort
     let l:old = split(a:old, '\zs')
     let l:new = split(a:new, '\zs')
-    let l:maxlen = max([len(l:old), len(l:new)])
+    let l:oldlen = len(l:old)
+    let l:newlen = len(l:new)
+    let l:maxlen = max([l:oldlen, l:newlen])
     if l:maxlen == 0
       return 0.0
     endif
@@ -161,21 +164,35 @@ augroup END
       return 1.0
     endif
 
-    let l:previous = range(0, len(l:new))
-    for l:i in range(1, len(l:old))
-      let l:current = [l:i]
-      for l:j in range(1, len(l:new))
-        let l:cost = l:old[l:i - 1] ==# l:new[l:j - 1] ? 0 : 1
-        call add(l:current, min([
-              \ l:current[l:j - 1] + 1,
-              \ l:previous[l:j] + 1,
-              \ l:previous[l:j - 1] + l:cost,
-              \ ]))
+    if l:oldlen == l:newlen
+      let l:changes = 0
+      for l:i in range(0, l:oldlen - 1)
+        if l:old[l:i] !=# l:new[l:i]
+          let l:changes += 1
+        endif
       endfor
-      let l:previous = l:current
-    endfor
+      return l:changes * 1.0 / l:maxlen
+    endif
 
-    return l:previous[-1] * 1.0 / l:maxlen
+    let l:minlen = min([l:oldlen, l:newlen])
+    let l:prefix = 0
+    while l:prefix < l:minlen
+          \ && l:old[l:prefix] ==# l:new[l:prefix]
+      let l:prefix += 1
+    endwhile
+
+    let l:suffix = 0
+    while l:prefix + l:suffix < l:minlen
+          \ && l:old[l:oldlen - l:suffix - 1]
+          \    ==# l:new[l:newlen - l:suffix - 1]
+      let l:suffix += 1
+    endwhile
+
+    let l:changed = max([
+          \ l:oldlen - l:prefix - l:suffix,
+          \ l:newlen - l:prefix - l:suffix,
+          \ ])
+    return l:changed * 1.0 / l:maxlen
   endfunction
 
   function! s:SignifyBlockUsesChar(removed, added) abort
@@ -264,9 +281,9 @@ augroup END
   let s:signify_smart_source_buf = 0
   let s:signify_smart_anchor_line = 0
   let s:signify_smart_anchor_col = 1
-  let s:signify_smart_before_popups = []
-  let s:signify_smart_timer = -1
-  let s:signify_smart_diff_unit_syntax = -1
+  let s:signify_smart_generation = 0
+  let s:signify_smart_render_timer = -1
+  let s:signify_smart_pending_lines = []
   let s:signify_smart_motion_timer = -1
   let s:signify_smart_motion_watch_timer = -1
   let s:signify_smart_motion_popup = 0
@@ -275,13 +292,6 @@ augroup END
     autocmd!
     autocmd WinScrolled * call <SID>SignifySmartPopupReposition(0)
   augroup END
-
-  function! s:SignifySmartRestoreDiffUnitSyntax() abort
-    if s:signify_smart_diff_unit_syntax >= 0
-      let g:DiffUnitSyntax = s:signify_smart_diff_unit_syntax
-      let s:signify_smart_diff_unit_syntax = -1
-    endif
-  endfunction
 
   function! s:SignifySmartMotionRunning() abort
     return s:signify_smart_motion_timer > 0
@@ -361,86 +371,157 @@ augroup END
       return
     endif
 
-    if !get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+    let l:visible = get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+    call popup_move(s:signify_smart_popup, {'line': l:screen.row + 1})
+    if !l:visible
       call popup_show(s:signify_smart_popup)
     endif
-    call popup_move(s:signify_smart_popup, {'line': l:screen.row + 1})
   endfunction
 
-  function! s:SignifySmartCreatePopup(lines, options) abort
+  function! s:SignifySmartCreatePopup(lines) abort
+    let l:source_win = win_id2win(s:signify_smart_source_win)
     let l:screen = screenpos(
           \ s:signify_smart_source_win,
           \ s:signify_smart_anchor_line,
           \ s:signify_smart_anchor_col)
     let l:winpos = win_screenpos(s:signify_smart_source_win)
+    let l:wininfo = getwininfo(s:signify_smart_source_win)
+    let l:textoff = empty(l:wininfo) ? 0 : l:wininfo[0].textoff
+    let l:padding = repeat(' ', max([0, l:textoff - 1]))
+    let l:popup_lines = map(copy(a:lines),
+          \ 'empty(v:val) ? v:val : v:val[0] . l:padding . v:val[1:]')
+    let l:relative_row = l:screen.row - l:winpos[0] + 1
+    let l:maxheight = max([1, winheight(l:source_win) - l:relative_row])
 
-    return popup_create(a:lines, {
+    let l:popup = popup_create(l:popup_lines, {
           \ 'line': l:screen.row + 1,
           \ 'col': l:winpos[1] - 1,
-          \ 'minwidth': get(a:options, 'minwidth',
-          \     winwidth(win_id2win(s:signify_smart_source_win))),
-          \ 'maxheight': get(a:options, 'maxheight', len(a:lines)),
-          \ 'wrap': get(a:options, 'wrap', 1),
-          \ 'scrollbar': get(a:options, 'scrollbar', 1),
-          \ 'zindex': get(a:options, 'zindex', 1000),
+          \ 'minwidth': winwidth(l:source_win),
+          \ 'maxheight': l:maxheight,
+          \ 'wrap': 1,
+          \ 'scrollbar': 1,
+          \ 'zindex': 1000,
+          \ 'hidden': 1,
           \ })
+
+    call setwinvar(l:popup, '&linebreak', getwinvar(l:source_win, '&linebreak'))
+    call setwinvar(l:popup, '&breakindent', getwinvar(l:source_win, '&breakindent'))
+    call setwinvar(l:popup, '&breakindentopt', getwinvar(l:source_win, '&breakindentopt'))
+    call setwinvar(l:popup, '&showbreak', getwinvar(l:source_win, '&showbreak'))
+    return l:popup
   endfunction
 
-  function! s:SignifySmartAttach(timer) abort
-    let l:candidates = filter(copy(popup_list()),
-          \ 'index(s:signify_smart_before_popups, v:val) < 0')
-    let l:candidates = filter(l:candidates,
-          \ 'getbufvar(winbufnr(v:val), "&syntax") ==# "diff"')
-    if empty(l:candidates)
-      let l:info = timer_info(a:timer)
-      if !empty(l:info) && l:info[0].repeat == 0
-        let s:signify_smart_timer = -1
-        call s:SignifySmartRestoreDiffUnitSyntax()
+  function! s:SignifySmartHunkContains(header, lnum) abort
+    let [_old_line, l:old_count, l:new_line, l:new_count] =
+          \ sy#sign#parse_hunk(a:header)
+
+    if a:lnum == 1 && l:new_line == 0
+      return 1
+    endif
+    if a:lnum == l:new_line && l:new_count < l:old_count
+      return 1
+    endif
+    return a:lnum >= l:new_line
+          \ && a:lnum < l:new_line + l:new_count
+  endfunction
+
+  function! s:SignifySmartExtractHunk(diff, lnum) abort
+    let l:inside = 0
+    let l:hunk = []
+
+    for l:line in a:diff
+      if l:inside
+        if empty(l:line) || l:line[:2] ==# '@@ '
+          break
+        endif
+        call add(l:hunk, l:line)
+      elseif l:line[:2] ==# '@@ '
+            \ && s:SignifySmartHunkContains(l:line, a:lnum)
+        let l:inside = 1
       endif
+    endfor
+
+    return l:hunk
+  endfunction
+
+  function! s:SignifySmartRender(timer) abort
+    let s:signify_smart_render_timer = -1
+    let l:lines = s:signify_smart_pending_lines
+    let s:signify_smart_pending_lines = []
+
+    if empty(l:lines)
+          \ || win_id2win(s:signify_smart_source_win) == 0
+          \ || winbufnr(s:signify_smart_source_win)
+          \    != s:signify_smart_source_buf
       return
     endif
 
-    call timer_stop(a:timer)
-    let s:signify_smart_timer = -1
-
-    let l:raw_popup = l:candidates[-1]
-    let l:raw_buffer = winbufnr(l:raw_popup)
-    let l:lines = getbufline(l:raw_buffer, 1, '$')
-    let l:options = popup_getoptions(l:raw_popup)
     let l:mode = s:SignifySmartDiffMode(l:lines)
-    call popup_close(l:raw_popup)
+    let l:diff_unit_syntax = get(g:, 'DiffUnitSyntax', 1)
+    let g:DiffUnitSyntax = min([1, l:diff_unit_syntax])
+    let l:popup = 0
 
     try
-      if win_id2win(s:signify_smart_source_win) == 0
-            \ || winbufnr(s:signify_smart_source_win)
-            \    != s:signify_smart_source_buf
-        return
-      endif
-
-      let l:popup = s:SignifySmartCreatePopup(l:lines, l:options)
+      let l:popup = s:SignifySmartCreatePopup(l:lines)
       let s:signify_smart_popup = l:popup
       let l:buffer = winbufnr(l:popup)
-      call setbufvar(l:buffer, '&syntax', 'diff')
       call setbufvar(l:buffer, 'SignifySmartDiffMode', l:mode)
-
       if l:mode !=# 'Block'
         call setbufvar(l:buffer, 'DiffUnit', l:mode)
+      endif
+      call setbufvar(l:buffer, '&syntax', 'diff')
+
+      if l:mode !=# 'Block'
         call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
       endif
 
-      call s:SignifySmartPopupReposition(1)
+      let l:initial_line = get(popup_getpos(l:popup), 'line', 0)
+      if l:initial_line > 0
+        call popup_move(l:popup, {'line': l:initial_line})
+      endif
+      call popup_show(l:popup)
       redraw
+    catch
+      if l:popup != 0 && !empty(popup_getpos(l:popup))
+        call popup_close(l:popup)
+      endif
+      let s:signify_smart_popup = 0
+      throw v:exception
     finally
-      call s:SignifySmartRestoreDiffUnitSyntax()
+      let g:DiffUnitSyntax = l:diff_unit_syntax
     endtry
   endfunction
 
-  function! s:SignifySmartHunkDiff() abort
-    if s:signify_smart_timer != -1
-      call timer_stop(s:signify_smart_timer)
-      let s:signify_smart_timer = -1
-      call s:SignifySmartRestoreDiffUnitSyntax()
+  function! s:SignifySmartDiffReady(generation, source_buf, source_win,
+        \ anchor_line, _sy, _vcs, diff) abort
+    if a:generation != s:signify_smart_generation
+          \ || a:source_buf != s:signify_smart_source_buf
+          \ || a:source_win != s:signify_smart_source_win
+      return
     endif
+
+    let l:hunk = s:SignifySmartExtractHunk(a:diff, a:anchor_line)
+    if empty(l:hunk)
+      return
+    endif
+
+    let s:signify_smart_pending_lines = l:hunk
+    if s:signify_smart_render_timer != -1
+      call timer_stop(s:signify_smart_render_timer)
+    endif
+    let s:signify_smart_render_timer = timer_start(
+          \ g:signify_smart_diff_debounce_ms,
+          \ function('<SID>SignifySmartRender'))
+  endfunction
+
+  function! s:SignifySmartHunkDiff() abort
+    let s:signify_smart_generation += 1
+
+    if s:signify_smart_render_timer != -1
+      call timer_stop(s:signify_smart_render_timer)
+      let s:signify_smart_render_timer = -1
+    endif
+    let s:signify_smart_pending_lines = []
 
     if s:signify_smart_popup != 0
           \ && !empty(popup_getpos(s:signify_smart_popup))
@@ -452,14 +533,21 @@ augroup END
     let s:signify_smart_source_buf = bufnr('%')
     let s:signify_smart_anchor_line = line('.')
     let s:signify_smart_anchor_col = max([1, col('.')])
-    let s:signify_smart_before_popups = popup_list()
-    let s:signify_smart_diff_unit_syntax = get(g:, 'DiffUnitSyntax', 1)
-    let g:DiffUnitSyntax = min([1, s:signify_smart_diff_unit_syntax])
-    SignifyHunkDiff
-    let s:signify_smart_timer = timer_start(
-          \ 10,
-          \ function('<SID>SignifySmartAttach'),
-          \ {'repeat': 200})
+
+    let l:sy = getbufvar(s:signify_smart_source_buf, 'sy')
+    if empty(l:sy) || empty(l:sy.updated_by)
+      return
+    endif
+
+    call sy#repo#get_diff(
+          \ s:signify_smart_source_buf,
+          \ l:sy.updated_by,
+          \ function('<SID>SignifySmartDiffReady', [
+          \   s:signify_smart_generation,
+          \   s:signify_smart_source_buf,
+          \   s:signify_smart_source_win,
+          \   s:signify_smart_anchor_line,
+          \ ]))
   endfunction
 
   nmap <leader>ss :call <SID>SignifySmartHunkDiff()<CR>
