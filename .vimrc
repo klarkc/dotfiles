@@ -264,8 +264,6 @@ augroup END
   let s:signify_smart_source_buf = 0
   let s:signify_smart_anchor_line = 0
   let s:signify_smart_anchor_col = 1
-  let s:signify_smart_anchor_type = 'SignifySmartPopupAnchor'
-  let s:signify_smart_anchor_id = 1
   let s:signify_smart_before_popups = []
   let s:signify_smart_timer = -1
   let s:signify_smart_diff_unit_syntax = -1
@@ -275,6 +273,7 @@ augroup END
 
   augroup SignifySmartPopup
     autocmd!
+    autocmd WinScrolled * call <SID>SignifySmartPopupReposition(0)
   augroup END
 
   function! s:SignifySmartRestoreDiffUnitSyntax() abort
@@ -314,11 +313,8 @@ augroup END
     let s:signify_smart_motion_watch_timer = -1
     let s:signify_smart_motion_timer = -1
 
-    if s:signify_smart_motion_popup != 0
-          \ && !empty(popup_getpos(s:signify_smart_motion_popup))
-      call popup_show(s:signify_smart_motion_popup)
-    endif
     let s:signify_smart_motion_popup = 0
+    call s:SignifySmartPopupReposition(1)
   endfunction
 
   function! s:SignifySmartFlick(impulse) abort
@@ -344,66 +340,48 @@ augroup END
     endif
   endfunction
 
-  function! s:SignifySmartClearAnchor() abort
-    if s:signify_smart_source_buf <= 0
-          \ || !bufloaded(s:signify_smart_source_buf)
+  function! s:SignifySmartPopupReposition(force) abort
+    if s:signify_smart_popup == 0
+          \ || s:signify_smart_motion_popup != 0
+          \ || empty(popup_getpos(s:signify_smart_popup))
+          \ || (!a:force
+          \     && !has_key(v:event, string(s:signify_smart_source_win)))
       return
     endif
 
-    if !empty(prop_type_get(s:signify_smart_anchor_type,
-          \ {'bufnr': s:signify_smart_source_buf}))
-      call prop_remove({
-            \ 'type': s:signify_smart_anchor_type,
-            \ 'bufnr': s:signify_smart_source_buf,
-            \ 'all': 1,
-            \ })
-    endif
-  endfunction
-
-  function! s:SignifySmartSetAnchor() abort
-    if empty(prop_type_get(s:signify_smart_anchor_type,
-          \ {'bufnr': s:signify_smart_source_buf}))
-      call prop_type_add(s:signify_smart_anchor_type,
-            \ {'bufnr': s:signify_smart_source_buf})
+    let l:screen = screenpos(
+          \ s:signify_smart_source_win,
+          \ s:signify_smart_anchor_line,
+          \ s:signify_smart_anchor_col)
+    if empty(l:screen) || l:screen.row == 0
+      if get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+        call popup_hide(s:signify_smart_popup)
+      endif
+      return
     endif
 
-    call prop_remove({
-          \ 'type': s:signify_smart_anchor_type,
-          \ 'bufnr': s:signify_smart_source_buf,
-          \ 'all': 1,
-          \ })
-    call prop_add(s:signify_smart_anchor_line, s:signify_smart_anchor_col, {
-          \ 'type': s:signify_smart_anchor_type,
-          \ 'id': s:signify_smart_anchor_id,
-          \ 'length': 1,
-          \ 'bufnr': s:signify_smart_source_buf,
-          \ })
+    if !get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+      call popup_show(s:signify_smart_popup)
+    endif
+    call popup_move(s:signify_smart_popup, {'line': l:screen.row + 1})
   endfunction
 
-  function! s:SignifySmartCreateAnchoredPopup(lines, options) abort
-    call s:SignifySmartSetAnchor()
-
-    let l:textpos = screenpos(
+  function! s:SignifySmartCreatePopup(lines, options) abort
+    let l:screen = screenpos(
           \ s:signify_smart_source_win,
           \ s:signify_smart_anchor_line,
           \ s:signify_smart_anchor_col)
     let l:winpos = win_screenpos(s:signify_smart_source_win)
-    let l:col = l:textpos.col > 0 ? l:winpos[1] - l:textpos.col : 0
 
     return popup_create(a:lines, {
-          \ 'pos': 'topleft',
-          \ 'textprop': s:signify_smart_anchor_type,
-          \ 'textpropid': s:signify_smart_anchor_id,
-          \ 'textpropwin': s:signify_smart_source_win,
-          \ 'col': l:col,
+          \ 'line': l:screen.row + 1,
+          \ 'col': l:winpos[1] - 1,
           \ 'minwidth': get(a:options, 'minwidth',
           \     winwidth(win_id2win(s:signify_smart_source_win))),
           \ 'maxheight': get(a:options, 'maxheight', len(a:lines)),
           \ 'wrap': get(a:options, 'wrap', 1),
           \ 'scrollbar': get(a:options, 'scrollbar', 1),
           \ 'zindex': get(a:options, 'zindex', 1000),
-          \ 'clipwindow': v:true,
-          \ 'posinvert': v:false,
           \ })
   endfunction
 
@@ -438,7 +416,7 @@ augroup END
         return
       endif
 
-      let l:popup = s:SignifySmartCreateAnchoredPopup(l:lines, l:options)
+      let l:popup = s:SignifySmartCreatePopup(l:lines, l:options)
       let s:signify_smart_popup = l:popup
       let l:buffer = winbufnr(l:popup)
       call setbufvar(l:buffer, '&syntax', 'diff')
@@ -448,6 +426,9 @@ augroup END
         call setbufvar(l:buffer, 'DiffUnit', l:mode)
         call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
       endif
+
+      call s:SignifySmartPopupReposition(1)
+      redraw
     finally
       call s:SignifySmartRestoreDiffUnitSyntax()
     endtry
@@ -460,7 +441,6 @@ augroup END
       call s:SignifySmartRestoreDiffUnitSyntax()
     endif
 
-    call s:SignifySmartClearAnchor()
     if s:signify_smart_popup != 0
           \ && !empty(popup_getpos(s:signify_smart_popup))
       call popup_close(s:signify_smart_popup)
