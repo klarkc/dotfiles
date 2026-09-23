@@ -390,8 +390,7 @@ augroup END
     let l:padding = repeat(' ', max([0, l:textoff - 1]))
     let l:popup_lines = map(copy(a:lines),
           \ 'empty(v:val) ? v:val : v:val[0] . l:padding . v:val[1:]')
-    let l:relative_row = l:screen.row - l:winpos[0] + 1
-    let l:maxheight = max([1, winheight(l:source_win) - l:relative_row])
+    let l:maxheight = max([1, winheight(l:source_win)])
 
     let l:popup = popup_create(l:popup_lines, {
           \ 'line': l:screen.row + 1,
@@ -401,6 +400,7 @@ augroup END
           \ 'wrap': 1,
           \ 'scrollbar': 1,
           \ 'zindex': 1000,
+          \ 'posinvert': 1,
           \ 'hidden': 1,
           \ })
 
@@ -466,6 +466,7 @@ augroup END
       let s:signify_smart_popup = l:popup
       let l:buffer = winbufnr(l:popup)
       call setbufvar(l:buffer, 'SignifySmartDiffMode', l:mode)
+      call setbufvar(l:buffer, 'DiffColors', 0)
       if l:mode !=# 'Block'
         call setbufvar(l:buffer, 'DiffUnit', l:mode)
       endif
