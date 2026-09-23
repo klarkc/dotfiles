@@ -259,27 +259,20 @@ augroup END
     return l:has_pairs ? 'Char' : 'Word1'
   endfunction
 
-  function! s:SignifyClearDiffUnitHighlights(popup) abort
-    let l:syntax = win_execute(a:popup, 'silent syntax list')
-    let l:groups = []
-    for l:line in split(l:syntax, "\n")
-      let l:group = matchstr(l:line, '^diffunitsyntax\S*')
-      if !empty(l:group) && index(l:groups, l:group) < 0
-        call add(l:groups, l:group)
-      endif
-    endfor
-
-    for l:group in l:groups
-      call win_execute(a:popup, 'silent! syntax clear ' . l:group)
-    endfor
-  endfunction
-
   let s:signify_smart_popup = 0
   let s:signify_smart_source_win = 0
   let s:signify_smart_anchor_line = 0
   let s:signify_smart_anchor_col = 1
   let s:signify_smart_before_popups = []
   let s:signify_smart_timer = -1
+  let s:signify_smart_diff_unit_syntax = -1
+
+  function! s:SignifySmartRestoreDiffUnitSyntax() abort
+    if s:signify_smart_diff_unit_syntax >= 0
+      let g:DiffUnitSyntax = s:signify_smart_diff_unit_syntax
+      let s:signify_smart_diff_unit_syntax = -1
+    endif
+  endfunction
 
   function! s:SignifySmartPopupReposition() abort
     if s:signify_smart_popup == 0
@@ -312,20 +305,24 @@ augroup END
     let l:candidates = filter(l:candidates,
           \ 'getbufvar(winbufnr(v:val), "&syntax") ==# "diff"')
     if empty(l:candidates)
+      let l:info = timer_info(a:timer)
+      if !empty(l:info) && l:info[0].repeat == 0
+        let s:signify_smart_timer = -1
+        call s:SignifySmartRestoreDiffUnitSyntax()
+      endif
       return
     endif
 
     call timer_stop(a:timer)
     let s:signify_smart_timer = -1
+    call s:SignifySmartRestoreDiffUnitSyntax()
     let l:popup = l:candidates[-1]
     let s:signify_smart_popup = l:popup
     let l:buffer = winbufnr(l:popup)
     let l:mode = s:SignifySmartDiffMode(getbufline(l:buffer, 1, '$'))
     call setbufvar(l:buffer, 'SignifySmartDiffMode', l:mode)
 
-    if l:mode ==# 'Block'
-      call s:SignifyClearDiffUnitHighlights(l:popup)
-    else
+    if l:mode !=# 'Block'
       call setbufvar(l:buffer, 'DiffUnit', l:mode)
       call win_execute(l:popup, 'call diffunitsyntax#DiffUnitSyntax()')
     endif
@@ -334,6 +331,8 @@ augroup END
   function! s:SignifySmartHunkDiff() abort
     if s:signify_smart_timer != -1
       call timer_stop(s:signify_smart_timer)
+      let s:signify_smart_timer = -1
+      call s:SignifySmartRestoreDiffUnitSyntax()
     endif
 
     let s:signify_smart_popup = 0
@@ -341,6 +340,8 @@ augroup END
     let s:signify_smart_anchor_line = line('.')
     let s:signify_smart_anchor_col = max([1, col('.')])
     let s:signify_smart_before_popups = popup_list()
+    let s:signify_smart_diff_unit_syntax = get(g:, 'DiffUnitSyntax', 1)
+    let g:DiffUnitSyntax = min([1, s:signify_smart_diff_unit_syntax])
     SignifyHunkDiff
     let s:signify_smart_timer = timer_start(
           \ 10,
