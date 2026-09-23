@@ -269,6 +269,9 @@ augroup END
   let s:signify_smart_before_popups = []
   let s:signify_smart_timer = -1
   let s:signify_smart_diff_unit_syntax = -1
+  let s:signify_smart_motion_timer = -1
+  let s:signify_smart_motion_watch_timer = -1
+  let s:signify_smart_motion_popup = 0
 
   augroup SignifySmartPopup
     autocmd!
@@ -278,6 +281,66 @@ augroup END
     if s:signify_smart_diff_unit_syntax >= 0
       let g:DiffUnitSyntax = s:signify_smart_diff_unit_syntax
       let s:signify_smart_diff_unit_syntax = -1
+    endif
+  endfunction
+
+  function! s:SignifySmartMotionRunning() abort
+    return s:signify_smart_motion_timer > 0
+          \ && !empty(timer_info(s:signify_smart_motion_timer))
+  endfunction
+
+  function! s:SignifySmartFindMotionTimer() abort
+    let l:interval = float2nr(round(get(
+          \ g:,
+          \ 'comfortable_motion_interval',
+          \ 1000.0 / 60)))
+
+    for l:timer in timer_info()
+      if l:timer.repeat == -1
+            \ && abs(l:timer.time - l:interval) <= 1
+            \ && string(l:timer.callback) =~# '_tick'
+        return l:timer.id
+      endif
+    endfor
+    return -1
+  endfunction
+
+  function! s:SignifySmartMotionWatch(timer) abort
+    if s:SignifySmartMotionRunning()
+      return
+    endif
+
+    call timer_stop(a:timer)
+    let s:signify_smart_motion_watch_timer = -1
+    let s:signify_smart_motion_timer = -1
+
+    if s:signify_smart_motion_popup != 0
+          \ && !empty(popup_getpos(s:signify_smart_motion_popup))
+      call popup_show(s:signify_smart_motion_popup)
+    endif
+    let s:signify_smart_motion_popup = 0
+  endfunction
+
+  function! s:SignifySmartFlick(impulse) abort
+    if s:signify_smart_popup != 0
+          \ && !empty(popup_getpos(s:signify_smart_popup))
+          \ && get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+      call popup_hide(s:signify_smart_popup)
+      let s:signify_smart_motion_popup = s:signify_smart_popup
+    endif
+
+    call comfortable_motion#flick(a:impulse)
+
+    if !s:SignifySmartMotionRunning()
+      let s:signify_smart_motion_timer = s:SignifySmartFindMotionTimer()
+    endif
+
+    if s:signify_smart_motion_popup != 0
+          \ && s:signify_smart_motion_watch_timer == -1
+      let s:signify_smart_motion_watch_timer = timer_start(
+            \ 30,
+            \ function('<SID>SignifySmartMotionWatch'),
+            \ {'repeat': -1})
     endif
   endfunction
 
@@ -490,7 +553,12 @@ augroup END
 "}}
 
 "{{ Confortable Motion
+let g:comfortable_motion_no_default_key_mappings = 1
 Plug 'yuttie/comfortable-motion.vim'
+nnoremap <silent> <C-d> :call <SID>SignifySmartFlick(100)<CR>
+nnoremap <silent> <C-u> :call <SID>SignifySmartFlick(-100)<CR>
+nnoremap <silent> <C-f> :call <SID>SignifySmartFlick(200)<CR>
+nnoremap <silent> <C-b> :call <SID>SignifySmartFlick(-200)<CR>
 "}}
 "
 "{{ Undotree
