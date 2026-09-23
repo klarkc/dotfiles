@@ -320,9 +320,10 @@ augroup END
   function! s:SignifySmartFlick(impulse) abort
     if s:signify_smart_popup != 0
           \ && !empty(popup_getpos(s:signify_smart_popup))
-          \ && get(popup_getpos(s:signify_smart_popup), 'visible', 0)
-      call popup_hide(s:signify_smart_popup)
       let s:signify_smart_motion_popup = s:signify_smart_popup
+      if get(popup_getpos(s:signify_smart_popup), 'visible', 0)
+        call popup_hide(s:signify_smart_popup)
+      endif
     endif
 
     call comfortable_motion#flick(a:impulse)
