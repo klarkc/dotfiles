@@ -12,6 +12,10 @@
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
+    meet2notes-src = {
+      url = "github:estebanstifli/Meet2Notes/ace9f3d2f5454492c898a2e4d6da3359286dcfec";
+      flake = false;
+    };
     alacritty-ligatures-src = {
       url = "github:ink-splatters/alacritty-ligatures/ligature";
       flake = false;
@@ -60,6 +64,7 @@
     utils.apply-systems
       {
         inherit inputs;
+        systems = [ "x86_64-linux" ];
         overlays = [ inputs.herdr ];
         make-pkgs =
           system:
@@ -172,6 +177,9 @@
           vllmRuntime = pkgs.callPackage ./.nix/vllm-runtime.nix {
             # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
             version = "0.24.0-cu130";
+          };
+          meet2notes = pkgs.callPackage ./.nix/meet2notes.nix {
+            meet2notes-src = inputs.meet2notes-src;
           };
           mcpRemoteRuntime = pkgs.callPackage ./.nix/mcp-remote-runtime.nix {
             # Bump note: `mcp-remote` runtime. Coupled bumps: see
@@ -445,6 +453,7 @@
                 backupTools.testScript
                 kolu
                 herdr
+                meet2notes
                 vllmRuntime
                 jsRuntimes
               ];
@@ -454,6 +463,7 @@
           packages.archive-pack = backupTools.packScript;
           packages.archive-pack-test = backupTools.testScript;
           packages.fusion-runtime = fusionRuntime;
+          packages.meet2notes = meet2notes;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
         }
