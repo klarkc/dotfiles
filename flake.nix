@@ -12,8 +12,19 @@
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
-    meet2notes-src = {
-      url = "github:estebanstifli/Meet2Notes/ace9f3d2f5454492c898a2e4d6da3359286dcfec";
+    # Bump note: Ledgeur source. When bumping, refresh both the Cargo and pnpm
+    # dependency hashes in `.nix/ledgeur-runtime.nix`, reapply the local patch,
+    # and verify the native PT transcription + vLLM note path.
+    ledgeur-src = {
+      url = "github:maxbeech/ledgeur";
+      flake = false;
+    };
+    # Bump note: sherpa-rs 0.6 is built with download-binaries disabled, so the
+    # matching sherpa-onnx shared runtime is a locked flake input instead of a
+    # network fetch during the Nix build. Review this together with Ledgeur's
+    # sherpa-rs version when either side changes.
+    sherpa-onnx-bin = {
+      url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.9/sherpa-onnx-v1.12.9-linux-x64-shared.tar.bz2";
       flake = false;
     };
     alacritty-ligatures-src = {
@@ -178,8 +189,9 @@
             # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
             version = "0.24.0-cu130";
           };
-          meet2notes = pkgs.callPackage ./.nix/meet2notes.nix {
-            meet2notes-src = inputs.meet2notes-src;
+          ledgeurRuntime = pkgs.callPackage ./.nix/ledgeur-runtime.nix {
+            ledgeur-src = inputs.ledgeur-src;
+            sherpa-onnx-bin = inputs.sherpa-onnx-bin;
           };
           mcpRemoteRuntime = pkgs.callPackage ./.nix/mcp-remote-runtime.nix {
             # Bump note: `mcp-remote` runtime. Coupled bumps: see
@@ -453,7 +465,7 @@
                 backupTools.testScript
                 kolu
                 herdr
-                meet2notes
+                ledgeurRuntime
                 vllmRuntime
                 jsRuntimes
               ];
@@ -463,7 +475,7 @@
           packages.archive-pack = backupTools.packScript;
           packages.archive-pack-test = backupTools.testScript;
           packages.fusion-runtime = fusionRuntime;
-          packages.meet2notes = meet2notes;
+          packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
         }
