@@ -184,6 +184,22 @@
         "type": "github"
       }
     },
+    "ledgeur-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790756162,
+        "narHash": "sha256-iHo8wOEfgR1AUsBWYW90mwjiUGIyP7v3n4b1Ys/+8rE=",
+        "owner": "maxbeech",
+        "repo": "ledgeur",
+        "rev": "8d1dda79b86de8b6de50f9c74911e22e0301d797",
+        "type": "github"
+      },
+      "original": {
+        "owner": "maxbeech",
+        "repo": "ledgeur",
+        "type": "github"
+      }
+    },
     "mcp-remote-src": {
       "flake": false,
       "locked": {
@@ -198,23 +214,6 @@
         "owner": "punkpeye",
         "repo": "mcp-remote",
         "rev": "77bbcfcd7892d339c27b5a14818b63cb5c4d3293",
-        "type": "github"
-      }
-    },
-    "meet2notes-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1790578897,
-        "narHash": "sha256-AXzCrxcQ3QJ37Hju7Mc09sbtdUbSS/qi8iDZdWGvNIQ=",
-        "owner": "estebanstifli",
-        "repo": "Meet2Notes",
-        "rev": "ace9f3d2f5454492c898a2e4d6da3359286dcfec",
-        "type": "github"
-      },
-      "original": {
-        "owner": "estebanstifli",
-        "repo": "Meet2Notes",
-        "rev": "ace9f3d2f5454492c898a2e4d6da3359286dcfec",
         "type": "github"
       }
     },
@@ -304,12 +303,13 @@
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
+        "ledgeur-src": "ledgeur-src",
         "mcp-remote-src": "mcp-remote-src",
-        "meet2notes-src": "meet2notes-src",
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
         "qmd-src": "qmd-src",
+        "sherpa-onnx-bin": "sherpa-onnx-bin",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils"
       }
@@ -333,6 +333,19 @@
         "owner": "oxalica",
         "repo": "rust-overlay",
         "type": "github"
+      }
+    },
+    "sherpa-onnx-bin": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1755349174,
+        "narHash": "sha256-Ft0oO4fGUYfHygbTcXIoCkOnn5mSXh3KX1LE5UK2HGU=",
+        "type": "tarball",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.9/sherpa-onnx-v1.12.9-linux-x64-shared.tar.bz2"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.9/sherpa-onnx-v1.12.9-linux-x64-shared.tar.bz2"
       }
     },
     "systems": {

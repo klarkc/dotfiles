@@ -1,0 +1,353 @@
+diff --git a/apps/desktop/src-tauri/Cargo.toml b/apps/desktop/src-tauri/Cargo.toml
+index 7c57d88..1fa95fc 100644
+--- a/apps/desktop/src-tauri/Cargo.toml
++++ b/apps/desktop/src-tauri/Cargo.toml
+@@ -43,7 +43,7 @@ whisper-rs = { version = "0.16", optional = true }
+ # wrapper hardcodes `num_threads: 1` for the segmentation and embedding models
+ # with no way to override it, which made diarizing a ten-minute meeting take the
+ # better part of an hour — see `diarize` in src/ai/engine.rs.
+-sherpa-rs = { version = "0.6", optional = true, features = ["sys"] }
++sherpa-rs = { version = "0.6", optional = true, default-features = false, features = ["sys"] }
+ # Not optional: webhook deliveries go through the native side (src/net.rs)
+ # because a webview fetch is subject to CORS and real webhook receivers do not
+ # implement it. `sentry` already pulls reqwest+rustls into every build, so this
+diff --git a/apps/desktop/src-tauri/src/ai/engine.rs b/apps/desktop/src-tauri/src/ai/engine.rs
+index b293a33..d33a8ca 100644
+--- a/apps/desktop/src-tauri/src/ai/engine.rs
++++ b/apps/desktop/src-tauri/src/ai/engine.rs
+@@ -142,7 +142,9 @@ mod inner {
+         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+         // whisper.cpp's own default is min(4, cores) regardless of the machine.
+         params.set_n_threads(inference_threads());
+-        params.set_language(Some("en"));
++        let language = std::env::var("LEDGEUR_WHISPER_LANGUAGE")
++            .unwrap_or_else(|_| "pt".to_string());
++        params.set_language(Some(&language));
+         // The state is reused now, and whisper.cpp otherwise seeds each pass
+         // with the previous one's tokens. Across a live recording that is not
+         // continuity, it is one utterance's words being offered as context for
+@@ -583,7 +585,7 @@ mod inner {
+     // merges them. CAM++ is also several times cheaper to run, which matters
+     // because this model is evaluated once per diarization window.
+     const DOWNLOADS: &[(&str, &str)] = &[
+-        (WHISPER_MODEL, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"),
++        (WHISPER_MODEL, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
+         (SEG_MODEL, "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"),
+         (EMBED_MODEL, "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/wespeaker_en_voxceleb_CAM%2B%2B.onnx"),
+     ];
+diff --git a/apps/desktop/src-tauri/src/ai/mod.rs b/apps/desktop/src-tauri/src/ai/mod.rs
+index 7de9e38..af6ad49 100644
+--- a/apps/desktop/src-tauri/src/ai/mod.rs
++++ b/apps/desktop/src-tauri/src/ai/mod.rs
+@@ -49,7 +49,7 @@ pub struct AiStatus {
+     pub models_dir: String,
+ }
+ 
+-pub const WHISPER_MODEL: &str = "ggml-base.en.bin";
++pub const WHISPER_MODEL: &str = "ggml-medium.bin";
+ pub const SEG_MODEL: &str = "pyannote-segmentation-3.0.onnx";
+ /// English CAM++ (see `DOWNLOADS` in engine.rs for why it replaced the previous
+ /// Mandarin-trained model). The filename carries the model so an existing
+diff --git a/apps/desktop/src-tauri/tauri.conf.json b/apps/desktop/src-tauri/tauri.conf.json
+index 9d90e22..b0dafc3 100644
+--- a/apps/desktop/src-tauri/tauri.conf.json
++++ b/apps/desktop/src-tauri/tauri.conf.json
+@@ -23,7 +23,7 @@
+       }
+     ],
+     "security": {
+-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; connect-src 'self' ipc: http://ipc.localhost https://cdn.jsdelivr.net https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.hf.co http://127.0.0.1:8081 https://*.supabase.co wss://*.supabase.co https://www.googleapis.com https://graph.microsoft.com https://*.sentry.io; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob:"
++      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; connect-src 'self' ipc: http://ipc.localhost https://cdn.jsdelivr.net https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.hf.co http://127.0.0.1:8081 http://127.0.0.1:8000 https://*.supabase.co wss://*.supabase.co https://www.googleapis.com https://graph.microsoft.com https://*.sentry.io; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob:"
+     }
+   },
+   "bundle": {
+diff --git a/apps/desktop/src/lib/config.ts b/apps/desktop/src/lib/config.ts
+index 132ed07..a85b4b1 100644
+--- a/apps/desktop/src/lib/config.ts
++++ b/apps/desktop/src/lib/config.ts
+@@ -12,7 +12,12 @@ export const CONFIG = {
+   supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY ?? "",
+   /** OpenAI-compatible HTTP fallback (BYO cloud key or external llama.cpp). The
+    *  default on-device path is the in-process native engine — no server needed. */
+-  localLlmUrl: env.VITE_LOCAL_LLM_URL ?? "http://127.0.0.1:8081/v1",
++  localLlmUrl: env.VITE_LOCAL_LLM_URL ?? "http://127.0.0.1:8000/v1",
++  /** Prefer an already-running OpenAI-compatible local model over the bundled
++   * assistant. This lets Ledgeur share the user's existing vLLM runtime. */
++  preferExternalLlm: env.VITE_PREFER_EXTERNAL_LLM === "1",
++  /** Optional explicit served model name. Blank means discover /v1/models. */
++  localLlmModel: env.VITE_LOCAL_LLM_MODEL ?? "",
+   /** Error tracking. Blank disables Sentry entirely (local-only dev is silent). */
+   sentryDsn: env.VITE_SENTRY_DSN ?? "",
+   /** Product analytics (GA4 Measurement Protocol). This surface has no
+diff --git a/apps/desktop/src/lib/llm.ts b/apps/desktop/src/lib/llm.ts
+index 013ea86..6e3fa6d 100644
+--- a/apps/desktop/src/lib/llm.ts
++++ b/apps/desktop/src/lib/llm.ts
+@@ -78,11 +78,27 @@ async function nativeChat(messages: ChatMessage[], opts: ChatOptions): Promise<s
+   });
+ }
+ 
++async function discoverHttpModel(baseUrl: string, apiKey?: string): Promise<string> {
++  if (CONFIG.localLlmModel) return CONFIG.localLlmModel;
++  try {
++    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
++    const res = await fetch(`${baseUrl}/models`, { headers });
++    if (res.ok) {
++      const data = (await res.json()) as { data?: { id?: string }[] };
++      const id = data.data?.find((item) => item.id)?.id;
++      if (id) return id;
++    }
++  } catch {
++    // The completion request below will surface the useful connection error.
++  }
++  return "local";
++}
++
+ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<string> {
+   const http = opts.http;
+   const baseUrl = http?.baseUrl ?? CONFIG.localLlmUrl;
+   const body = {
+-    model: http?.model || "local",
++    model: http?.model || await discoverHttpModel(baseUrl, http?.apiKey),
+     temperature: opts.temperature ?? 0.2,
+     stream: false,
+     messages,
+@@ -113,6 +129,16 @@ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<str
+  *  explicit error. The single entry point for every LLM feature (chat, coaching
+  *  suggestions, post-meeting notes). */
+ export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = {}): Promise<string> {
++  if (CONFIG.preferExternalLlm && !opts.http) {
++    try {
++      return (await httpChat(messages, opts)).trim();
++    } catch (externalError) {
++      const nativeFallback = await nativeChat(messages, opts);
++      if (nativeFallback != null) return nativeFallback.trim();
++      throw externalError;
++    }
++  }
++
+   const native = await nativeChat(messages, opts);
+   if (native != null) return native.trim();
+ 
+diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
+index 826642a..4d8676d 100644
+--- a/apps/desktop/src/lib/settings.ts
++++ b/apps/desktop/src/lib/settings.ts
+@@ -17,7 +17,7 @@ import { DEFAULT_TEMPLATE_ID } from "@ledgeur/core";
+  * "Start recording" — which is a full reload, and looked exactly like the
+  * warmup having done nothing at all.
+  */
+-export const DEFAULT_LANG = "en-hq";
++export const DEFAULT_LANG = "multi:pt";
+ 
+ export interface Settings {
+   /** The copilot proactively posts "you could say…" suggestions into the
+diff --git a/apps/desktop/src/lib/useFileImport.ts b/apps/desktop/src/lib/useFileImport.ts
+index cd48dc8..41cbc07 100644
+--- a/apps/desktop/src/lib/useFileImport.ts
++++ b/apps/desktop/src/lib/useFileImport.ts
+@@ -6,20 +6,24 @@
+ // a microphone — and that the meeting is filed under the file's own date rather
+ // than pretending it happened now.
+ //
+-// The webview pipeline is used regardless of whether the native engine is
+-// built, because a file is not a live stream: there is no latency to win, and
+-// the browser path already separates speakers.
++// In the desktop shell, imports use the same native whisper.cpp + sherpa
++// pipeline as live meetings. Browser builds keep the transformers.js path as a
++// fallback, but desktop imports should never need a remote module just to
++// transcribe a local file.
+ 
+ import { useCallback, useRef, useState } from "react";
+ import {
+   resample, WHISPER_SAMPLE_RATE, notesToMarkdown, defaultSpeakerLabel,
+-  type AsrChunk,
++  attributeSpeakers, speakersFromTurns, type AsrChunk,
+ } from "@ledgeur/core";
+ import {
+   AudioCapture, TranscriberController, DiarizerController, listVoiceProfiles,
+ } from "@ledgeur/core/browser";
+ import { saveMeeting, type LocalMeeting, type LocalSegment, type LocalSpeaker } from "./meetingsStore.ts";
+ import { autoLabelSpeakers } from "./speakerNames.ts";
++import {
++  aiStatus, nativeTranscribeChunk, nativeDiarizeMeeting, onDiarizeProgress,
++} from "./nativeAI.ts";
+ import { generateMeetingNotes } from "./notes.ts";
+ import { createLogger } from "./logger.ts";
+ import { track } from "./analytics.ts";
+@@ -81,59 +85,113 @@ export function useFileImport() {
+       const audio = resample(decoded.audio, decoded.sampleRate, WHISPER_SAMPLE_RATE);
+       const durationSec = audio.length / WHISPER_SAMPLE_RATE;
+ 
+-      patch({ step: "Loading the speech model…" });
+-      transcriber = new TranscriberController({ onProgress: (_f, p) => patch({ progress: p }) });
+-      await transcriber.preloadAndWait(lang);
+-
+-      patch({ step: `Transcribing ${Math.max(1, Math.round(durationSec / 60))} minute(s) of audio…`, progress: 100 });
+-      // Each worker takes ownership of the buffer it is handed, so each gets a
+-      // copy — otherwise one of them transcribes an empty array.
+-      const { chunks, text } = await transcriber.transcribe(audio.slice(), lang, 0);
+-      const timed: AsrChunk[] = chunks.length
+-        ? chunks
+-        : (text.trim() ? [{ text: text.trim(), start: 0, end: durationSec }] : []);
+-      if (timed.length === 0) throw new Error("No speech was found in that recording.");
+-
+-      patch({ step: "Working out who was speaking…" });
+-      diarizer = new DiarizerController();
+-      const profiles = await listVoiceProfiles();
+-      const diarized = await diarizer.diarize(audio.slice(), timed, {
+-        profiles,
+-        onProgress: (p) => patch({
+-          step: p.stage === "segmenting"
+-            ? `Finding the speakers… ${p.done}/${p.total}`
+-            : `Identifying voices… ${p.done}/${p.total}`,
+-        }),
+-      });
+-      if (diarized.warning) log.warn("speaker labels unavailable", diarized.warning);
+-
+-      const names = new Map(diarized.speakers.map((s) => [s.speaker, s]));
+-      let segments: LocalSegment[] = (diarized.segments.length ? diarized.segments : timed.map((c) => ({
+-        startMs: Math.round(c.start * 1000),
+-        endMs: Math.round((c.end ?? c.start) * 1000),
+-        text: c.text,
+-        speaker: null as number | null,
+-        confidence: null as number | null,
+-      }))).map((seg) => {
+-        const speaker = seg.speaker == null ? null : names.get(seg.speaker);
+-        return {
++      let warning = "";
++      let segments: LocalSegment[] = [];
++      let speakers: LocalSpeaker[] = [];
++
++      const nativeStatus = await aiStatus();
++      const useNative = Boolean(nativeStatus?.compiled && nativeStatus?.models_ready);
++
++      if (useNative) {
++        patch({
++          step: `Transcribing ${Math.max(1, Math.round(durationSec / 60))} minute(s) of audio with Whisper…`,
++          progress: 100,
++        });
++        const nativeSegments = await nativeTranscribeChunk(audio);
++        segments = nativeSegments.map((seg) => ({
+           id: uid(),
+-          speakerLabel: speaker?.label ?? defaultSpeakerLabel(seg.speaker ?? 0),
+-          startMs: seg.startMs,
+-          endMs: seg.endMs,
++          // Speaker attribution is intentionally done by the whole-meeting pass
++          // below; the per-chunk live matcher is not evidence for a file import.
++          speakerLabel: "",
++          startMs: seg.start_ms,
++          endMs: seg.end_ms,
+           text: seg.text,
+           confidence: seg.confidence,
+-          speakerConfidence: speaker?.confidence ?? null,
+-        };
+-      });
++          speakerConfidence: null,
++        }));
++        if (segments.length === 0) throw new Error("No speech was found in that recording.");
++
++        patch({ step: "Working out who was speaking…" });
++        const unlisten = await onDiarizeProgress((p) => patch({
++          step: p.phase,
++          progress: p.percent,
++        }));
++        try {
++          const turns = await nativeDiarizeMeeting(audio);
++          if (turns.length) {
++            const attributed = turns.map((t) => ({
++              startMs: t.start_ms,
++              endMs: t.end_ms,
++              label: t.label,
++              confidence: t.confidence,
++            }));
++            segments = attributeSpeakers(segments, attributed);
++            speakers = speakersFromTurns(attributed).map((sp): LocalSpeaker => ({
++              label: sp.label,
++              confidence: sp.confidence,
++              speakingSeconds: sp.speakingSeconds,
++            }));
++          } else {
++            warning = "The recording was transcribed, but no distinct speakers could be separated.";
++          }
++        } finally {
++          unlisten();
++        }
++      } else {
++        // Browser fallback for non-native builds.
++        patch({ step: "Loading the speech model…" });
++        transcriber = new TranscriberController({ onProgress: (_f, p) => patch({ progress: p }) });
++        await transcriber.preloadAndWait(lang);
++
++        patch({ step: `Transcribing ${Math.max(1, Math.round(durationSec / 60))} minute(s) of audio…`, progress: 100 });
++        const { chunks, text } = await transcriber.transcribe(audio.slice(), lang, 0);
++        const timed: AsrChunk[] = chunks.length
++          ? chunks
++          : (text.trim() ? [{ text: text.trim(), start: 0, end: durationSec }] : []);
++        if (timed.length === 0) throw new Error("No speech was found in that recording.");
++
++        patch({ step: "Working out who was speaking…" });
++        diarizer = new DiarizerController();
++        const profiles = await listVoiceProfiles();
++        const diarized = await diarizer.diarize(audio.slice(), timed, {
++          profiles,
++          onProgress: (p) => patch({
++            step: p.stage === "segmenting"
++              ? `Finding the speakers… ${p.done}/${p.total}`
++              : `Identifying voices… ${p.done}/${p.total}`,
++          }),
++        });
++        warning = diarized.warning ?? "";
++        if (warning) log.warn("speaker labels unavailable", warning);
++
++        const names = new Map(diarized.speakers.map((s) => [s.speaker, s]));
++        segments = (diarized.segments.length ? diarized.segments : timed.map((c) => ({
++          startMs: Math.round(c.start * 1000),
++          endMs: Math.round((c.end ?? c.start) * 1000),
++          text: c.text,
++          speaker: null as number | null,
++          confidence: null as number | null,
++        }))).map((seg) => {
++          const speaker = seg.speaker == null ? null : names.get(seg.speaker);
++          return {
++            id: uid(),
++            speakerLabel: speaker?.label ?? defaultSpeakerLabel(seg.speaker ?? 0),
++            startMs: seg.startMs,
++            endMs: seg.endMs,
++            text: seg.text,
++            confidence: seg.confidence,
++            speakerConfidence: speaker?.confidence ?? null,
++          };
++        });
+ 
+-      let speakers: LocalSpeaker[] = diarized.speakers.map((sp): LocalSpeaker => ({
+-        label: sp.label,
+-        confidence: sp.confidence,
+-        embedding: sp.embedding,
+-        speakingSeconds: sp.speakingSeconds,
+-        ...(sp.profileId ? { nameSource: "matched" as const } : {}),
+-      }));
++        speakers = diarized.speakers.map((sp): LocalSpeaker => ({
++          label: sp.label,
++          confidence: sp.confidence,
++          embedding: sp.embedding,
++          speakingSeconds: sp.speakingSeconds,
++          ...(sp.profileId ? { nameSource: "matched" as const } : {}),
++        }));
++      }
+ 
+       // Who are these people? The same pass the recorder runs: the on-device
+       // model reads the transcript for introductions and greetings and names
+@@ -179,10 +237,10 @@ export function useFileImport() {
+         updatedAt: new Date().toISOString(),
+       };
+       await saveMeeting(meeting, "none");
+-      log.info("imported", { id, segments: segments.length, speakers: diarized.speakers.length });
++      log.info("imported", { id, segments: segments.length, speakers: speakers.length, native: useNative });
+       track("meeting_saved", { source: "import", segments: segments.length, word_count: notes.wordCount });
+ 
+-      setState({ ...IDLE, warning: diarized.warning ?? "", name: file.name });
++      setState({ ...IDLE, warning, name: file.name });
+       return id;
+     } catch (e) {
+       log.error("import failed", e);
