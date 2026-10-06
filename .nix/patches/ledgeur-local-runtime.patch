@@ -375,7 +375,7 @@ index b6f1041..8bca321 100644
  }
  
 diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
-index ac9d649..4d55c1d 100644
+index ac9d649..90c6612 100644
 --- a/apps/desktop/src/lib/notes.ts
 +++ b/apps/desktop/src/lib/notes.ts
 @@ -21,7 +21,6 @@
@@ -386,15 +386,57 @@ index ac9d649..4d55c1d 100644
    templateInstruction,
    type MeetingNotes,
    type TranscriptLine,
-@@ -109,6 +108,7 @@ const BASE_SYSTEM =
-   "one the transcript supports, not a sample of them — a short meeting may have one or none, a " +
-   "long one may have a dozen, and the count should follow the transcript, not a target length.\n" +
+@@ -42,7 +41,11 @@ const log = createLogger("notes");
+ // 45 s covered generation but not a cold start, so the very first meeting after
+ // launch tended to time out and silently fall back — which looks exactly like
+ // the model being bad at its job rather than never having run.
+-const NOTES_TIMEOUT_MS = 180_000;
++const NOTES_TIMEOUT_MS = 300_000;
++const NOTES_MAX_TOKENS = 448;
++const NOTE_ITEM_WORD_LIMIT = 14;
++const MAX_PARALLEL_NOTE_CALLS = 2;
++const ENABLE_DETAILED_NOTES = false;
+ 
+ /**
+  * Transcript characters per model pass.
+@@ -55,10 +58,17 @@ const NOTES_TIMEOUT_MS = 180_000;
+  * `generateMeetingNotes`.
+  */
+ const CHUNK_CHARS = 14_000;
+-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
++function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
++  const controller = new AbortController();
+   return new Promise((resolve, reject) => {
+-    const timer = setTimeout(() => reject(new Error("Notes generation timed out.")), ms);
+-    p.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
++    const timer = setTimeout(() => {
++      controller.abort();
++      reject(new Error("Notes generation timed out."));
++    }, ms);
++    run(controller.signal).then(
++      (v) => { clearTimeout(timer); resolve(v); },
++      (e) => { clearTimeout(timer); reject(e); },
++    );
+   });
+ }
+ 
+@@ -105,10 +115,12 @@ const BASE_SYSTEM =
+   "- A DECISION is something the group settled on. Write what was agreed, including the " +
+   "number or date they agreed. Do not write that something was discussed or considered. If the " +
+   "same decision comes up more than once in the transcript, write it once.\n" +
+-  "- An ACTION ITEM is a concrete follow-up someone committed to. Name who owns it. List every " +
+-  "one the transcript supports, not a sample of them — a short meeting may have one or none, a " +
+-  "long one may have a dozen, and the count should follow the transcript, not a target length.\n" +
++  "- An ACTION ITEM is a concrete follow-up someone committed to. Name who owns it and preserve " +
++  "the concrete deliverable or deadline. Prioritise explicit commitments over background detail.\n" +
    "- An OPEN QUESTION is something explicitly left unresolved, parked or deferred.\n" +
++  `- Keep every item concise: at most ${NOTE_ITEM_WORD_LIMIT} words.\n` +
++  "- Return at most 8 summary items, 6 action items, 4 decisions and 3 open questions per pass.\n" +
 +  "- Write in the dominant language of the transcript.\n" +
    "- Write in the past tense, about what happened.\n\n" +
    "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
    '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}\n\n' +
-@@ -156,14 +156,20 @@ const DETAILED_SYSTEM =
+@@ -156,14 +168,20 @@ const DETAILED_SYSTEM =
    "unresolved), and what came out of it. Do not compress a topic down to its conclusion if the " +
    "discussion around it — the why, the alternatives considered, the objections raised — is still " +
    "useful to someone who was not there. Leave out only small talk, technical restarts and dead air.\n\n" +
@@ -419,16 +461,19 @@ index ac9d649..4d55c1d 100644
    "- Reply with ONLY the Markdown notes — no preamble, no JSON, no code fence around it.";
  
  /** Appended only when the user actually typed something — same rule as
-@@ -222,7 +228,7 @@ function askForDetailedNotes(transcript: string, manualNotes: string, templateId
+@@ -220,9 +238,9 @@ function stripCodeFence(raw: string): string {
+ /** One detailed-notes pass over a transcript that already fits the window. */
+ function askForDetailedNotes(transcript: string, manualNotes: string, templateId?: string): Promise<string> {
    return withTimeout(
-     chatComplete(
+-    chatComplete(
++    (signal) => chatComplete(
        buildDetailedNotesPrompt(transcript, manualNotes, templateId),
 -      { temperature: 0.2, maxTokens: DETAILED_MAX_TOKENS },
-+      { temperature: 0.2, maxTokens: DETAILED_MAX_TOKENS, disableThinking: true },
++      { temperature: 0.2, maxTokens: DETAILED_MAX_TOKENS, disableThinking: true, signal },
      ),
      NOTES_TIMEOUT_MS,
    ).then(stripCodeFence);
-@@ -353,30 +359,32 @@ export function buildNotesPrompt(
+@@ -353,81 +371,68 @@ export function buildNotesPrompt(
  }
  
  /**
@@ -475,11 +520,13 @@ index ac9d649..4d55c1d 100644
  
    const started = Date.now();
    try {
-@@ -384,50 +392,31 @@ export async function generateMeetingNotes(
+-    const reply = text.length > CHUNK_CHARS
++    const parsed = text.length > CHUNK_CHARS
        ? await condenseLongMeeting(text, notes, templateId)
-       : await askForNotes(text, notes, templateId);
-     const parsed = parseAiNotes(reply, plain);
+-      : await askForNotes(text, notes, templateId);
+-    const parsed = parseAiNotes(reply, plain);
 -    log.info("notes written by the on-device model", {
++      : parseAiNotes(await askForNotes(text, notes, templateId), plain);
 +    log.info("notes written by the configured model", {
        ms: Date.now() - started,
        transcriptChars: text.length,
@@ -493,10 +540,16 @@ index ac9d649..4d55c1d 100644
 -    // timeout. Never allowed to fail the meeting — a write-up that could not
 -    // be written leaves `detailedNotes` unset rather than losing the notes
 -    // that already exist.
-     const detailedNotes = await generateDetailedNotes(text, notes, templateId).catch((e) => {
-       log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
-       return undefined;
-     });
+-    const detailedNotes = await generateDetailedNotes(text, notes, templateId).catch((e) => {
+-      log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
+-      return undefined;
+-    });
++    const detailedNotes = ENABLE_DETAILED_NOTES
++      ? await generateDetailedNotes(text, notes, templateId).catch((e) => {
++        log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
++        return undefined;
++      })
++      : undefined;
      return { ...parsed, detailedNotes, generator: "model" };
    } catch (e) {
 -    // No model, unreachable endpoint, timeout, or an unparseable reply — use the
@@ -527,18 +580,121 @@ index ac9d649..4d55c1d 100644
  function askForNotes(transcript: string, manualNotes: string, templateId?: string): Promise<string> {
    return withTimeout(
 -    chatComplete(buildNotesPrompt(transcript, manualNotes, templateId), { temperature: 0.2, maxTokens: 768 }),
-+    chatComplete(buildNotesPrompt(transcript, manualNotes, templateId), { temperature: 0.2, maxTokens: 768, disableThinking: true }),
++    (signal) => chatComplete(
++      buildNotesPrompt(transcript, manualNotes, templateId),
++      { temperature: 0.2, maxTokens: NOTES_MAX_TOKENS, disableThinking: true, signal },
++    ),
      NOTES_TIMEOUT_MS,
    );
  }
-@@ -557,7 +546,7 @@ async function condenseLongMeeting(
-   // Reduce: the collected points stand in for the transcript. They are already
-   // prose, so they are far denser than raw speech and fit comfortably.
-   return withTimeout(
+@@ -484,21 +489,6 @@ const REDUCE_SYSTEM =
+   "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
+   '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}';
+ 
+-/** One window's notes, grouped under headings the reduce pass can trust —
+- *  never a flat bullet list with a hand-written "Decision:" prefix, which is
+- *  what the model reducing them ends up echoing back verbatim. */
+-function renderWindowNotes(index: number, total: number, notes: MeetingNotes): string {
+-  const section = (heading: string, items: string[]) =>
+-    items.length ? `${heading}:\n${items.map((i) => `- ${i}`).join("\n")}\n` : "";
+-  return (
+-    `Part ${index + 1} of ${total}:\n` +
+-    section("Summary", notes.summary) +
+-    section("Decisions", notes.decisions) +
+-    section("Action items", notes.actionItems) +
+-    section("Open questions", notes.questions)
+-  ).trim();
+-}
+-
+ /** The reduce pass's own prompt — see `REDUCE_SYSTEM` for why it is not
+  *  `buildNotesPrompt`. Exported for testing, same reason `buildNotesPrompt` is. */
+ export function buildReducePrompt(
+@@ -521,43 +511,58 @@ export function buildReducePrompt(
+ }
+ 
+ /**
+- * Notes for a meeting too long for one pass: summarise each window, then
+- * condense the collected points into the final set.
+- *
+- * The alternative — clipping the transcript — dropped the end of every long
+- * meeting, which is exactly where decisions and next steps are agreed.
++ * Notes for a meeting too long for one pass. Windows are generated with at
++ * most two concurrent requests — matching the user's vLLM max-num-seqs=2 —
++ * and merged locally. A second LLM "reduce" pass used to add another minutes-
++ * long generation even though the window results are already structured.
+  */
+ async function condenseLongMeeting(
+   transcript: string,
+   manualNotes: string,
+   templateId?: string,
+-): Promise<string> {
++): Promise<MeetingNotes> {
+   const windows = windowTranscript(transcript);
+-  log.info("summarising a long meeting in windows", { windows: windows.length, chars: transcript.length });
++  log.info("summarising a long meeting in parallel windows", {
++    windows: windows.length,
++    chars: transcript.length,
++    parallel: Math.min(MAX_PARALLEL_NOTE_CALLS, windows.length),
++  });
+ 
+-  const parts: string[] = [];
+-  for (const [i, window] of windows.entries()) {
+-    // Manual notes go only to the final pass: they describe the meeting as a
+-    // whole, and repeating them per window would have each pass try to answer
+-    // points the window it can see has nothing to say about.
+-    const reply = await askForNotes(`(Part ${i + 1} of ${windows.length} of the meeting.)\n\n${window}`, "", templateId);
+-    try {
+-      const notes = parseAiNotes(reply, window);
+-      parts.push(renderWindowNotes(i, windows.length, notes));
+-    } catch (e) {
+-      // One bad window should not lose the rest of the meeting.
+-      log.warn("a transcript window produced no usable notes", {
+-        window: i + 1,
+-        reason: e instanceof Error ? e.message : String(e),
+-      });
++  const results: Array<MeetingNotes | undefined> = new Array(windows.length);
++  let nextWindow = 0;
++  async function worker(): Promise<void> {
++    while (nextWindow < windows.length) {
++      const i = nextWindow++;
++      const window = windows[i];
++      try {
++        const reply = await askForNotes(
++          `(Part ${i + 1} of ${windows.length} of the meeting.)\n\n${window}`,
++          i === 0 ? manualNotes : "",
++          templateId,
++        );
++        results[i] = parseAiNotes(reply, window);
++      } catch (e) {
++        log.warn("a transcript window produced no usable notes", {
++          window: i + 1,
++          reason: e instanceof Error ? e.message : String(e),
++        });
++      }
+     }
+   }
+-  if (parts.length === 0) throw new Error("No transcript window produced usable notes.");
+ 
+-  // Reduce: the collected points stand in for the transcript. They are already
+-  // prose, so they are far denser than raw speech and fit comfortably.
+-  return withTimeout(
 -    chatComplete(buildReducePrompt(parts, manualNotes, templateId), { temperature: 0.2, maxTokens: 768 }),
-+    chatComplete(buildReducePrompt(parts, manualNotes, templateId), { temperature: 0.2, maxTokens: 768, disableThinking: true }),
-     NOTES_TIMEOUT_MS,
+-    NOTES_TIMEOUT_MS,
++  const workers = Array.from(
++    { length: Math.min(MAX_PARALLEL_NOTE_CALLS, windows.length) },
++    () => worker(),
    );
++  await Promise.all(workers);
++  const valid = results.filter((part): part is MeetingNotes => part !== undefined);
++  if (valid.length === 0) throw new Error("No transcript window produced usable notes.");
++
++  return {
++    summary: dedupeSimilar(valid.flatMap((part) => part.summary)).slice(0, 14),
++    actionItems: dedupeSimilar(valid.flatMap((part) => part.actionItems)).slice(0, 16),
++    decisions: dedupeSimilar(valid.flatMap((part) => part.decisions)).slice(0, 10),
++    questions: dedupeSimilar(valid.flatMap((part) => part.questions)).slice(0, 10),
++    wordCount: (transcript.match(/[a-z0-9']/gi) ?? []).length,
++  };
  }
 diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
 index 826642a..4d8676d 100644
