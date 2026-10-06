@@ -50,6 +50,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
 - AI Agents with [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+- [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) with Landlock-confined tools and a hardened user service
 - [Fusion](https://github.com/Runfusion/Fusion)
 
 ## Supported setups
@@ -204,6 +205,29 @@ systemctl --user enable --now sunshine.service
 systemctl --user enable --now fusion-backup.timer
 systemctl --user enable --now kolu
 ```
+
+#### ZeroClaw
+
+ZeroClaw is pinned to an upstream release in `flake.nix` and built with the
+`sandbox-landlock` feature. The daemon keeps normal host networking; Landlock
+is the filesystem boundary for agent tool subprocesses.
+
+`~/.zeroclaw/config.toml` remains intentionally untracked because channel and
+provider secrets may live there. After upgrading the profile, migrate old
+schemas and configure the risk profile used by the agent with
+`sandbox_enabled = true`, `sandbox_backend = "landlock"`,
+`workspace_only = true`, and an empty `shell_env_passthrough`.
+
+```bash
+nix profile upgrade klarkc
+zeroclaw config migrate
+systemctl --user daemon-reload
+systemctl --user enable --now zeroclaw.service
+```
+
+The unit applies host-level systemd hardening without `ProtectHome` or network
+isolation, leaving per-tool filesystem confinement to Landlock. Enable user
+lingering separately if the daemon must start before interactive login.
 
 To expose a user service running HTTPS on port `4443` through local port `443`,
 allow user processes to bind ports down to `443` once at the system level:
