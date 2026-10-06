@@ -51,6 +51,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     # Build the React frontend pointed at the already-running local vLLM.
     # The patch discovers the currently served model from /v1/models.
     VITE_LOCAL_LLM_URL = "http://127.0.0.1:8000/v1";
+    VITE_LOCAL_LLM_API_KEY = "hackme";
     VITE_PREFER_EXTERNAL_LLM = "1";
   };
 
