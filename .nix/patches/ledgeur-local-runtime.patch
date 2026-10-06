@@ -375,7 +375,7 @@ index b6f1041..8bca321 100644
  }
  
 diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
-index ac9d649..13529fe 100644
+index ac9d649..ededde2 100644
 --- a/apps/desktop/src/lib/notes.ts
 +++ b/apps/desktop/src/lib/notes.ts
 @@ -21,7 +21,6 @@
@@ -392,7 +392,7 @@ index ac9d649..13529fe 100644
  // the model being bad at its job rather than never having run.
 -const NOTES_TIMEOUT_MS = 180_000;
 +const NOTES_TIMEOUT_MS = 300_000;
-+const NOTES_MAX_TOKENS = 448;
++const NOTES_MAX_TOKENS = 768;
 +const NOTE_ITEM_WORD_LIMIT = 14;
 +const MAX_PARALLEL_NOTE_CALLS = 2;
 +const ENABLE_DETAILED_NOTES = false;
