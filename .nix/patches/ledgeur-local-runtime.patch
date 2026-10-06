@@ -164,10 +164,19 @@ index 132ed07..1c269f1 100644
    sentryDsn: env.VITE_SENTRY_DSN ?? "",
    /** Product analytics (GA4 Measurement Protocol). This surface has no
 diff --git a/apps/desktop/src/lib/llm.ts b/apps/desktop/src/lib/llm.ts
-index 013ea86..bea667b 100644
+index 013ea86..379fa90 100644
 --- a/apps/desktop/src/lib/llm.ts
 +++ b/apps/desktop/src/lib/llm.ts
-@@ -67,32 +67,39 @@ export async function nativeLlmReady(): Promise<boolean> {
+@@ -20,6 +20,8 @@ export interface ChatMessage {
+ export interface ChatOptions {
+   temperature?: number;
+   maxTokens?: number;
++  /** Disable model reasoning for deterministic utility tasks such as meeting notes. */
++  disableThinking?: boolean;
+   signal?: AbortSignal;
+   /** BYO cloud fallback — used only if the native engine isn't available. */
+   http?: { baseUrl: string; apiKey?: string; model?: string };
+@@ -67,32 +69,41 @@ export async function nativeLlmReady(): Promise<boolean> {
    return Boolean(st?.compiled && st.modelReady);
  }
  
@@ -204,8 +213,10 @@ index 013ea86..bea667b 100644
 -    model: http?.model || "local",
 +    model: http?.model || await discoverHttpModel(baseUrl, apiKey),
      temperature: opts.temperature ?? 0.2,
++    max_tokens: opts.maxTokens ?? 512,
      stream: false,
      messages,
++    ...(opts.disableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {}),
    };
    let res: Response;
 -  if (http?.apiKey) {
@@ -220,7 +231,7 @@ index 013ea86..bea667b 100644
        body: JSON.stringify(body),
        signal: opts.signal,
      });
-@@ -109,34 +116,11 @@ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<str
+@@ -109,34 +120,11 @@ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<str
    return content;
  }
  
@@ -364,7 +375,7 @@ index b6f1041..8bca321 100644
  }
  
 diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
-index ac9d649..2d5143d 100644
+index ac9d649..4d55c1d 100644
 --- a/apps/desktop/src/lib/notes.ts
 +++ b/apps/desktop/src/lib/notes.ts
 @@ -21,7 +21,6 @@
@@ -408,6 +419,15 @@ index ac9d649..2d5143d 100644
    "- Reply with ONLY the Markdown notes — no preamble, no JSON, no code fence around it.";
  
  /** Appended only when the user actually typed something — same rule as
+@@ -222,7 +228,7 @@ function askForDetailedNotes(transcript: string, manualNotes: string, templateId
+   return withTimeout(
+     chatComplete(
+       buildDetailedNotesPrompt(transcript, manualNotes, templateId),
+-      { temperature: 0.2, maxTokens: DETAILED_MAX_TOKENS },
++      { temperature: 0.2, maxTokens: DETAILED_MAX_TOKENS, disableThinking: true },
+     ),
+     NOTES_TIMEOUT_MS,
+   ).then(stripCodeFence);
 @@ -353,30 +359,32 @@ export function buildNotesPrompt(
  }
  
@@ -455,7 +475,7 @@ index ac9d649..2d5143d 100644
  
    const started = Date.now();
    try {
-@@ -384,43 +392,24 @@ export async function generateMeetingNotes(
+@@ -384,50 +392,31 @@ export async function generateMeetingNotes(
        ? await condenseLongMeeting(text, notes, templateId)
        : await askForNotes(text, notes, templateId);
      const parsed = parseAiNotes(reply, plain);
@@ -503,6 +523,23 @@ index ac9d649..2d5143d 100644
    }
  }
  
+ /** One model pass over a transcript that already fits the context window. */
+ function askForNotes(transcript: string, manualNotes: string, templateId?: string): Promise<string> {
+   return withTimeout(
+-    chatComplete(buildNotesPrompt(transcript, manualNotes, templateId), { temperature: 0.2, maxTokens: 768 }),
++    chatComplete(buildNotesPrompt(transcript, manualNotes, templateId), { temperature: 0.2, maxTokens: 768, disableThinking: true }),
+     NOTES_TIMEOUT_MS,
+   );
+ }
+@@ -557,7 +546,7 @@ async function condenseLongMeeting(
+   // Reduce: the collected points stand in for the transcript. They are already
+   // prose, so they are far denser than raw speech and fit comfortably.
+   return withTimeout(
+-    chatComplete(buildReducePrompt(parts, manualNotes, templateId), { temperature: 0.2, maxTokens: 768 }),
++    chatComplete(buildReducePrompt(parts, manualNotes, templateId), { temperature: 0.2, maxTokens: 768, disableThinking: true }),
+     NOTES_TIMEOUT_MS,
+   );
+ }
 diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
 index 826642a..4d8676d 100644
 --- a/apps/desktop/src/lib/settings.ts
