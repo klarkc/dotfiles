@@ -12,6 +12,13 @@
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
+    # ZeroClaw is pinned upstream because nixpkgs can lag behind releases.
+    # v0.8.5's upstream Nix package pins an older Rust than the crate requires,
+    # so build the pinned source with this flake's current rustPlatform.
+    zeroclaw-src = {
+      url = "github:zeroclaw-labs/zeroclaw/v0.8.5";
+      flake = false;
+    };
     # Bump note: Ledgeur source. When bumping, refresh both the Cargo and pnpm
     # dependency hashes in `.nix/ledgeur-runtime.nix`, reapply the local patch,
     # and verify the native PT transcription + vLLM note path.
@@ -178,6 +185,23 @@
           };
           opencodeWithCodexAuth = pkgs.callPackage ./.nix/opencode-with-codex-auth.nix { };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
+          zeroclawWithLandlock = pkgs.rustPlatform.buildRustPackage {
+            pname = "zeroclaw";
+            version = "0.8.5";
+            src = inputs.zeroclaw-src;
+            cargoDeps = pkgs.rustPlatform.importCargoLock {
+              lockFile = "${inputs.zeroclaw-src}/Cargo.lock";
+            };
+            cargoBuildFlags = [
+              "-p"
+              "zeroclaw"
+              "--no-default-features"
+              "--features"
+              "agent-runtime,channel-discord,sandbox-landlock"
+            ];
+            buildInputs = [ pkgs.stdenv.cc.cc ];
+            doCheck = false;
+          };
           backupTools = pkgs.callPackage ./.nix/backup-tools.nix { };
           fusionRuntime = pkgs.callPackage ./.nix/fusion-runtime.nix {
             # Bump note: Fusion runtime. Coupled bumps: see `.nix/fusion-runtime.nix`.
@@ -461,6 +485,7 @@
                 codex
                 opencodeWithCodexAuth
                 opencodeCodexAuthTools
+                zeroclawWithLandlock
                 backupTools.packScript
                 backupTools.testScript
                 kolu
@@ -478,6 +503,7 @@
           packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
+          packages.zeroclaw = zeroclawWithLandlock;
         }
       );
 }

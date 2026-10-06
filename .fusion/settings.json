@@ -24,7 +24,9 @@
 	"notificationProviders": [],
 	"customProviders": [],
 	"favoriteProviders": [],
-	"favoriteModels": ["qwen3.6-35b-a3b"],
+	"favoriteModels": [
+		"qwen3.6-35b-a3b"
+	],
 	"openrouterModelSync": true,
 	"opencodeGoModelSync": true,
 	"updateCheckEnabled": true,
