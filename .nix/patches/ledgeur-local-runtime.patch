@@ -375,7 +375,7 @@ index b6f1041..8bca321 100644
  }
  
 diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
-index ac9d649..90c6612 100644
+index ac9d649..13529fe 100644
 --- a/apps/desktop/src/lib/notes.ts
 +++ b/apps/desktop/src/lib/notes.ts
 @@ -21,7 +21,6 @@
@@ -420,22 +420,57 @@ index ac9d649..90c6612 100644
    });
  }
  
-@@ -105,10 +115,12 @@ const BASE_SYSTEM =
-   "- A DECISION is something the group settled on. Write what was agreed, including the " +
-   "number or date they agreed. Do not write that something was discussed or considered. If the " +
-   "same decision comes up more than once in the transcript, write it once.\n" +
+@@ -97,28 +107,30 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  * a transcript itself from returning to the same decision twice.
+  */
+ const BASE_SYSTEM =
+-  "You are an expert meeting-notes writer. You are given a speech-to-text transcript " +
++  "You write operational notes for a Brazilian software team. You are given a speech-to-text transcript " +
+   "where each line is `[time] Speaker: what they said`.\n\n" +
++  "The primary output is a STATUS-BY-PERSON note, like a useful daily/check-in report: a short overall " +
++  "summary followed by concrete updates grouped under each person's name.\n\n" +
+   "Rules:\n" +
+-  "- Be faithful. Never invent facts, names, numbers or commitments that are not in the transcript.\n" +
+-  "- Keep exact figures, prices, percentages, dates and names exactly as they were said.\n" +
+-  "- A DECISION is something the group settled on. Write what was agreed, including the " +
+-  "number or date they agreed. Do not write that something was discussed or considered. If the " +
+-  "same decision comes up more than once in the transcript, write it once.\n" +
 -  "- An ACTION ITEM is a concrete follow-up someone committed to. Name who owns it. List every " +
 -  "one the transcript supports, not a sample of them — a short meeting may have one or none, a " +
 -  "long one may have a dozen, and the count should follow the transcript, not a target length.\n" +
-+  "- An ACTION ITEM is a concrete follow-up someone committed to. Name who owns it and preserve " +
-+  "the concrete deliverable or deadline. Prioritise explicit commitments over background detail.\n" +
-   "- An OPEN QUESTION is something explicitly left unresolved, parked or deferred.\n" +
-+  `- Keep every item concise: at most ${NOTE_ITEM_WORD_LIMIT} words.\n` +
-+  "- Return at most 8 summary items, 6 action items, 4 decisions and 3 open questions per pass.\n" +
-+  "- Write in the dominant language of the transcript.\n" +
-   "- Write in the past tense, about what happened.\n\n" +
-   "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
-   '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}\n\n' +
+-  "- An OPEN QUESTION is something explicitly left unresolved, parked or deferred.\n" +
+-  "- Write in the past tense, about what happened.\n\n" +
+-  "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
+-  '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}\n\n' +
+-  '"summary" is one bullet per substantive point the meeting actually made — what it was for, ' +
+-  "what each topic covered turned up (not just that the topic came up), any disagreement and how " +
+-  "it landed, and what came out of it. A meeting with five distinct points made needs five bullets, " +
+-  "not three; a short check-in with one real point needs one, not padded to three. Specific and " +
+-  'concrete beats broad: "the team agreed the mobile layout breaks below 375px and Sam will fix ' +
+-  'it before Thursday" is a usable bullet, "the team discussed some technical issues" is not, ' +
+-  "even about the same exchange. Use an empty array for any section the transcript does not cover.";
++  "- Write ALL prose in Brazilian Portuguese, even when the transcript contains English technical terms.\n" +
++  "- Never translate or alter technical identifiers and product names such as PR91, ADR-0035, node_modules, Expo, Triunfo or task IDs.\n" +
++  "- Be faithful. Never invent facts, owners, names, numbers, dates, blockers or commitments.\n" +
++  "- Use the speaker labels exactly as they appear in the transcript for participant names.\n" +
++  "- `summary` is 1 to 3 concise high-level points about the meeting as a whole, not a list of every task.\n" +
++  "- `participants` is the important part. Create one entry for every person who gave a meaningful status, " +
++  "and for anyone explicitly reported absent or blocked. Under that person, capture completed work, current work, " +
++  "next steps, dependencies/blockers and important review/deployment context. Do not create artificial headings such as " +
++  "Completed/Current/Next; just write useful bullets in a natural order.\n" +
++  "- If the transcript explicitly says a person has no blockers, include `Sem impedimentos.`; otherwise do not infer it.\n" +
++  "- An ACTION ITEM is only an explicit follow-up someone committed to. Name the owner.\n" +
++  "- A DECISION is only something the group actually settled on.\n" +
++  "- An OPEN QUESTION is only something explicitly left unresolved.\n" +
++  `- Keep each participant/status item concise: at most ${NOTE_ITEM_WORD_LIMIT} words when practical.\n` +
++  "- Return at most 3 summary items, 8 participant items per person, 8 action items, 4 decisions and 3 open questions per pass.\n\n" +
++  "Reply with ONLY a compact JSON object of this exact shape, and nothing else:\n" +
++  '{"summary": string[], "participants": [{"name": string, "items": string[]}], "actionItems": string[], "decisions": string[], "questions": string[]}\n\n' +
++  "Prefer concrete status information over generic discussion summaries. Preserve exact PR/ADR/task numbers, environments, " +
++  "module names and ownership when the transcript supports them.";
+ 
+ /** Appended only when the user actually typed something. */
+ const NOTES_SYSTEM =
 @@ -156,14 +168,20 @@ const DETAILED_SYSTEM =
    "unresolved), and what came out of it. Do not compress a topic down to its conclusion if the " +
    "discussion around it — the why, the alternatives considered, the objections raised — is still " +
@@ -473,7 +508,89 @@ index ac9d649..90c6612 100644
      ),
      NOTES_TIMEOUT_MS,
    ).then(stripCodeFence);
-@@ -353,81 +371,68 @@ export function buildNotesPrompt(
+@@ -275,11 +293,21 @@ async function generateDetailedNotes(
+ 
+ interface RawNotes {
+   summary?: unknown;
++  participants?: unknown;
+   actionItems?: unknown;
+   decisions?: unknown;
+   questions?: unknown;
+ }
+ 
++interface ParticipantUpdate {
++  name: string;
++  items: string[];
++}
++
++interface GeneratedMeetingNotes extends MeetingNotes {
++  participantUpdates: ParticipantUpdate[];
++}
++
+ /** Coerce a parsed value into a clean string[] (trimmed, non-empty, capped). */
+ function strings(v: unknown, limit: number): string[] {
+   if (!Array.isArray(v)) return [];
+@@ -291,6 +319,33 @@ function strings(v: unknown, limit: number): string[] {
+   return out;
+ }
+ 
++function participantUpdates(v: unknown): ParticipantUpdate[] {
++  if (!Array.isArray(v)) return [];
++  const out: ParticipantUpdate[] = [];
++  for (const entry of v) {
++    if (!entry || typeof entry !== "object") continue;
++    const raw = entry as { name?: unknown; items?: unknown };
++    if (typeof raw.name !== "string" || !raw.name.trim()) continue;
++    const items = dedupeSimilar(strings(raw.items, 10)).slice(0, 8);
++    if (items.length === 0) continue;
++    out.push({ name: raw.name.trim(), items });
++  }
++  return out;
++}
++
++function renderStatusNotes(summary: readonly string[], participants: readonly ParticipantUpdate[]): string | undefined {
++  if (participants.length === 0) return undefined;
++  const blocks = [
++    "## Resumo geral",
++    "",
++    summary.join(" "),
++  ];
++  for (const participant of participants) {
++    blocks.push("", `## @${participant.name}`, "", ...participant.items.map((item) => `- ${item}`));
++  }
++  return blocks.join("\n").trim();
++}
++
+ /**
+  * Parse the model's JSON reply into MeetingNotes. Throws if it isn't usable so
+  * the caller falls back to the heuristic extractor rather than saving nothing.
+@@ -302,18 +357,19 @@ function strings(v: unknown, limit: number): string[] {
+  * genuine 14th action item does not lose its slot to an earlier repeat of the
+  * 3rd — dropping the repeat has to free the slot back up.
+  */
+-export function parseAiNotes(raw: string, transcript: string): MeetingNotes {
++export function parseAiNotes(raw: string, transcript: string): GeneratedMeetingNotes {
+   const match = raw.match(/\{[\s\S]*\}/);
+   if (!match) throw new Error("Model did not return JSON notes.");
+   const obj = JSON.parse(match[0]) as RawNotes;
+-  const summary = dedupeSimilar(strings(obj.summary, 24)).slice(0, 14);
++  const summary = dedupeSimilar(strings(obj.summary, 6)).slice(0, 3);
+   if (summary.length === 0) throw new Error("Model returned an empty summary.");
+-  const wordCount = (transcript.match(/[a-z0-9']+/gi) ?? []).length;
++  const wordCount = (transcript.match(/[a-z0-9À-ÿ']+/gi) ?? []).length;
+   return {
+     summary,
+-    actionItems: dedupeSimilar(strings(obj.actionItems, 24)).slice(0, 16),
+-    decisions: dedupeSimilar(strings(obj.decisions, 16)).slice(0, 10),
+-    questions: dedupeSimilar(strings(obj.questions, 16)).slice(0, 10),
++    participantUpdates: participantUpdates(obj.participants),
++    actionItems: dedupeSimilar(strings(obj.actionItems, 16)).slice(0, 10),
++    decisions: dedupeSimilar(strings(obj.decisions, 8)).slice(0, 6),
++    questions: dedupeSimilar(strings(obj.questions, 8)).slice(0, 5),
+     wordCount,
+   };
+ }
+@@ -353,81 +409,77 @@ export function buildNotesPrompt(
  }
  
  /**
@@ -513,7 +630,7 @@ index ac9d649..90c6612 100644
 +    actionItems: [],
 +    decisions: [],
 +    questions: [],
-+    wordCount: (plain.match(/[a-z0-9']/gi) ?? []).length,
++    wordCount: (plain.match(/[a-z0-9À-ÿ']+/gi) ?? []).length,
 +  });
 +
 +  if (!text && !notes) return empty();
@@ -544,13 +661,23 @@ index ac9d649..90c6612 100644
 -      log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
 -      return undefined;
 -    });
-+    const detailedNotes = ENABLE_DETAILED_NOTES
+-    return { ...parsed, detailedNotes, generator: "model" };
++    const statusNotes = renderStatusNotes(parsed.summary, parsed.participantUpdates);
++    const detailedNotes = statusNotes ?? (ENABLE_DETAILED_NOTES
 +      ? await generateDetailedNotes(text, notes, templateId).catch((e) => {
 +        log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
 +        return undefined;
 +      })
-+      : undefined;
-     return { ...parsed, detailedNotes, generator: "model" };
++      : undefined);
++    return {
++      summary: parsed.summary,
++      actionItems: parsed.actionItems,
++      decisions: parsed.decisions,
++      questions: parsed.questions,
++      wordCount: parsed.wordCount,
++      detailedNotes,
++      generator: "model",
++    };
    } catch (e) {
 -    // No model, unreachable endpoint, timeout, or an unparseable reply — use the
 -    // local deterministic extractor so notes are still real and grounded. The
@@ -587,7 +714,7 @@ index ac9d649..90c6612 100644
      NOTES_TIMEOUT_MS,
    );
  }
-@@ -484,21 +489,6 @@ const REDUCE_SYSTEM =
+@@ -484,21 +536,6 @@ const REDUCE_SYSTEM =
    "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
    '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}';
  
@@ -609,7 +736,7 @@ index ac9d649..90c6612 100644
  /** The reduce pass's own prompt — see `REDUCE_SYSTEM` for why it is not
   *  `buildNotesPrompt`. Exported for testing, same reason `buildNotesPrompt` is. */
  export function buildReducePrompt(
-@@ -521,43 +511,58 @@ export function buildReducePrompt(
+@@ -521,43 +558,73 @@ export function buildReducePrompt(
  }
  
  /**
@@ -628,7 +755,7 @@ index ac9d649..90c6612 100644
    manualNotes: string,
    templateId?: string,
 -): Promise<string> {
-+): Promise<MeetingNotes> {
++): Promise<GeneratedMeetingNotes> {
    const windows = windowTranscript(transcript);
 -  log.info("summarising a long meeting in windows", { windows: windows.length, chars: transcript.length });
 +  log.info("summarising a long meeting in parallel windows", {
@@ -652,7 +779,7 @@ index ac9d649..90c6612 100644
 -        window: i + 1,
 -        reason: e instanceof Error ? e.message : String(e),
 -      });
-+  const results: Array<MeetingNotes | undefined> = new Array(windows.length);
++  const results: Array<GeneratedMeetingNotes | undefined> = new Array(windows.length);
 +  let nextWindow = 0;
 +  async function worker(): Promise<void> {
 +    while (nextWindow < windows.length) {
@@ -685,15 +812,30 @@ index ac9d649..90c6612 100644
 +    () => worker(),
    );
 +  await Promise.all(workers);
-+  const valid = results.filter((part): part is MeetingNotes => part !== undefined);
++  const valid = results.filter((part): part is GeneratedMeetingNotes => part !== undefined);
 +  if (valid.length === 0) throw new Error("No transcript window produced usable notes.");
 +
++  const byPerson = new Map<string, ParticipantUpdate>();
++  for (const part of valid) {
++    for (const participant of part.participantUpdates) {
++      const key = participant.name.toLocaleLowerCase("pt-BR");
++      const existing = byPerson.get(key);
++      if (existing) existing.items.push(...participant.items);
++      else byPerson.set(key, { name: participant.name, items: [...participant.items] });
++    }
++  }
++  const participants = Array.from(byPerson.values()).map((participant) => ({
++    name: participant.name,
++    items: dedupeSimilar(participant.items).slice(0, 10),
++  }));
++
 +  return {
-+    summary: dedupeSimilar(valid.flatMap((part) => part.summary)).slice(0, 14),
-+    actionItems: dedupeSimilar(valid.flatMap((part) => part.actionItems)).slice(0, 16),
-+    decisions: dedupeSimilar(valid.flatMap((part) => part.decisions)).slice(0, 10),
-+    questions: dedupeSimilar(valid.flatMap((part) => part.questions)).slice(0, 10),
-+    wordCount: (transcript.match(/[a-z0-9']/gi) ?? []).length,
++    summary: dedupeSimilar(valid.flatMap((part) => part.summary)).slice(0, 3),
++    participantUpdates: participants,
++    actionItems: dedupeSimilar(valid.flatMap((part) => part.actionItems)).slice(0, 10),
++    decisions: dedupeSimilar(valid.flatMap((part) => part.decisions)).slice(0, 6),
++    questions: dedupeSimilar(valid.flatMap((part) => part.questions)).slice(0, 5),
++    wordCount: (transcript.match(/[a-z0-9À-ÿ']+/gi) ?? []).length,
 +  };
  }
 diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
@@ -943,7 +1085,7 @@ index cd48dc8..4062c05 100644
      } catch (e) {
        log.error("import failed", e);
 diff --git a/apps/desktop/src/screens/MeetingDetail.tsx b/apps/desktop/src/screens/MeetingDetail.tsx
-index 00f3f8f..78e2677 100644
+index 00f3f8f..e90d93a 100644
 --- a/apps/desktop/src/screens/MeetingDetail.tsx
 +++ b/apps/desktop/src/screens/MeetingDetail.tsx
 @@ -13,11 +13,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
@@ -1146,6 +1288,43 @@ index 00f3f8f..78e2677 100644
  
        <Segmented options={TABS} value={tab} onChange={setTab} className="mb-5" />
  
+@@ -283,12 +414,12 @@ export function MeetingDetail() {
+               real lines that were said, not a summary.
+             </Notice>
+           )}
+-          <NoteBlock title="Summary" items={attributed?.summary ?? []} onJump={openAt} />
++          {!meeting.detailedNotes?.trim() && <NoteBlock title="Resumo" items={attributed?.summary ?? []} onJump={openAt} />}
+           {meeting.detailedNotes?.trim() && (
+             <Card className="p-5">
+               <div className="mb-3 flex items-center gap-2">
+                 <MessageSquareText className="h-4 w-4 text-brand-strong" />
+-                <Label>Meeting notes</Label>
++                <Label>Notas da reunião</Label>
+               </div>
+               <DetailedNotes markdown={meeting.detailedNotes} />
+             </Card>
+@@ -299,7 +430,7 @@ export function MeetingDetail() {
+               <p className="whitespace-pre-wrap text-ink-text">{meeting.manualNotes.trim()}</p>
+             </Card>
+           )}
+-          {meeting.actionItems.length > 0 && (
++          {!meeting.detailedNotes?.trim() && meeting.actionItems.length > 0 && (
+             <Card className="p-5">
+               <div className="mb-3 flex items-center gap-2"><ListChecks className="h-4 w-4 text-accent-strong" /><Label>Action items</Label></div>
+               <ul className="space-y-2.5">
+@@ -315,9 +446,9 @@ export function MeetingDetail() {
+               </ul>
+             </Card>
+           )}
+-          <NoteBlock title="Decisions" items={attributed?.decisions ?? []} onJump={openAt} />
+-          <NoteBlock title="Open questions" items={attributed?.questions ?? []} onJump={openAt} />
+-          {meeting.summary.length === 0 && meeting.actionItems.length === 0 && !meeting.manualNotes?.trim() && (
++          {!meeting.detailedNotes?.trim() && <NoteBlock title="Decisões" items={attributed?.decisions ?? []} onJump={openAt} />}
++          {!meeting.detailedNotes?.trim() && <NoteBlock title="Questões em aberto" items={attributed?.questions ?? []} onJump={openAt} />}
++          {!meeting.detailedNotes?.trim() && meeting.summary.length === 0 && meeting.actionItems.length === 0 && !meeting.manualNotes?.trim() && (
+             <Notice>No structured notes were extracted — the transcript may have been very short.</Notice>
+           )}
+           {/* Lines nothing in the transcript supports. Worth naming rather than
 @@ -355,7 +486,25 @@ export function MeetingDetail() {
                    ref={(el) => { if (el) segmentRefs.current.set(s.id, el); else segmentRefs.current.delete(s.id); }}
                    className={cn("-mx-2 flex gap-3 rounded-lg px-2 py-1 transition-colors duration-500", jumpTo === s.id && "bg-brand-soft")}
@@ -1173,3 +1352,35 @@ index 00f3f8f..78e2677 100644
                    <div className="min-w-0 flex-1">
                      {s.speakerLabel.trim() && (
                        <div className="mb-1">
+diff --git a/packages/core/src/notes/summarize.ts b/packages/core/src/notes/summarize.ts
+index 232ea11..624a3c4 100644
+--- a/packages/core/src/notes/summarize.ts
++++ b/packages/core/src/notes/summarize.ts
+@@ -142,16 +142,18 @@ export function notesToMarkdown(
+ ): string {
+   const section = (h: string, items: string[], bullet = "- ") =>
+     items.length ? `\n## ${h}\n\n${items.map((i) => bullet + i).join("\n")}\n` : "";
+-  const manual = manualNotes?.trim() ? `\n## Your notes\n\n${manualNotes.trim()}\n` : "";
+-  const detailed = notes.detailedNotes?.trim() ? `\n## Meeting notes\n\n${notes.detailedNotes.trim()}\n` : "";
++  const manual = manualNotes?.trim() ? `\n## Suas notas\n\n${manualNotes.trim()}\n` : "";
++  const detailed = notes.detailedNotes?.trim();
++  const generated = detailed
++    ? `\n${detailed}\n`
++    : section("Resumo", notes.summary)
++      + section("Ações", notes.actionItems, "- [ ] ")
++      + section("Decisões", notes.decisions)
++      + section("Questões em aberto", notes.questions);
+   return (
+-    `# ${title}\n\n_${dateISO} · ${notes.wordCount} words_\n` +
+-    section("Summary", notes.summary) +
++    `# ${title}\n\n_${dateISO} · ${notes.wordCount} palavras_\n` +
++    generated +
+     manual +
+-    detailed +
+-    section("Action items", notes.actionItems, "- [ ] ") +
+-    section("Decisions", notes.decisions) +
+-    section("Open questions", notes.questions) +
+-    (includeTranscript ? `\n## Transcript\n\n${transcript.trim()}\n` : "")
++    (includeTranscript ? `\n## Transcrição\n\n${transcript.trim()}\n` : "")
+   );
+ }
