@@ -1,5 +1,5 @@
 diff --git a/apps/desktop/src-tauri/Cargo.toml b/apps/desktop/src-tauri/Cargo.toml
-index 7c57d88..1fa95fc 100644
+index 7c57d88..c00a4bb 100644
 --- a/apps/desktop/src-tauri/Cargo.toml
 +++ b/apps/desktop/src-tauri/Cargo.toml
 @@ -43,7 +43,7 @@ whisper-rs = { version = "0.16", optional = true }
@@ -11,6 +11,23 @@ index 7c57d88..1fa95fc 100644
  # Not optional: webhook deliveries go through the native side (src/net.rs)
  # because a webview fetch is subject to CORS and real webhook receivers do not
  # implement it. `sentry` already pulls reqwest+rustls into every build, so this
+@@ -95,9 +95,13 @@ block2 = { version = "0.6", optional = true }
+ default = ["system-audio-tap"]
+ # Enabled by tauri on desktop builds for custom protocol asset serving.
+ custom-protocol = ["tauri/custom-protocol"]
+-# On-device transcription (whisper.cpp), diarization (sherpa-onnx) and model
+-# downloads. Heavy native build; opt-in.
+-native-ai = ["dep:whisper-rs", "dep:sherpa-rs", "dep:llama-cpp-2", "dep:encoding_rs"]
++# On-device transcription (whisper.cpp) and diarization (sherpa-onnx).
++# Kept separate from the optional embedded LLM so deployments that already run
++# an OpenAI-compatible server do not pay the llama.cpp build/runtime cost.
++native-ai = ["dep:whisper-rs", "dep:sherpa-rs"]
++# Optional embedded assistant. The klarkc build intentionally leaves this off
++# and uses the external vLLM endpoint instead.
++native-llm = ["dep:llama-cpp-2", "dep:encoding_rs"]
+ # System audio without the screen-share picker (see src/audio/mod.rs). macOS
+ # 14.2+ only; the command stubs return "unavailable" everywhere else. Opt-in
+ # like native-ai until it's been verified on real hardware.
 diff --git a/apps/desktop/src-tauri/src/ai/engine.rs b/apps/desktop/src-tauri/src/ai/engine.rs
 index b293a33..d33a8ca 100644
 --- a/apps/desktop/src-tauri/src/ai/engine.rs
@@ -35,6 +52,71 @@ index b293a33..d33a8ca 100644
          (SEG_MODEL, "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx"),
          (EMBED_MODEL, "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/wespeaker_en_voxceleb_CAM%2B%2B.onnx"),
      ];
+diff --git a/apps/desktop/src-tauri/src/ai/llm.rs b/apps/desktop/src-tauri/src/ai/llm.rs
+index 951429b..05ca185 100644
+--- a/apps/desktop/src-tauri/src/ai/llm.rs
++++ b/apps/desktop/src-tauri/src/ai/llm.rs
+@@ -36,7 +36,7 @@ static PROGRESS: AtomicU32 = AtomicU32::new(0); // 0..=1000 (tenths of a percent
+ #[derive(Serialize, Clone)]
+ #[serde(rename_all = "camelCase")]
+ pub struct LlmStatus {
+-    /// Built with `--features native-ai` (the engine is compiled in).
++    /// Built with `--features native-llm` (the engine is compiled in).
+     pub compiled: bool,
+     /// The GGUF weights are present on disk and ready to run.
+     pub model_ready: bool,
+@@ -60,7 +60,7 @@ pub fn llm_model_path(app: &tauri::AppHandle) -> PathBuf {
+ /// Lifecycle status — safe to call whether or not the feature is compiled.
+ pub fn status(app: &tauri::AppHandle) -> LlmStatus {
+     LlmStatus {
+-        compiled: cfg!(feature = "native-ai"),
++        compiled: cfg!(feature = "native-llm"),
+         model_ready: llm_model_path(app).exists(),
+         downloading: DOWNLOADING.load(Ordering::Relaxed),
+         progress: PROGRESS.load(Ordering::Relaxed) as f32 / 10.0,
+@@ -126,11 +126,11 @@ pub fn prefill_chunks(n_tokens: usize, n_batch: usize) -> Vec<std::ops::Range<us
+     (0..n_tokens).step_by(step).map(|start| start..(start + step).min(n_tokens)).collect()
+ }
+ 
+-#[cfg(not(feature = "native-ai"))]
++#[cfg(not(feature = "native-llm"))]
+ mod inner {
+     use super::*;
+     const MSG: &str =
+-        "On-device AI is not compiled into this build. Rebuild with `--features native-ai` (see docs/NATIVE_AI.md).";
++        "On-device AI is not compiled into this build. Rebuild with `--features native-llm` (see docs/NATIVE_AI.md).";
+     pub fn download_model(_app: &tauri::AppHandle) -> Result<(), String> {
+         Err(MSG.into())
+     }
+@@ -140,7 +140,7 @@ mod inner {
+     pub fn shutdown() {}
+ }
+ 
+-#[cfg(feature = "native-ai")]
++#[cfg(feature = "native-llm")]
+ mod inner {
+     use super::*;
+     use std::fs;
+@@ -494,8 +494,8 @@ mod tests {
+ /// real one? When it does not, the app falls back to lifting sentences out of
+ /// the transcript, which is what "the summary makes no sense" turned out to be.
+ ///
+-///   cargo test --features native-ai writes_parseable_notes -- --ignored --nocapture
+-#[cfg(all(test, feature = "native-ai"))]
++///   cargo test --features native-llm writes_parseable_notes -- --ignored --nocapture
++#[cfg(all(test, feature = "native-llm"))]
+ mod notes_integration {
+     use super::*;
+ 
+@@ -561,7 +561,7 @@ mod notes_integration {
+     /// because its transcript is nine lines; this one is long enough to matter,
+     /// which is what every real meeting is.
+     ///
+-    ///   cargo test --release --features native-ai answers_a_prompt_larger_than_one_batch -- --ignored --nocapture
++    ///   cargo test --release --features native-llm answers_a_prompt_larger_than_one_batch -- --ignored --nocapture
+     #[test]
+     #[ignore = "needs the on-device model downloaded"]
+     fn answers_a_prompt_larger_than_one_batch() {
 diff --git a/apps/desktop/src-tauri/src/ai/mod.rs b/apps/desktop/src-tauri/src/ai/mod.rs
 index 7de9e38..af6ad49 100644
 --- a/apps/desktop/src-tauri/src/ai/mod.rs
@@ -62,10 +144,10 @@ index 9d90e22..b0dafc3 100644
    },
    "bundle": {
 diff --git a/apps/desktop/src/lib/config.ts b/apps/desktop/src/lib/config.ts
-index 132ed07..a85b4b1 100644
+index 132ed07..1c269f1 100644
 --- a/apps/desktop/src/lib/config.ts
 +++ b/apps/desktop/src/lib/config.ts
-@@ -12,7 +12,12 @@ export const CONFIG = {
+@@ -12,7 +12,14 @@ export const CONFIG = {
    supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY ?? "",
    /** OpenAI-compatible HTTP fallback (BYO cloud key or external llama.cpp). The
     *  default on-device path is the in-process native engine — no server needed. */
@@ -76,17 +158,28 @@ index 132ed07..a85b4b1 100644
 +  preferExternalLlm: env.VITE_PREFER_EXTERNAL_LLM === "1",
 +  /** Optional explicit served model name. Blank means discover /v1/models. */
 +  localLlmModel: env.VITE_LOCAL_LLM_MODEL ?? "",
++  /** Optional bearer token for the external OpenAI-compatible local endpoint. */
++  localLlmApiKey: env.VITE_LOCAL_LLM_API_KEY ?? "",
    /** Error tracking. Blank disables Sentry entirely (local-only dev is silent). */
    sentryDsn: env.VITE_SENTRY_DSN ?? "",
    /** Product analytics (GA4 Measurement Protocol). This surface has no
 diff --git a/apps/desktop/src/lib/llm.ts b/apps/desktop/src/lib/llm.ts
-index 013ea86..6e3fa6d 100644
+index 013ea86..bea667b 100644
 --- a/apps/desktop/src/lib/llm.ts
 +++ b/apps/desktop/src/lib/llm.ts
-@@ -78,11 +78,27 @@ async function nativeChat(messages: ChatMessage[], opts: ChatOptions): Promise<s
-   });
+@@ -67,32 +67,39 @@ export async function nativeLlmReady(): Promise<boolean> {
+   return Boolean(st?.compiled && st.modelReady);
  }
  
+-async function nativeChat(messages: ChatMessage[], opts: ChatOptions): Promise<string | null> {
+-  if (!isTauri()) return null;
+-  const st = await llmStatus();
+-  if (!st?.compiled || !st.modelReady) return null; // let the HTTP path (or an honest error) take over
+-  return invoke<string>("llm_chat", {
+-    messages,
+-    temperature: opts.temperature ?? 0.2,
+-    maxTokens: opts.maxTokens ?? 512,
+-  });
 +async function discoverHttpModel(baseUrl: string, apiKey?: string): Promise<string> {
 +  if (CONFIG.localLlmModel) return CONFIG.localLlmModel;
 +  try {
@@ -101,33 +194,70 @@ index 013ea86..6e3fa6d 100644
 +    // The completion request below will surface the useful connection error.
 +  }
 +  return "local";
-+}
-+
+ }
+ 
  async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<string> {
    const http = opts.http;
    const baseUrl = http?.baseUrl ?? CONFIG.localLlmUrl;
++  const apiKey = (http?.apiKey ?? CONFIG.localLlmApiKey) || undefined;
    const body = {
 -    model: http?.model || "local",
-+    model: http?.model || await discoverHttpModel(baseUrl, http?.apiKey),
++    model: http?.model || await discoverHttpModel(baseUrl, apiKey),
      temperature: opts.temperature ?? 0.2,
      stream: false,
      messages,
-@@ -113,6 +129,16 @@ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<str
-  *  explicit error. The single entry point for every LLM feature (chat, coaching
-  *  suggestions, post-meeting notes). */
+   };
+   let res: Response;
+-  if (http?.apiKey) {
+-    // BYO-key cloud model — plain fetch so the auth header is included.
++  if (apiKey) {
++    // Authenticated OpenAI-compatible endpoint — plain fetch so the bearer
++    // token works for both BYO cloud models and a protected local vLLM.
+     res = await fetch(`${baseUrl}/chat/completions`, {
+       method: "POST",
+-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${http.apiKey}` },
++      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+       body: JSON.stringify(body),
+       signal: opts.signal,
+     });
+@@ -109,34 +116,11 @@ async function httpChat(messages: ChatMessage[], opts: ChatOptions): Promise<str
+   return content;
+ }
+ 
+-/** Run a chat completion: native engine first, then an HTTP fallback, then an
+- *  explicit error. The single entry point for every LLM feature (chat, coaching
+- *  suggestions, post-meeting notes). */
++/** Run a chat completion against the configured OpenAI-compatible endpoint.
++ *  The klarkc build intentionally has no embedded-LLM fallback: if vLLM is
++ *  unavailable, callers get an explicit failure instead of silently switching
++ *  models or fabricating low-quality heuristic output. */
  export async function chatComplete(messages: ChatMessage[], opts: ChatOptions = {}): Promise<string> {
-+  if (CONFIG.preferExternalLlm && !opts.http) {
-+    try {
-+      return (await httpChat(messages, opts)).trim();
-+    } catch (externalError) {
-+      const nativeFallback = await nativeChat(messages, opts);
-+      if (nativeFallback != null) return nativeFallback.trim();
-+      throw externalError;
-+    }
-+  }
-+
-   const native = await nativeChat(messages, opts);
-   if (native != null) return native.trim();
+-  const native = await nativeChat(messages, opts);
+-  if (native != null) return native.trim();
+-
+-  // No native engine available. Without a configured cloud key there is no
+-  // HTTP endpoint a person set up either — CONFIG.localLlmUrl is a developer
+-  // convenience (a local llama.cpp server), not something that exists on a
+-  // user's machine — so say exactly why nothing can answer instead of
+-  // attempting that request and reporting its connection failure as if a
+-  // download were merely still in progress.
+-  if (!opts.http?.apiKey) {
+-    const st = await llmStatus();
+-    if (!st?.compiled) {
+-      throw new Error(
+-        "This build doesn't include the on-device assistant, and no cloud AI key is configured, " +
+-        "so there's nothing to answer with. Answers are never invented without a model.",
+-      );
+-    }
+-    if (!st.modelReady) {
+-      throw new Error(
+-        "The on-device model isn't downloaded yet. Open Settings → On-device AI to " +
+-        "finish downloading it (a one-time ~1 GB download) — answers are never invented without it.",
+-      );
+-    }
+-  }
+   return (await httpChat(messages, opts)).trim();
+ }
  
 diff --git a/apps/desktop/src/lib/meetingsStore.ts b/apps/desktop/src/lib/meetingsStore.ts
 index b6f1041..8bca321 100644
@@ -233,6 +363,146 @@ index b6f1041..8bca321 100644
    notify();
  }
  
+diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
+index ac9d649..2d5143d 100644
+--- a/apps/desktop/src/lib/notes.ts
++++ b/apps/desktop/src/lib/notes.ts
+@@ -21,7 +21,6 @@
+ import {
+   dedupeSimilar,
+   formatTranscript,
+-  summarizeTranscript,
+   templateInstruction,
+   type MeetingNotes,
+   type TranscriptLine,
+@@ -109,6 +108,7 @@ const BASE_SYSTEM =
+   "one the transcript supports, not a sample of them — a short meeting may have one or none, a " +
+   "long one may have a dozen, and the count should follow the transcript, not a target length.\n" +
+   "- An OPEN QUESTION is something explicitly left unresolved, parked or deferred.\n" +
++  "- Write in the dominant language of the transcript.\n" +
+   "- Write in the past tense, about what happened.\n\n" +
+   "Reply with ONLY a JSON object of this exact shape, and nothing else:\n" +
+   '{"summary": string[], "actionItems": string[], "decisions": string[], "questions": string[]}\n\n' +
+@@ -156,14 +156,20 @@ const DETAILED_SYSTEM =
+   "unresolved), and what came out of it. Do not compress a topic down to its conclusion if the " +
+   "discussion around it — the why, the alternatives considered, the objections raised — is still " +
+   "useful to someone who was not there. Leave out only small talk, technical restarts and dead air.\n\n" +
++  "If this is a team status/check-in/stand-up meeting, prefer an operational format instead of topic chronology: " +
++  "start with a `## Resumo geral` section, then create one `## <person>` section per participant who gave a status. " +
++  "Under each person, capture concrete completed work, current work, next steps, dependencies or blockers, and ownership. " +
++  "Preserve technical identifiers and product names exactly (for example ADR numbers, PR numbers, module names, environments, " +
++  "libraries and customer/project names). Do not invent categories that were not discussed and never claim `no blockers` unless " +
++  "the transcript actually supports it. If the meeting is not a status meeting, use topic-based headings instead.\n\n" +
+   "Rules:\n" +
+   "- Be faithful. Never invent facts, names, numbers or commitments that are not in the transcript.\n" +
+   "- Keep exact figures, prices, percentages, dates and names exactly as they were said.\n" +
++  "- Write in the dominant language of the transcript.\n" +
+   "- Write in the past tense, about what happened.\n" +
+-  "- Organise with a `##` Markdown heading per topic, in the order the meeting covered them. Use " +
+-  "short paragraphs or nested bullets under each heading, whichever reads more naturally for that " +
+-  "topic. Do not use a heading for a topic covered in one sentence — fold it into the nearest " +
+-  "related section or a short closing paragraph instead.\n" +
++  "- For status meetings, follow the person-centred format above. Otherwise organise with a `##` Markdown heading per topic, " +
++  "in the order the meeting covered them. Use short paragraphs or nested bullets under each heading, whichever reads more naturally. " +
++  "Do not create a heading for a topic covered in one sentence — fold it into the nearest related section or a short closing paragraph.\n" +
+   "- Reply with ONLY the Markdown notes — no preamble, no JSON, no code fence around it.";
+ 
+ /** Appended only when the user actually typed something — same rule as
+@@ -353,30 +359,32 @@ export function buildNotesPrompt(
+ }
+ 
+ /**
+- * Generate meeting notes: on-device model first, heuristic extractor as the
+- * offline fallback. Always resolves — never throws — so a meeting always saves.
++ * Generate meeting notes with the configured model only.
+  *
+- * `manualNotes` is whatever the user typed during the meeting; see the header.
++ * There is deliberately no heuristic/extractive fallback in the klarkc build:
++ * lifted transcript fragments were worse than having no notes at all. Regular
++ * meeting finalisation asks for a non-strict result so the transcript can still
++ * be saved when vLLM is offline; explicit regeneration uses `strict: true` so
++ * the UI can keep the previous notes and show the real model error.
+  */
+ export async function generateMeetingNotes(
+   lines: readonly TranscriptLine[],
+   manualNotes = "",
+   templateId?: string,
++  { strict = false }: { strict?: boolean } = {},
+ ): Promise<MeetingNotes> {
+-  // Speaker- and time-labelled, not a flat wall of text. `segments.map(s =>
+-  // s.text).join(" ")` is what this used to be handed, and it makes "who
+-  // committed to what" unanswerable — the model cannot attribute an action to
+-  // anyone, so action items came out ownerless and the summary could not tell
+-  // one person's position from another's. packages/core/src/context/transcript.ts
+-  // has the same note about the copilot, which was fixed there and not here.
+   const text = formatTranscript(lines).trim();
+-  // Prose, for word counts and for the extractive fallback: that summariser
+-  // splits on sentences and would treat every `[12:04] Speaker 1:` prefix as
+-  // part of the sentence it labels.
+   const plain = lines.map((l) => l.text).join(" ");
+   const notes = manualNotes.trim();
+-  // Nothing said and nothing typed: there is genuinely nothing to summarise.
+-  if (!text && !notes) return summarizeTranscript(plain);
++  const empty = (): MeetingNotes => ({
++    summary: [],
++    actionItems: [],
++    decisions: [],
++    questions: [],
++    wordCount: (plain.match(/[a-z0-9']/gi) ?? []).length,
++  });
++
++  if (!text && !notes) return empty();
+ 
+   const started = Date.now();
+   try {
+@@ -384,43 +392,24 @@ export async function generateMeetingNotes(
+       ? await condenseLongMeeting(text, notes, templateId)
+       : await askForNotes(text, notes, templateId);
+     const parsed = parseAiNotes(reply, plain);
+-    log.info("notes written by the on-device model", {
++    log.info("notes written by the configured model", {
+       ms: Date.now() - started,
+       transcriptChars: text.length,
+       summaryPoints: parsed.summary.length,
+     });
+-    // A second, independent pass for the full write-up — see
+-    // `generateDetailedNotes`. Only attempted once the model has already
+-    // proven it can answer at all (the bullet pass above succeeded): if that
+-    // one just fell back, the model is unavailable or unreachable, and a
+-    // second, longer call would just fail the same way after paying its own
+-    // timeout. Never allowed to fail the meeting — a write-up that could not
+-    // be written leaves `detailedNotes` unset rather than losing the notes
+-    // that already exist.
+     const detailedNotes = await generateDetailedNotes(text, notes, templateId).catch((e) => {
+       log.warn("detailed notes were not written", { reason: e instanceof Error ? e.message : String(e) });
+       return undefined;
+     });
+     return { ...parsed, detailedNotes, generator: "model" };
+   } catch (e) {
+-    // No model, unreachable endpoint, timeout, or an unparseable reply — use the
+-    // local deterministic extractor so notes are still real and grounded. The
+-    // user's own notes are kept verbatim at the top rather than dropped: they
+-    // are the one part of the record that is definitely theirs.
+-    //
+-    // The reason is logged rather than swallowed. This `catch` used to be bare,
+-    // so a meeting that fell back was indistinguishable from one the model had
+-    // simply written badly — and the extractor's output (verbatim transcript
+-    // sentences) reads exactly like a model doing a terrible job.
+-    log.warn("falling back to the extractive summariser", {
++    log.warn("notes were not generated; no fallback is enabled", {
+       reason: e instanceof Error ? e.message : String(e),
+       ms: Date.now() - started,
+       transcriptChars: text.length,
+     });
+-    const fallback = summarizeTranscript(plain);
+-    if (!notes) return fallback;
+-    const typed = notes.split("\n").map((l) => l.replace(/^[-*•]\s*/, "").trim()).filter(Boolean);
+-    return { ...fallback, summary: [...typed, ...fallback.summary].slice(0, 12) };
++    if (strict) throw e;
++    return empty();
+   }
+ }
+ 
 diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
 index 826642a..4d8676d 100644
 --- a/apps/desktop/src/lib/settings.ts
@@ -247,7 +517,7 @@ index 826642a..4d8676d 100644
  export interface Settings {
    /** The copilot proactively posts "you could say…" suggestions into the
 diff --git a/apps/desktop/src/lib/useFileImport.ts b/apps/desktop/src/lib/useFileImport.ts
-index cd48dc8..c7a5edf 100644
+index cd48dc8..4062c05 100644
 --- a/apps/desktop/src/lib/useFileImport.ts
 +++ b/apps/desktop/src/lib/useFileImport.ts
 @@ -6,20 +6,26 @@
@@ -264,8 +534,9 @@ index cd48dc8..c7a5edf 100644
  
  import { useCallback, useRef, useState } from "react";
  import {
-   resample, WHISPER_SAMPLE_RATE, notesToMarkdown, defaultSpeakerLabel,
+-  resample, WHISPER_SAMPLE_RATE, notesToMarkdown, defaultSpeakerLabel,
 -  type AsrChunk,
++  resample, WHISPER_SAMPLE_RATE, formatTranscript, notesToMarkdown, defaultSpeakerLabel,
 +  attributeSpeakers, speakersFromTurns, type AsrChunk,
  } from "@ledgeur/core";
  import {
@@ -445,6 +716,15 @@ index cd48dc8..c7a5edf 100644
  
        // Who are these people? The same pass the recorder runs: the on-device
        // model reads the transcript for introductions and greetings and names
+@@ -148,7 +208,7 @@ export function useFileImport() {
+       if (named.error) log.info("speaker names were not inferred", { reason: named.error });
+ 
+       patch({ step: "Writing the notes…" });
+-      const transcript = segments.map((s) => s.text).join(" ");
++      const transcript = formatTranscript(segments);
+       // Segments, not the flat string: the notes writer needs speaker labels.
+       const notes = await generateMeetingNotes(segments);
+ 
 @@ -179,10 +239,21 @@ export function useFileImport() {
          updatedAt: new Date().toISOString(),
        };
@@ -470,10 +750,24 @@ index cd48dc8..c7a5edf 100644
      } catch (e) {
        log.error("import failed", e);
 diff --git a/apps/desktop/src/screens/MeetingDetail.tsx b/apps/desktop/src/screens/MeetingDetail.tsx
-index 00f3f8f..c6e5e06 100644
+index 00f3f8f..78e2677 100644
 --- a/apps/desktop/src/screens/MeetingDetail.tsx
 +++ b/apps/desktop/src/screens/MeetingDetail.tsx
-@@ -25,7 +25,10 @@ import { Badge, Button, Card, ErrorNote, IconButton, Label, Notice, Segmented, S
+@@ -13,11 +13,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate, useParams } from "react-router-dom";
+ import {
+   ArrowLeft, Copy, Check, Trash2, FileText, ListChecks, MessageSquareText, PenLine,
+-  CornerDownRight, FolderOpen, TriangleAlert,
++  CornerDownRight, FolderOpen, TriangleAlert, RefreshCw,
+ } from "lucide-react";
+ import { formatElapsed, cn } from "@ledgeur/ui";
+ import {
+-  attributeMeetingNotes, notesToMarkdown, parseNotesMarkdown,
++  attributeMeetingNotes, formatTranscript, notesToMarkdown, parseNotesMarkdown,
+   type AttributedNote, type AttributableLine, type MeetingNotes,
+ } from "@ledgeur/core";
+ import { Page } from "../components/PageHeader.tsx";
+@@ -25,11 +25,15 @@ import { Badge, Button, Card, ErrorNote, IconButton, Label, Notice, Segmented, S
  import { FollowUpPanel } from "../components/meeting/FollowUpPanel.tsx";
  import { SpeakerPanel } from "../components/meeting/SpeakerPanel.tsx";
  import { TranscriptSpeaker } from "../components/meeting/TranscriptSpeaker.tsx";
@@ -485,7 +779,20 @@ index 00f3f8f..c6e5e06 100644
  import { reassignSegmentSpeaker } from "../lib/renameSpeaker.ts";
  import { getCloudMeeting, deleteCloudMeeting } from "../lib/cloudMeeting.ts";
  import { hasBackend } from "../lib/config.ts";
-@@ -57,6 +60,11 @@ export function MeetingDetail() {
+ import { saveMeetingToNotion } from "../lib/notion.ts";
++import { generateMeetingNotes } from "../lib/notes.ts";
+ import { useFolders, setMeetingFolder } from "../lib/folders.ts";
+ 
+ const TABS = [
+@@ -45,6 +49,7 @@ export function MeetingDetail() {
+   const [copied, setCopied] = useState(false);
+   const [confirmDelete, setConfirmDelete] = useState(false);
+   const [notion, setNotion] = useState<{ busy: boolean; msg: string; error: boolean }>({ busy: false, msg: "", error: false });
++  const [regen, setRegen] = useState<{ busy: boolean; msg: string; error: boolean }>({ busy: false, msg: "", error: false });
+   const [fromCloud, setFromCloud] = useState(false);
+   /** The same fact as `fromCloud`, readable from inside the load below
+    *  without making it depend on a render. */
+@@ -57,6 +62,11 @@ export function MeetingDetail() {
    const [jumpTo, setJumpTo] = useState<string | null>(null);
    const folders = useFolders();
    const segmentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -497,7 +804,7 @@ index 00f3f8f..c6e5e06 100644
  
    useEffect(() => {
      if (!id) return;
-@@ -132,6 +140,82 @@ export function MeetingDetail() {
+@@ -132,6 +142,82 @@ export function MeetingDetail() {
  
    const openAt = (lineId: string) => { setTab("transcript"); setJumpTo(lineId); };
  
@@ -580,7 +887,73 @@ index 00f3f8f..c6e5e06 100644
    /**
     * Persist an edit to who said what.
     *
-@@ -355,7 +439,25 @@ export function MeetingDetail() {
+@@ -191,6 +277,42 @@ export function MeetingDetail() {
+     setCopied(true);
+     setTimeout(() => setCopied(false), 1500);
+   }
++  async function regenerateNotes() {
++    if (fromCloud || !meeting) return;
++    setRegen({ busy: true, msg: "", error: false });
++    try {
++      const notes = await generateMeetingNotes(
++        meeting.segments,
++        meeting.manualNotes ?? "",
++        meeting.templateId,
++        { strict: true },
++      );
++      const transcript = formatTranscript(meeting.segments);
++      const date = (meeting.startedAt ?? meeting.createdAt).slice(0, 10);
++      const updated: LocalMeeting = {
++        ...meeting,
++        summary: notes.summary,
++        decisions: notes.decisions,
++        questions: notes.questions,
++        actionItems: notes.actionItems,
++        detailedNotes: notes.detailedNotes,
++        noteMarkdown: notesToMarkdown(meeting.title, date, notes, transcript, meeting.manualNotes),
++        wordCount: notes.wordCount,
++        notesGenerator: "model",
++        updatedAt: new Date().toISOString(),
++      };
++      await saveMeeting(updated, "full");
++      setMeeting(updated);
++      setRegen({ busy: false, msg: "Notes regenerated with the local vLLM.", error: false });
++    } catch (e) {
++      setRegen({
++        busy: false,
++        msg: e instanceof Error ? e.message : String(e),
++        error: true,
++      });
++    }
++  }
++
+   async function remove() {
+     if (!confirmDelete) { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 3500); return; }
+     if (fromCloud) await deleteCloudMeeting(meeting!.id).catch(() => {});
+@@ -228,6 +350,12 @@ export function MeetingDetail() {
+             </p>
+           </div>
+           <div className="flex shrink-0 items-center gap-1.5">
++            {!fromCloud && (
++              <Button size="sm" tone="secondary" onClick={regenerateNotes} disabled={regen.busy}
++                title="Regenerate notes from the corrected transcript using local vLLM">
++                {regen.busy ? <Spinner /> : <RefreshCw className="h-4 w-4" />} Regenerate notes
++              </Button>
++            )}
+             <Button size="sm" tone="secondary" onClick={saveNotion} disabled={notion.busy}
+               title={hasBackend ? "Save these notes to Notion" : "Connect Notion in Settings to enable"}>
+               {notion.busy ? <Spinner /> : <FileText className="h-4 w-4" />} Notion
+@@ -268,6 +396,9 @@ export function MeetingDetail() {
+       {notion.msg && (notion.error
+         ? <ErrorNote className="mb-4">{notion.msg}</ErrorNote>
+         : <Notice tone="accent" className="mb-4">{notion.msg}</Notice>)}
++      {regen.msg && (regen.error
++        ? <ErrorNote className="mb-4">{regen.msg}</ErrorNote>
++        : <Notice tone="accent" className="mb-4">{regen.msg}</Notice>)}
+ 
+       <Segmented options={TABS} value={tab} onChange={setTab} className="mb-5" />
+ 
+@@ -355,7 +486,25 @@ export function MeetingDetail() {
                    ref={(el) => { if (el) segmentRefs.current.set(s.id, el); else segmentRefs.current.delete(s.id); }}
                    className={cn("-mx-2 flex gap-3 rounded-lg px-2 py-1 transition-colors duration-500", jumpTo === s.id && "bg-brand-soft")}
                  >
