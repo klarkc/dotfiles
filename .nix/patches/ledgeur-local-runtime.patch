@@ -129,6 +129,110 @@ index 013ea86..6e3fa6d 100644
    const native = await nativeChat(messages, opts);
    if (native != null) return native.trim();
  
+diff --git a/apps/desktop/src/lib/meetingsStore.ts b/apps/desktop/src/lib/meetingsStore.ts
+index b6f1041..8bca321 100644
+--- a/apps/desktop/src/lib/meetingsStore.ts
++++ b/apps/desktop/src/lib/meetingsStore.ts
+@@ -169,7 +169,13 @@ export interface LocalMeeting {
+ 
+ const DB_NAME = "ledgeur";
+ const STORE = "meetings";
+-const VERSION = 1;
++const AUDIO_STORE = "meetingAudio";
++const VERSION = 2;
++
++interface LocalMeetingAudio {
++  id: string;
++  blob: Blob;
++}
+ 
+ function openDb(): Promise<IDBDatabase> {
+   return new Promise((resolve, reject) => {
+@@ -179,18 +185,27 @@ function openDb(): Promise<IDBDatabase> {
+       if (!db.objectStoreNames.contains(STORE)) {
+         db.createObjectStore(STORE, { keyPath: "id" });
+       }
++      // Imported recordings stay on this device. Keeping them in a separate
++      // store means they can never accidentally become part of meeting sync.
++      if (!db.objectStoreNames.contains(AUDIO_STORE)) {
++        db.createObjectStore(AUDIO_STORE, { keyPath: "id" });
++      }
+     };
+     req.onsuccess = () => resolve(req.result);
+     req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
+   });
+ }
+ 
+-function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
++function txOn<T>(
++  store: string,
++  mode: IDBTransactionMode,
++  run: (s: IDBObjectStore) => IDBRequest<T>,
++): Promise<T> {
+   return openDb().then(
+     (db) =>
+       new Promise<T>((resolve, reject) => {
+-        const t = db.transaction(STORE, mode);
+-        const req = run(t.objectStore(STORE));
++        const t = db.transaction(store, mode);
++        const req = run(t.objectStore(store));
+         req.onsuccess = () => resolve(req.result);
+         req.onerror = () => reject(req.error ?? new Error("IndexedDB request failed"));
+         t.oncomplete = () => db.close();
+@@ -198,6 +213,36 @@ function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<
+   );
+ }
+ 
++function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
++  return txOn(STORE, mode, run);
++}
++
++export async function saveMeetingAudio(id: string, blob: Blob): Promise<void> {
++  await txOn(AUDIO_STORE, "readwrite", (s) => s.put({ id, blob } satisfies LocalMeetingAudio));
++}
++
++export async function getMeetingAudio(id: string): Promise<Blob | undefined> {
++  const record = await txOn<LocalMeetingAudio | undefined>(
++    AUDIO_STORE,
++    "readonly",
++    (s) => s.get(id) as IDBRequest<LocalMeetingAudio | undefined>,
++  );
++  return record?.blob;
++}
++
++export async function hasMeetingAudio(id: string): Promise<boolean> {
++  const key = await txOn<IDBValidKey | undefined>(
++    AUDIO_STORE,
++    "readonly",
++    (s) => s.getKey(id) as IDBRequest<IDBValidKey | undefined>,
++  );
++  return key !== undefined;
++}
++
++async function deleteMeetingAudio(id: string): Promise<void> {
++  await txOn(AUDIO_STORE, "readwrite", (s) => s.delete(id) as IDBRequest<undefined>);
++}
++
+ /* ---------------------------------------------------------------- change bus */
+ // Screens subscribe so a pull, a rename or a delete shows up without a reload.
+ const listeners = new Set<() => void>();
+@@ -262,12 +307,16 @@ export async function deleteMeeting(id: string): Promise<void> {
+   } else {
+     await tx("readwrite", (s) => s.delete(id) as IDBRequest<undefined>);
+   }
++  // Audio is deliberately local-only, so a local delete can always remove it
++  // immediately even when the meeting itself must remain as a sync tombstone.
++  await deleteMeetingAudio(id);
+   notify();
+ }
+ 
+ /** Remove a record outright — the engine, once the cloud has agreed. */
+ export async function purgeMeeting(id: string): Promise<void> {
+   await tx("readwrite", (s) => s.delete(id) as IDBRequest<undefined>);
++  await deleteMeetingAudio(id);
+   notify();
+ }
+ 
 diff --git a/apps/desktop/src/lib/settings.ts b/apps/desktop/src/lib/settings.ts
 index 826642a..4d8676d 100644
 --- a/apps/desktop/src/lib/settings.ts
@@ -143,10 +247,10 @@ index 826642a..4d8676d 100644
  export interface Settings {
    /** The copilot proactively posts "you could say…" suggestions into the
 diff --git a/apps/desktop/src/lib/useFileImport.ts b/apps/desktop/src/lib/useFileImport.ts
-index cd48dc8..41cbc07 100644
+index cd48dc8..c7a5edf 100644
 --- a/apps/desktop/src/lib/useFileImport.ts
 +++ b/apps/desktop/src/lib/useFileImport.ts
-@@ -6,20 +6,24 @@
+@@ -6,20 +6,26 @@
  // a microphone — and that the meeting is filed under the file's own date rather
  // than pretending it happened now.
  //
@@ -167,7 +271,10 @@ index cd48dc8..41cbc07 100644
  import {
    AudioCapture, TranscriberController, DiarizerController, listVoiceProfiles,
  } from "@ledgeur/core/browser";
- import { saveMeeting, type LocalMeeting, type LocalSegment, type LocalSpeaker } from "./meetingsStore.ts";
+-import { saveMeeting, type LocalMeeting, type LocalSegment, type LocalSpeaker } from "./meetingsStore.ts";
++import {
++  saveMeeting, saveMeetingAudio, type LocalMeeting, type LocalSegment, type LocalSpeaker,
++} from "./meetingsStore.ts";
  import { autoLabelSpeakers } from "./speakerNames.ts";
 +import {
 +  aiStatus, nativeTranscribeChunk, nativeDiarizeMeeting, onDiarizeProgress,
@@ -175,7 +282,7 @@ index cd48dc8..41cbc07 100644
  import { generateMeetingNotes } from "./notes.ts";
  import { createLogger } from "./logger.ts";
  import { track } from "./analytics.ts";
-@@ -81,59 +85,113 @@ export function useFileImport() {
+@@ -81,59 +87,113 @@ export function useFileImport() {
        const audio = resample(decoded.audio, decoded.sampleRate, WHISPER_SAMPLE_RATE);
        const durationSec = audio.length / WHISPER_SAMPLE_RATE;
  
@@ -338,11 +445,22 @@ index cd48dc8..41cbc07 100644
  
        // Who are these people? The same pass the recorder runs: the on-device
        // model reads the transcript for introductions and greetings and names
-@@ -179,10 +237,10 @@ export function useFileImport() {
+@@ -179,10 +239,21 @@ export function useFileImport() {
          updatedAt: new Date().toISOString(),
        };
        await saveMeeting(meeting, "none");
 -      log.info("imported", { id, segments: segments.length, speakers: diarized.speakers.length });
++      try {
++        // Keep the original compressed recording, not the decoded PCM. IndexedDB
++        // stores Blob natively, so a 20-minute MP3 stays a 20-minute MP3 rather
++        // than expanding into tens of megabytes of WAV data.
++        await saveMeetingAudio(id, file);
++      } catch (e) {
++        log.warn("recording playback could not be saved", { reason: String(e) });
++        warning = [warning, "Transcript saved, but the original recording could not be kept for playback."]
++          .filter(Boolean)
++          .join(" ");
++      }
 +      log.info("imported", { id, segments: segments.length, speakers: speakers.length, native: useNative });
        track("meeting_saved", { source: "import", segments: segments.length, word_count: notes.wordCount });
  
@@ -351,3 +469,141 @@ index cd48dc8..41cbc07 100644
        return id;
      } catch (e) {
        log.error("import failed", e);
+diff --git a/apps/desktop/src/screens/MeetingDetail.tsx b/apps/desktop/src/screens/MeetingDetail.tsx
+index 00f3f8f..c6e5e06 100644
+--- a/apps/desktop/src/screens/MeetingDetail.tsx
++++ b/apps/desktop/src/screens/MeetingDetail.tsx
+@@ -25,7 +25,10 @@ import { Badge, Button, Card, ErrorNote, IconButton, Label, Notice, Segmented, S
+ import { FollowUpPanel } from "../components/meeting/FollowUpPanel.tsx";
+ import { SpeakerPanel } from "../components/meeting/SpeakerPanel.tsx";
+ import { TranscriptSpeaker } from "../components/meeting/TranscriptSpeaker.tsx";
+-import { getMeeting, saveMeeting, deleteMeeting, subscribeMeetings, type LocalMeeting } from "../lib/meetingsStore.ts";
++import {
++  getMeeting, getMeetingAudio, saveMeeting, deleteMeeting, subscribeMeetings,
++  type LocalMeeting, type LocalSegment,
++} from "../lib/meetingsStore.ts";
+ import { reassignSegmentSpeaker } from "../lib/renameSpeaker.ts";
+ import { getCloudMeeting, deleteCloudMeeting } from "../lib/cloudMeeting.ts";
+ import { hasBackend } from "../lib/config.ts";
+@@ -57,6 +60,11 @@ export function MeetingDetail() {
+   const [jumpTo, setJumpTo] = useState<string | null>(null);
+   const folders = useFolders();
+   const segmentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
++  const playback = useRef<HTMLAudioElement | null>(null);
++  const playbackUrl = useRef<string | null>(null);
++  const playbackStopMs = useRef<number | null>(null);
++  const [audioReady, setAudioReady] = useState(false);
++  const [playingSegment, setPlayingSegment] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     if (!id) return;
+@@ -132,6 +140,82 @@ export function MeetingDetail() {
+ 
+   const openAt = (lineId: string) => { setTab("transcript"); setJumpTo(lineId); };
+ 
++  // Imported recordings are kept in a separate local-only IndexedDB store.
++  // Load the Blob while this meeting is open so a timestamp click can start
++  // playback synchronously and satisfy WebKit user-gesture requirements.
++  useEffect(() => {
++    let cancelled = false;
++    setAudioReady(false);
++    setPlayingSegment(null);
++
++    const dispose = () => {
++      const audio = playback.current;
++      if (audio) {
++        audio.pause();
++        audio.removeAttribute("src");
++      }
++      playback.current = null;
++      playbackStopMs.current = null;
++      if (playbackUrl.current) URL.revokeObjectURL(playbackUrl.current);
++      playbackUrl.current = null;
++    };
++
++    dispose();
++    if (!id || fromCloud) return dispose;
++
++    void getMeetingAudio(id).then((blob) => {
++      if (cancelled || !blob) return;
++      const url = URL.createObjectURL(blob);
++      const audio = new Audio(url);
++      const onTimeUpdate = () => {
++        const stop = playbackStopMs.current;
++        if (stop == null || audio.currentTime * 1000 < stop) return;
++        audio.pause();
++        playbackStopMs.current = null;
++        setPlayingSegment(null);
++      };
++      const onEnded = () => {
++        playbackStopMs.current = null;
++        setPlayingSegment(null);
++      };
++      audio.preload = "metadata";
++      audio.addEventListener("timeupdate", onTimeUpdate);
++      audio.addEventListener("ended", onEnded);
++      audio.addEventListener("loadedmetadata", () => {
++        if (!cancelled) setAudioReady(true);
++      }, { once: true });
++      playback.current = audio;
++      playbackUrl.current = url;
++      audio.load();
++    }).catch(() => {});
++
++    return () => {
++      cancelled = true;
++      dispose();
++    };
++  }, [id, fromCloud]);
++
++  function playSegmentAudio(segment: LocalSegment) {
++    const audio = playback.current;
++    if (!audioReady || !audio) return;
++
++    if (playingSegment === segment.id && !audio.paused) {
++      audio.pause();
++      playbackStopMs.current = null;
++      setPlayingSegment(null);
++      return;
++    }
++
++    const startMs = Math.max(0, segment.startMs - 350);
++    playbackStopMs.current = segment.endMs + 500;
++    audio.currentTime = startMs / 1000;
++    setPlayingSegment(segment.id);
++    void audio.play().catch(() => {
++      playbackStopMs.current = null;
++      setPlayingSegment(null);
++    });
++  }
++
+   /**
+    * Persist an edit to who said what.
+    *
+@@ -355,7 +439,25 @@ export function MeetingDetail() {
+                   ref={(el) => { if (el) segmentRefs.current.set(s.id, el); else segmentRefs.current.delete(s.id); }}
+                   className={cn("-mx-2 flex gap-3 rounded-lg px-2 py-1 transition-colors duration-500", jumpTo === s.id && "bg-brand-soft")}
+                 >
+-                  <span className="ldg-num w-11 shrink-0 pt-1 text-right text-xs text-faint">{formatElapsed(s.startMs / 1000)}</span>
++                  {audioReady ? (
++                    <button
++                      type="button"
++                      className={cn(
++                        "ldg-num w-11 shrink-0 pt-1 text-right text-xs underline-offset-2 hover:text-brand hover:underline",
++                        playingSegment === s.id ? "font-semibold text-brand" : "text-faint",
++                      )}
++                      title={playingSegment === s.id ? "Pause this excerpt" : "Play this excerpt"}
++                      aria-label={`${playingSegment === s.id ? "Pause" : "Play"} audio at ${formatElapsed(s.startMs / 1000)}`}
++                      aria-pressed={playingSegment === s.id}
++                      onClick={() => playSegmentAudio(s)}
++                    >
++                      {formatElapsed(s.startMs / 1000)}
++                    </button>
++                  ) : (
++                    <span className="ldg-num w-11 shrink-0 pt-1 text-right text-xs text-faint">
++                      {formatElapsed(s.startMs / 1000)}
++                    </span>
++                  )}
+                   <div className="min-w-0 flex-1">
+                     {s.speakerLabel.trim() && (
+                       <div className="mb-1">
