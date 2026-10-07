@@ -10,7 +10,7 @@ Type=simple
 Environment=HOME=%h
 Environment=PATH=%h/.nix-profile/bin:/usr/bin:/bin
 PassEnvironment=ZEROCLAW_channels__discord__default__bot_token ZEROCLAW_providers__models__vllm__default__api_key ZEROCLAW_providers__models__vllm__default__model ZEROCLAW_providers__models__vllm__default__uri
-ExecStart=%h/.local/state/nix/profiles/zeroclaw/bin/zeroclaw daemon
+ExecStart=%h/.nix-profile/bin/zeroclaw daemon
 Restart=always
 RestartSec=3s
 
