@@ -48,8 +48,6 @@ external_peers = ["1402724407956209794"]
 [risk_profiles.default]
 allowed_commands = [
   "git",
-  "npm",
-  "cargo",
   "ls",
   "cat",
   "grep",
@@ -60,10 +58,6 @@ allowed_commands = [
   "head",
   "tail",
   "date",
-  "python",
-  "python3",
-  "pip",
-  "node",
   "nix",
   "nix-collect-garbage",
 ]
@@ -124,7 +118,7 @@ context_aware_tools = false
 keep_tool_context_turns = 2
 max_actions_per_hour = 20
 max_context_tokens = 49152
-max_cost_per_day_cents = 500
+max_cost_per_day_cents = 4294967295
 max_history_messages = 50
 max_system_prompt_chars = 0
 max_tool_iterations = 10
@@ -249,7 +243,6 @@ enabled = false
 default_cloud = "aws"
 supported_clouds = ["aws", "azure", "gcp"]
 iac_tools = ["terraform"]
-cost_threshold_monthly_usd = 100.0
 well_architected_frameworks = ["aws-waf"]
 
 [security_ops]
@@ -510,15 +503,7 @@ scope = "zeroclaw"
 services = []
 
 [cost]
-enabled = true
-daily_limit_usd = 10.0
-monthly_limit_usd = 100.0
-warn_at_percent = 80
-allow_override = false
-
-[cost.enforcement]
-mode = "warn"
-reserve_percent = 10
+enabled = false
 
 [peripherals]
 enabled = false
