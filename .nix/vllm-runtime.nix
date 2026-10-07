@@ -20,7 +20,10 @@ let
   };
   cuda = cudaPkgs.cudaPackages_13_0;
 
-  vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@refs/pull/52729/head";
+  # PR #52729 is intentionally used, but its head ref is mutable. Pin the
+  # exact reviewed commit so the fixed-output wheelhouse remains reproducible.
+  vllmRev = "462591a87e13545e7a8a310b7c1f71ba798a6a10";
+  vllmRequirement = "vllm @ git+https://github.com/vllm-project/vllm.git@${vllmRev}";
 
   wheelhouse = pkgs.stdenvNoCC.mkDerivation {
     pname = "vllm-pr52729-wheelhouse";
@@ -36,7 +39,7 @@ let
 
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-XpIO5SsjA/6KQhdYJxjSjZE57nYrph5S/o8ZThE6b7U=";
+    outputHash = "sha256-9/KenX+YrBMTo/NfKP/ZrOr5rHmnYns+ko8uWU30vNg=";
 
     dontUnpack = true;
 
