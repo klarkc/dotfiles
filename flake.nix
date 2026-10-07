@@ -447,6 +447,7 @@
                 ledgeurRuntime
                 vllmRuntime
                 mcpRemoteRuntime
+                zeroclawWithLandlock
               ];
           };
 
