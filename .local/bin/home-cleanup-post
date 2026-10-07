@@ -35,7 +35,11 @@ find "${SOURCES[@]}" -type d \( \
 
 # Clean old files in cache
 find ~/.config/discord/Cache/Cache_Data -type f -atime +30 -delete
-sudo find ~/.cache -type f -atime +30 -not -path '*/yay/*' -delete
+sudo find ~/.cache -type f -atime +30 \
+  -not -path '*/yay/*' \
+  -not -path '*/huggingface/*' \
+  -not -path '*/vllm-*/*' \
+  -delete
 
 # Clean build tools and artifacts
 sudo rm -rf ~/{go,.gradle,.npm}

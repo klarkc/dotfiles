@@ -311,7 +311,8 @@
         "qmd-src": "qmd-src",
         "sherpa-onnx-bin": "sherpa-onnx-bin",
         "treefmt-nix": "treefmt-nix",
-        "utils": "utils"
+        "utils": "utils",
+        "zeroclaw-src": "zeroclaw-src"
       }
     },
     "rust-overlay": {
@@ -398,6 +399,23 @@
       "original": {
         "owner": "ursi",
         "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "zeroclaw-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788585106,
+        "narHash": "sha256-X+2hSmbGibS0LJDew+CnXpJFW2k7w3fj/D54XHqLLzI=",
+        "owner": "zeroclaw-labs",
+        "repo": "zeroclaw",
+        "rev": "cb2b20a9fe59004b7ef03e123942d31f29236d15",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zeroclaw-labs",
+        "ref": "v0.8.5",
+        "repo": "zeroclaw",
         "type": "github"
       }
     }
