@@ -61,8 +61,13 @@ allowed_commands = [
   "nix",
   "nix-collect-garbage",
 ]
-allowed_roots = ["/nix/store"]
+allowed_roots = [
+  "/nix/store",
+  "/home/example/Sources",
+  "/home/example/.cache/nix",
+]
 allowed_roots_read_only = [
+  "/home/example/.gitconfig",
   "/nix/var/nix/daemon-socket",
   "/etc/nix/sentry-endpoint",
   "/proc/meminfo",
