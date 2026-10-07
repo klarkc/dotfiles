@@ -70,6 +70,7 @@ allowed_roots_read_only = [
 ]
 always_ask = []
 auto_approve = [
+  "shell",
   "file_read",
   "memory_recall",
   "web_search_tool",
