@@ -30,11 +30,11 @@ Keep this entry in `~/.fusion/agent/auth.json`:
 }
 ```
 
-The `vllm-patch-model-defaults` script maintains this file, Fusion `defaultProvider`/`defaultModelId`, and the opencode `vllm` provider block (including the currently served model entry) when `vllm-config` selects a model.
+The `vllm-patch-model-defaults` script maintains this file, Fusion `defaultProvider`/`defaultModelId`, and the opencode `vllm` provider block (including the currently served model entry) when `llm-config` selects a model.
 
 ## systemd user environment imports
 
-`fusion.service` and `vllm@.service` use `PassEnvironment`. That means variables are passed only if they already exist in the systemd user manager environment. The old single-model `vllm.service` is obsolete; use `vllm-config` and the target-based `vllm@...service` instances.
+`fusion.service` and `vllm@.service` use `PassEnvironment`. That means variables are passed only if they already exist in the systemd user manager environment. The old single-model `vllm.service` is obsolete; use `llm-config` and the target-based `vllm@...service` instances.
 
 Import the required variables from an interactive shell before restarting services:
 
@@ -111,7 +111,7 @@ Reasoning: opencode with frequent compaction is usually dominated by small/mediu
 
 ## Verification
 
-After `git pull` and `vllm-config qwen3.6-35B-a3b`:
+After `git pull` and `llm-config qwen3.6-35B-a3b`:
 
 ```bash
 jq '."local-vllm"' ~/.fusion/agent/auth.json

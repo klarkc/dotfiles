@@ -50,6 +50,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
 - AI Agents with [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+- [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) with Landlock-confined tools and a hardened user service
 - [Fusion](https://github.com/Runfusion/Fusion)
 
 ## Supported setups
@@ -205,6 +206,49 @@ systemctl --user enable --now fusion-backup.timer
 systemctl --user enable --now kolu
 ```
 
+#### ZeroClaw
+
+ZeroClaw is pinned to an upstream release in `flake.nix` and built with the
+`sandbox-landlock` feature. The daemon keeps normal host networking; Landlock
+is the filesystem boundary for agent tool subprocesses.
+
+`~/.zeroclaw/config.toml` is versioned as the declarative, secret-free runtime
+configuration. Provider and channel secrets must not be written to that file;
+they come from the ignored `~/.profile_override` through `llm-config`. After
+upgrading the profile, migrate old schemas with the pinned ZeroClaw binary and
+review the resulting diff before committing it. The default risk profile keeps
+`sandbox_enabled = true`, `sandbox_backend = "landlock"`,
+`workspace_only = true`, and an empty `shell_env_passthrough`.
+
+`llm-config` owns the private systemd user-manager environment. It reads
+`VLLM_API_KEY` and, when present, `DISCORD_BOT` from the ignored
+`~/.profile_override`, imports only the variables needed by vLLM/ZeroClaw, and
+never teaches the generic `.profile` about provider-specific secret names.
+`llm-environment.service` calls `llm-config --restore-environment` when the user
+manager starts, because `systemctl --user import-environment` state does not
+survive a reboot. The tracked config contains no Discord token, so hosts that
+enable the Discord channel must provide `DISCORD_BOT` in `.profile_override`.
+
+```bash
+nix profile install --profile ~/.local/state/nix/profiles/zeroclaw .#zeroclaw
+~/.local/state/nix/profiles/zeroclaw/bin/zeroclaw config migrate
+systemctl --user daemon-reload
+llm-config
+systemctl --user enable --now llm-environment.service zeroclaw.service
+```
+
+The unit applies host-level systemd hardening without `ProtectHome` or network
+isolation, leaving per-tool filesystem confinement to Landlock. Enable user
+lingering separately if the daemon must start before interactive login.
+
+The local ZeroClaw package carries a narrow patch that exposes the runtime's
+existing read-only root tier to risk profiles. This lets Nix work without
+making all supporting system paths writable in Landlock. The intended grants
+are `/nix/store` as the executable/read-write tier (the Nix store's own DAC
+still prevents user writes), plus read-only access to the daemon socket,
+`/etc/nix/sentry-endpoint`, `/proc/meminfo`, and `/proc/stat`. Both `nix` and
+`nix-collect-garbage` are explicitly allowlisted commands.
+
 To expose a user service running HTTPS on port `4443` through local port `443`,
 allow user processes to bind ports down to `443` once at the system level:
 
@@ -228,21 +272,21 @@ The vLLM/Fusion workflow is target-based. Only one vLLM model target should run 
 - `vllm-qwen3.6-35B-a3b.target` starts `vllm@qwen3.6-35B-a3b.service`
 - `vllm-qwen3.6-27B.target` starts `vllm@qwen3.6-27B.service`
 
-Use `vllm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
+Use `llm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
 
 The target starts only the selected vLLM service. The vLLM service then patches local Fusion and opencode defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
 
 Pick the model interactively:
 
 ```bash
-vllm-config
+llm-config
 ```
 
 Or switch directly:
 
 ```bash
-vllm-config qwen3.6-35B-a3b
-vllm-config qwen3.6-27B
+llm-config qwen3.6-35B-a3b
+llm-config qwen3.6-27B
 ```
 
 Verify which target will start with the user systemd session:
@@ -252,7 +296,7 @@ systemctl --user is-enabled vllm-qwen3.6-35B-a3b.target
 systemctl --user is-enabled vllm-qwen3.6-27B.target
 ```
 
-The selected target should be `enabled`; the other targets should be `disabled`. The legacy single-model `vllm.service` is obsolete; `vllm-config` stops and disables it when switching models.
+The selected target should be `enabled`; the other targets should be `disabled`. The legacy single-model `vllm.service` is obsolete; `llm-config` stops and disables it when switching models.
 
 User systemd services start when the user manager starts. To start the selected vLLM target after reboot before an interactive login, enable lingering once:
 

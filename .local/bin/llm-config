@@ -8,19 +8,121 @@ choices=(
 
 usage() {
   cat <<'EOF'
-Usage: vllm-config [MODEL]
+Usage: llm-config [MODEL]
+       llm-config --restore-environment
 
 Models:
   qwen3.6-35B-a3b
   qwen3.6-27B
 
 Without MODEL, shows an interactive menu.
+--restore-environment imports the minimal LLM/ZeroClaw environment for the
+single enabled vLLM target into the systemd user manager.
 EOF
+}
+
+enabled_model() {
+  local enabled=()
+  local item key target
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    target="vllm-${key}.target"
+    if systemctl --user is-enabled --quiet "$target" 2>/dev/null; then
+      enabled+=("$key")
+    fi
+  done
+  if [ "${#enabled[@]}" -ne 1 ]; then
+    printf 'Expected exactly one enabled vLLM target, found %s: %s\n' \
+      "${#enabled[@]}" "${enabled[*]:-none}" >&2
+    return 1
+  fi
+  printf '%s\n' "${enabled[0]}"
+}
+
+import_systemd_environment() {
+  local model_key="$1"
+  local profile_override="$HOME/.profile_override"
+  local model_env="$HOME/.config/vllm/${model_key}.env"
+  local uri_host
+
+  [ -r "$profile_override" ] || {
+    printf 'Missing readable secret source: %s\n' "$profile_override" >&2
+    return 1
+  }
+  [ -r "$model_env" ] || {
+    printf 'Missing model environment: %s\n' "$model_env" >&2
+    return 1
+  }
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$profile_override"
+  set -u
+  : "${VLLM_API_KEY:?VLLM_API_KEY is required in ~/.profile_override}"
+
+  read_model_env() {
+    local key="$1"
+    awk -v key="$key" '
+      index($0, key "=") == 1 {
+        sub(/^[^=]*=/, "")
+        print
+        found = 1
+        exit
+      }
+      END { if (!found) exit 1 }
+    ' "$model_env"
+  }
+
+  SERVED_MODEL_NAME="$(read_model_env SERVED_MODEL_NAME)" || {
+    printf 'SERVED_MODEL_NAME is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  PORT="$(read_model_env PORT)" || {
+    printf 'PORT is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  HOST="$(read_model_env HOST 2>/dev/null || true)"
+
+  uri_host="${HOST:-127.0.0.1}"
+  case "$uri_host" in
+    0.0.0.0|::|"[::]") uri_host=127.0.0.1 ;;
+  esac
+
+  export VLLM_API_KEY
+  export ZEROCLAW_providers__models__vllm__default__api_key="$VLLM_API_KEY"
+  export ZEROCLAW_providers__models__vllm__default__model="$SERVED_MODEL_NAME"
+  export ZEROCLAW_providers__models__vllm__default__uri="http://${uri_host}:${PORT}/v1"
+
+  systemctl --user import-environment \
+    VLLM_API_KEY \
+    ZEROCLAW_providers__models__vllm__default__api_key \
+    ZEROCLAW_providers__models__vllm__default__model \
+    ZEROCLAW_providers__models__vllm__default__uri
+
+  if [ -n "${DISCORD_BOT:-}" ]; then
+    export ZEROCLAW_channels__discord__default__bot_token="$DISCORD_BOT"
+    systemctl --user import-environment ZEROCLAW_channels__discord__default__bot_token
+    unset ZEROCLAW_channels__discord__default__bot_token
+  else
+    systemctl --user unset-environment ZEROCLAW_channels__discord__default__bot_token
+  fi
+
+  unset DISCORD_BOT VLLM_API_KEY
+  unset ZEROCLAW_providers__models__vllm__default__api_key
+  unset ZEROCLAW_providers__models__vllm__default__model
+  unset ZEROCLAW_providers__models__vllm__default__uri
+
+  printf 'Imported private systemd environment for %s (%s)\n' "$model_key" "$SERVED_MODEL_NAME"
 }
 
 pick="${1:-}"
 if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
   usage
+  exit 0
+fi
+if [ "${pick:-}" = "--restore-environment" ]; then
+  pick="$(enabled_model)"
+  import_systemd_environment "$pick"
   exit 0
 fi
 
@@ -46,6 +148,8 @@ case "$pick" in
   qwen3.6-35B-a3b|qwen3.6-27B) ;;
   *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
 esac
+
+import_systemd_environment "$pick"
 
 selected_target="vllm-${pick}.target"
 selected_service="vllm@${pick}.service"
@@ -76,7 +180,7 @@ fi
 
 since="$(date --iso-8601=seconds)"
 if ! $fusion_enabled; then
-  printf 'Note: %s is disabled; vllm-config will not restart it.\n' "$fusion_service"
+  printf 'Note: %s is disabled; llm-config will not restart it.\n' "$fusion_service"
 fi
 printf 'Stopping Fusion and vLLM units through systemd...\n'
 if $fusion_enabled; then

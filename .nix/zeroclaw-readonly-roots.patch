@@ -1,0 +1,81 @@
+diff --git a/crates/zeroclaw-config/src/policy.rs b/crates/zeroclaw-config/src/policy.rs
+index a8a845e33..69b008719 100644
+--- a/crates/zeroclaw-config/src/policy.rs
++++ b/crates/zeroclaw-config/src/policy.rs
+@@ -3605,7 +3605,22 @@ impl SecurityPolicy {
+                     }
+                 })
+                 .collect(),
+-            allowed_roots_read_only: Vec::new(),
++            allowed_roots_read_only: risk_profile
++                .allowed_roots_read_only
++                .iter()
++                .filter(|root| {
++                    let t = root.trim();
++                    !t.is_empty() && t != crate::traits::UNSET_DISPLAY && t != "*"
++                })
++                .map(|root| {
++                    let expanded = expand_user_path(root);
++                    if expanded.is_absolute() {
++                        expanded
++                    } else {
++                        workspace_dir.join(expanded)
++                    }
++                })
++                .collect(),
+             allowed_roots_write_only: Vec::new(),
+             max_actions_per_hour: runtime.max_actions_per_hour,
+             max_cost_per_day_cents: runtime.max_cost_per_day_cents,
+diff --git a/crates/zeroclaw-config/src/presets.rs b/crates/zeroclaw-config/src/presets.rs
+index b3ca98efc..c10c0082c 100644
+--- a/crates/zeroclaw-config/src/presets.rs
++++ b/crates/zeroclaw-config/src/presets.rs
+@@ -81,6 +81,7 @@ fn locked_down_risk() -> RiskProfileConfig {
+         auto_approve: vec![],
+         always_ask: vec![],
+         allowed_roots: vec![],
++        allowed_roots_read_only: vec![],
+         delegation_policy: DelegationPolicy::default(),
+         approval_route: None,
+         allowed_tools: vec![],
+@@ -103,6 +104,7 @@ fn balanced_risk() -> RiskProfileConfig {
+         auto_approve: vec![],
+         always_ask: vec![],
+         allowed_roots: vec![],
++        allowed_roots_read_only: vec![],
+         delegation_policy: DelegationPolicy {
+             mode: DelegationMode::Allow,
+         },
+@@ -127,6 +129,7 @@ fn yolo_risk() -> RiskProfileConfig {
+         auto_approve: vec!["*".to_string()],
+         always_ask: vec![],
+         allowed_roots: vec![],
++        allowed_roots_read_only: vec![],
+         delegation_policy: DelegationPolicy {
+             mode: DelegationMode::Allow,
+         },
+diff --git a/crates/zeroclaw-config/src/schema.rs b/crates/zeroclaw-config/src/schema.rs
+index 20e00d03e..e0f2eece9 100644
+--- a/crates/zeroclaw-config/src/schema.rs
++++ b/crates/zeroclaw-config/src/schema.rs
+@@ -12859,9 +12859,11 @@ pub struct RiskProfileConfig {
+     pub auto_approve: Vec<String>,
+     /// Tools that always require approval in this profile.
+     pub always_ask: Vec<String>,
+-    /// Extra directory roots the agent may access.
++    /// Extra directory roots the agent may access with read/write/execute rights.
+     #[serde(alias = "allowed_path", alias = "allowed_paths")]
+     pub allowed_roots: Vec<String>,
++    /// Extra directory or file roots the agent may access read-only.
++    pub allowed_roots_read_only: Vec<String>,
+     /// Whether agents using this profile may initiate delegation. Defaults to
+     /// `Forbidden`. Reachable delegate targets and bounded/independent mode
+     /// are resolved from each caller agent's config.
+@@ -12937,6 +12939,7 @@ impl Default for RiskProfileConfig {
+             auto_approve: default_auto_approve(),
+             always_ask: default_always_ask(),
+             allowed_roots: Vec::new(),
++            allowed_roots_read_only: Vec::new(),
+             delegation_policy: DelegationPolicy::default(),
+             approval_route: None,
+             allowed_tools: Vec::new(),

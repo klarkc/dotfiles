@@ -1,6 +1,7 @@
 [Unit]
 Description=vLLM model server (%i)
-After=network-online.target
+Requires=llm-environment.service
+After=network-online.target llm-environment.service
 Wants=network-online.target
 
 [Service]
@@ -34,7 +35,7 @@ Environment=VLLM_READY_TIMEOUT_SECONDS=1800
 
 UnsetEnvironment=LD_LIBRARY_PATH LD_PRELOAD
 
-CacheDirectory=vllm-%i
+CacheDirectory=vllm-%i huggingface
 CacheDirectoryMode=0700
 
 ExecStartPre=%h/.local/bin/vllm-patch-model-defaults

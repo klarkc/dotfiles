@@ -24,6 +24,11 @@
 # nix files
 !/.nix
 
+# zeroclaw: version only the secret-free declarative config
+!/.zeroclaw
+/.zeroclaw/*
+!/.zeroclaw/config.toml
+
 # agent skills
 !/.agents
 

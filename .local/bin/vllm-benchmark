@@ -6,7 +6,7 @@ usage() {
 Usage: vllm-benchmark [--check | prefix-switch]
 
 Runs lightweight target-aware HTTP benchmarks against the active vLLM
-OpenAI-compatible chat endpoint. Start a model first with vllm-config.
+OpenAI-compatible chat endpoint. Start a model first with llm-config.
 
 Without a subcommand, runs the legacy SMALL/MEDIUM/LONG sweep.
 
@@ -60,7 +60,7 @@ find_benchmark_env() {
     printf '%s\n' "$latest"
     return 0
   fi
-  echo "No vLLM benchmark.env found. Start a model first with: vllm-config qwen3.6-35B-a3b" >&2
+  echo "No vLLM benchmark.env found. Start a model first with: llm-config qwen3.6-35B-a3b" >&2
   return 1
 }
 
