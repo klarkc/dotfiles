@@ -1,0 +1,16 @@
+[Unit]
+Description=Import local LLM secrets and model selection into systemd
+Before=zeroclaw.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/llm-config --restore-environment
+RemainAfterExit=yes
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

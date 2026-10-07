@@ -12,6 +12,13 @@
     kolu.url = "github:juspay/kolu";
     herdr.url = "github:ogulcancelik/herdr";
     herdr.inputs.nixpkgs.follows = "nixpkgs";
+    # ZeroClaw is pinned upstream because nixpkgs can lag behind releases.
+    # v0.8.5's upstream Nix package pins an older Rust than the crate requires,
+    # so build the pinned source with this flake's current rustPlatform.
+    zeroclaw-src = {
+      url = "github:zeroclaw-labs/zeroclaw/v0.8.5";
+      flake = false;
+    };
     # Bump note: Ledgeur source. When bumping, refresh both the Cargo and pnpm
     # dependency hashes in `.nix/ledgeur-runtime.nix`, reapply the local patch,
     # and verify the native PT transcription + vLLM note path.
@@ -178,6 +185,24 @@
           };
           opencodeWithCodexAuth = pkgs.callPackage ./.nix/opencode-with-codex-auth.nix { };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
+          zeroclawWithLandlock = pkgs.rustPlatform.buildRustPackage {
+            pname = "zeroclaw";
+            version = "0.8.5";
+            src = inputs.zeroclaw-src;
+            patches = [ ./.nix/zeroclaw-readonly-roots.patch ];
+            cargoDeps = pkgs.rustPlatform.importCargoLock {
+              lockFile = "${inputs.zeroclaw-src}/Cargo.lock";
+            };
+            cargoBuildFlags = [
+              "-p"
+              "zeroclaw"
+              "--no-default-features"
+              "--features"
+              "agent-runtime,channel-discord,sandbox-landlock"
+            ];
+            buildInputs = [ pkgs.stdenv.cc.cc ];
+            doCheck = false;
+          };
           backupTools = pkgs.callPackage ./.nix/backup-tools.nix { };
           fusionRuntime = pkgs.callPackage ./.nix/fusion-runtime.nix {
             # Bump note: Fusion runtime. Coupled bumps: see `.nix/fusion-runtime.nix`.
@@ -321,13 +346,13 @@
             # contract is durable across renames. Two checks:
             #   (a) vllm-patch-model-defaults must update the opencode
             #       top-level `model` to `vllm/<served-model-name>` so
-            #       that `vllm-config` alone is enough to switch the
+            #       that `llm-config` alone is enough to switch the
             #       default agent model after a target change.
             #   (b) Every SERVED_MODEL_NAME declared in
             #       `.config/vllm/*.env` must exist as a key in
             #       `provider.vllm.models` in
             #       `.config/opencode/opencode.json`. Otherwise
-            #       `vllm-config` cannot keep opencode in sync with
+            #       `llm-config` cannot keep opencode in sync with
             #       the active vLLM target.
             vllm-opencode-contract =
               pkgs.runCommand "vllm-opencode-contract"
@@ -478,6 +503,7 @@
           packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
+          packages.zeroclaw = zeroclawWithLandlock;
         }
       );
 }
