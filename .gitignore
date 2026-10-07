@@ -36,11 +36,6 @@
 !/.backup
 /.backup/*
 
-# monitoring scripts and systemd units
-!/scripts
-!/systemd
-!/etc
-
 # systemd
 !/.config
 /.config/*
@@ -95,11 +90,6 @@
 /.codex/*
 !/.codex/config.toml
 !/.codex/*.config.toml
-
-# fusion
-!/.fusion
-/.fusion/*
-!/.fusion/settings.json
 
 # vllm
 !/.config/vllm

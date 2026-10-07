@@ -27,7 +27,6 @@ git checkout main
 - Ctrl+ç as Ctrl+b through keyd, while ç remains Unicode without Ctrl
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
 - [codex](https://github.com/openai/codex) and [opencode](https://github.com/anomalyco/opencode) as coding agents
-- [Fusion](https://github.com/Runfusion/Fusion) for agents orchestration
 - [kolu](https://github.com/juspay/kolu) for coding agent orchestration
 
 ## Machines
@@ -51,7 +50,6 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - AI models with [ollama](https://ollama.com/)
 - AI Agents with [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
 - [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) with Landlock-confined tools and a hardened user service
-- [Fusion](https://github.com/Runfusion/Fusion)
 
 ## Supported setups
 
@@ -187,14 +185,6 @@ If the `ç` key is not reported as `semicolon` on a machine, check it with:
 sudo keyd monitor
 ```
 
-Fusion's systemd service uses `~/.fusion/ssh_config` for Git SSH operations. Keep that file generated when OpenSSH configuration changes so sandboxed Fusion can read a stable SSH config.
-
-Install the pacman hook so this generated SSH config is refreshed after `openssh` or `systemd` package updates:
-
-```bash
-sudo install -Dm644 .local/share/pacman/hooks/fusion-ssh-config.hook /etc/pacman.d/hooks/fusion-ssh-config.hook
-```
-
 > Below steps are not mandatory (see [Optional Features](#optional-features))
 
 ```bash
@@ -202,7 +192,6 @@ systemctl --user enable home-cleanup.timer
 systemctl --user enable nix-cleanup.timer
 systemctl --user enable pacreport.timer
 systemctl --user enable --now sunshine.service
-systemctl --user enable --now fusion-backup.timer
 systemctl --user enable --now kolu
 ```
 
@@ -265,16 +254,16 @@ Then enable the socket-activated user proxy:
 systemctl --user enable --now https-proxy.socket
 ```
 
-#### vLLM + Fusion
+#### vLLM
 
-The vLLM/Fusion workflow is target-based. Only one vLLM model target should run at a time:
+The local vLLM workflow is target-based. Only one vLLM model target should run at a time:
 
 - `vllm-qwen3.6-35B-a3b.target` starts `vllm@qwen3.6-35B-a3b.service`
 - `vllm-qwen3.6-27B.target` starts `vllm@qwen3.6-27B.service`
 
-Use `llm-config` to choose the active local model. It stops Fusion and all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows the relevant journal logs until `vllm@...service` and `fusion.service` are active.
+Use `llm-config` to choose the active local model. It stops all vLLM units, disables the non-selected target, enables the selected target for future user-session starts, starts the selected target, and follows its journal until `vllm@...service` is active.
 
-The target starts only the selected vLLM service. The vLLM service then patches local Fusion and opencode defaults, starts the model, waits for `GET /v1/models` to respond with the selected served model, and only then restarts Fusion so it rereads changed config files. Fusion is intentionally not pulled directly by the target; readiness is owned by `vLLM@...service`.
+The vLLM service patches the local opencode default, starts the model, and waits for `GET /v1/models` to respond with the selected served model before systemd marks the service ready.
 
 Pick the model interactively:
 
@@ -322,7 +311,6 @@ Watch startup progress:
 ```bash
 journalctl --user-unit vllm-qwen3.6-35B-a3b.target -f
 journalctl --user-unit vllm@qwen3.6-35B-a3b.service -f
-journalctl --user-unit fusion.service -f
 ```
 
 Run the maintained vLLM benchmark wrapper against the active target:

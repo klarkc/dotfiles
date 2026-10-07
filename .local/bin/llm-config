@@ -153,7 +153,6 @@ import_systemd_environment "$pick"
 
 selected_target="vllm-${pick}.target"
 selected_service="vllm@${pick}.service"
-fusion_service="fusion.service"
 all_targets=()
 all_services=()
 other_targets=()
@@ -173,19 +172,8 @@ unit_state() {
   systemctl --user show "$1" --property="$2" --value 2>/dev/null || true
 }
 
-fusion_enabled=false
-if systemctl --user is-enabled --quiet "$fusion_service" 2>/dev/null; then
-  fusion_enabled=true
-fi
-
 since="$(date --iso-8601=seconds)"
-if ! $fusion_enabled; then
-  printf 'Note: %s is disabled; llm-config will not restart it.\n' "$fusion_service"
-fi
-printf 'Stopping Fusion and vLLM units through systemd...\n'
-if $fusion_enabled; then
-  systemctl --user stop "$fusion_service" 2>/dev/null || true
-fi
+printf 'Stopping vLLM units through systemd...\n'
 systemctl --user stop "$legacy_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
 printf 'Persisting selected target: %s\n' "$selected_target"
@@ -197,42 +185,23 @@ systemctl --user disable "$legacy_service" 2>/dev/null || true
 systemctl --user enable "$selected_target"
 
 printf 'Starting selected target: %s\n' "$selected_target"
-if $fusion_enabled; then
-  systemctl --user reset-failed "$fusion_service" 2>/dev/null || true
-fi
 systemctl --user reset-failed "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
 systemctl --user start --no-block "$selected_target"
 
 echo
-if $fusion_enabled; then
-  systemctl --user --no-pager -l status "$selected_target" "$selected_service" "$fusion_service" || true
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" || true
 
-  cat <<EOF
-
---- Current logs since $since: $selected_service + $fusion_service ---
-EOF
-  journalctl --user-unit "$selected_service" --user-unit "$fusion_service" --since "$since" -n 40 --no-pager -o short-iso || true
-
-  cat <<EOF
-
---- Following new logs: $selected_service + $fusion_service ---
-EOF
-  journalctl --user-unit "$selected_service" --user-unit "$fusion_service" --since "$since" -n 0 -f -o short-iso &
-else
-  systemctl --user --no-pager -l status "$selected_target" "$selected_service" || true
-
-  cat <<EOF
+cat <<EOF
 
 --- Current logs since $since: $selected_service ---
 EOF
-  journalctl --user-unit "$selected_service" --since "$since" -n 40 --no-pager -o short-iso || true
+journalctl --user-unit "$selected_service" --since "$since" -n 40 --no-pager -o short-iso || true
 
-  cat <<EOF
+cat <<EOF
 
 --- Following new logs: $selected_service ---
 EOF
-  journalctl --user-unit "$selected_service" --since "$since" -n 0 -f -o short-iso &
-fi
+journalctl --user-unit "$selected_service" --since "$since" -n 0 -f -o short-iso &
 journal_pid=$!
 
 while kill -0 "$journal_pid" 2>/dev/null; do
@@ -241,39 +210,14 @@ while kill -0 "$journal_pid" 2>/dev/null; do
   target_state="$(unit_state "$selected_target" ActiveState)"
   target_result="$(unit_state "$selected_target" Result)"
 
-  if $fusion_enabled; then
-    fusion_state="$(unit_state "$fusion_service" ActiveState)"
-    fusion_result="$(unit_state "$fusion_service" Result)"
-
-    if [ "$service_state" = active ] && [ "$fusion_state" = active ] \
-      && { [ -z "$service_result" ] || [ "$service_result" = success ]; } \
-      && { [ -z "$fusion_result" ] || [ "$fusion_result" = success ]; }; then
-      kill "$journal_pid" 2>/dev/null || true
-      wait "$journal_pid" 2>/dev/null || true
-      echo
-      echo "$selected_service and $fusion_service are active. Systemd will continue managing them."
-      systemctl --user --no-pager -l status "$selected_service" "$fusion_service" || true
-      exit 0
-    fi
-
-    if [ "$fusion_state" = failed ] || { [ -n "$fusion_result" ] && [ "$fusion_result" != success ]; }; then
-      kill "$journal_pid" 2>/dev/null || true
-      wait "$journal_pid" 2>/dev/null || true
-      echo
-      echo "$fusion_service failed: state=${fusion_state:-unknown} result=${fusion_result:-unknown}" >&2
-      systemctl --user --no-pager -l status "$selected_service" "$fusion_service" >&2 || true
-      exit 1
-    fi
-  else
-    if [ "$service_state" = active ] \
-      && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
-      kill "$journal_pid" 2>/dev/null || true
-      wait "$journal_pid" 2>/dev/null || true
-      echo
-      echo "$selected_service is active. Systemd will continue managing it."
-      systemctl --user --no-pager -l status "$selected_service" || true
-      exit 0
-    fi
+  if [ "$service_state" = active ] \
+    && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service is active. Systemd will continue managing it."
+    systemctl --user --no-pager -l status "$selected_service" || true
+    exit 0
   fi
 
   if [ "$service_state" = failed ] || { [ -n "$service_result" ] && [ "$service_result" != success ]; }; then
@@ -281,11 +225,7 @@ while kill -0 "$journal_pid" 2>/dev/null; do
     wait "$journal_pid" 2>/dev/null || true
     echo
     echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
-    if $fusion_enabled; then
-      systemctl --user --no-pager -l status "$selected_service" "$fusion_service" >&2 || true
-    else
-      systemctl --user --no-pager -l status "$selected_service" >&2 || true
-    fi
+    systemctl --user --no-pager -l status "$selected_service" >&2 || true
     exit 1
   fi
 
@@ -294,11 +234,7 @@ while kill -0 "$journal_pid" 2>/dev/null; do
     wait "$journal_pid" 2>/dev/null || true
     echo
     echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
-    if $fusion_enabled; then
-      systemctl --user --no-pager -l status "$selected_target" "$selected_service" "$fusion_service" >&2 || true
-    else
-      systemctl --user --no-pager -l status "$selected_target" "$selected_service" >&2 || true
-    fi
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" >&2 || true
     exit 1
   fi
 

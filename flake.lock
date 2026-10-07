@@ -87,23 +87,6 @@
         "type": "github"
       }
     },
-    "fusion-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1784871823,
-        "narHash": "sha256-ZAKkjfv+jPSNe6TKCOkrjYJ2H7DXmgU8JhXBddjNpC0=",
-        "owner": "Runfusion",
-        "repo": "Fusion",
-        "rev": "127b640b3fb18fc09cfc6e4d8a9d5956cc2ae69c",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Runfusion",
-        "ref": "v0.73.0",
-        "repo": "Fusion",
-        "type": "github"
-      }
-    },
     "git-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -279,27 +262,9 @@
         "type": "github"
       }
     },
-    "qmd-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1775429264,
-        "narHash": "sha256-bqIVaNRTa8H5vrw3RwsD7QdtTa0xNvRuEVzlzE1hIBQ=",
-        "owner": "tobi",
-        "repo": "qmd",
-        "rev": "65cd1b3fd02891d1ee0eefa751620918664fa321",
-        "type": "github"
-      },
-      "original": {
-        "owner": "tobi",
-        "ref": "v2.1.0",
-        "repo": "qmd",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
-        "fusion-src": "fusion-src",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",
@@ -308,7 +273,6 @@
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
-        "qmd-src": "qmd-src",
         "sherpa-onnx-bin": "sherpa-onnx-bin",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils",

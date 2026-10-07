@@ -42,26 +42,6 @@
       url = "git+https://github.com/nix-community/nixGL?ref=refs/pull/223/head";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Bump note: Fusion source. fetchPnpmDeps requires pnpm-lock.yaml which only
-    # exists in source tags (not in published npm tarballs). When bumping Fusion:
-    # 1) bump this ref (`Runfusion/Fusion/v<X.Y.Z>`),
-    # 2) refresh the `fusion-cli-pnpm-deps` hash in `.nix/fusion-runtime.nix`
-    #    via `nix build .#fusion-runtime` (initial build will fail and report
-    #    expected hash), then commit the reported hash,
-    # 3) update `fusionRuntime` version in this flake, and
-    # 4) rerun `nix build .#fusion-runtime` + `result/bin/fusion --version`.
-    fusion-src = {
-      url = "github:Runfusion/Fusion/v0.73.0";
-      flake = false;
-    };
-    # Bump note: QMD source. Fusion's memory backend invokes the `qmd` CLI as a
-    # separate runtime process; bump this only if upstream Fusion docs/code
-    # require a newer QMD CLI or the current `qmd --help` smoke check fails.
-    # Refresh the `qmd-cli-pnpm-deps` hash in `.nix/fusion-runtime.nix` similarly.
-    qmd-src = {
-      url = "github:tobi/qmd/v2.1.0";
-      flake = false;
-    };
     # Bump note: `mcp-remote` source. Used by
     # `.local/bin/atlassian-smoke-test oauth` as the OAuth bridge for the
     # Atlassian Rovo MCP integration. The upstream project does not publish
@@ -204,12 +184,6 @@
             doCheck = false;
           };
           backupTools = pkgs.callPackage ./.nix/backup-tools.nix { };
-          fusionRuntime = pkgs.callPackage ./.nix/fusion-runtime.nix {
-            # Bump note: Fusion runtime. Coupled bumps: see `.nix/fusion-runtime.nix`.
-            version = "0.73.0";
-            fusion-src = inputs.fusion-src;
-            qmd-src = inputs.qmd-src;
-          };
           vllmRuntime = pkgs.callPackage ./.nix/vllm-runtime.nix {
             # Bump note: vLLM runtime label (version + CUDA variant). Coupled bumps: see `.nix/vllm-runtime.nix`.
             version = "0.24.0-cu130";
@@ -223,19 +197,6 @@
             # `.nix/mcp-remote-runtime.nix`. The source rev and
             # `pnpmDeps.hash` in that derivation must move together.
             mcp-remote-src = inputs.mcp-remote-src;
-          };
-          # `buildEnv` rejects paths that share the same subpath. Both
-          # `fusionRuntime` and `mcpRemoteRuntime` ship their own
-          # `lib/node_modules/.pnpm/...` tree, so we merge them with
-          # `symlinkJoin` first. `symlinkJoin` recursively merges and
-          # last-write-wins on conflicts, which is what we want for
-          # duplicated npm hoisted stores.
-          jsRuntimes = pkgs.symlinkJoin {
-            name = "klarkc-dotfiles_js-runtimes";
-            paths = [
-              fusionRuntime
-              mcpRemoteRuntime
-            ];
           };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -458,13 +419,6 @@
             ];
           };
 
-          # `buildEnv` rejects paths that share the same subpath. Both
-          # `fusionRuntime` and `mcpRemoteRuntime` ship their own
-          # `lib/node_modules/.pnpm/...` tree, so we merge them with
-          # `symlinkJoin` first (see the `let` binding). `symlinkJoin`
-          # recursively merges and last-write-wins on conflicts, which
-          # is what we want for duplicated npm hoisted stores.
-
           packages.default = pkgs.buildEnv {
             name = "klarkc-dotfiles_profile";
             paths =
@@ -492,14 +446,13 @@
                 herdr
                 ledgeurRuntime
                 vllmRuntime
-                jsRuntimes
+                mcpRemoteRuntime
               ];
           };
 
           packages.alacritty = alacrittyWithLigatures;
           packages.archive-pack = backupTools.packScript;
           packages.archive-pack-test = backupTools.testScript;
-          packages.fusion-runtime = fusionRuntime;
           packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
