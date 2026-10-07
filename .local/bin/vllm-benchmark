@@ -168,11 +168,10 @@ capture_metadata() {
     echo "long_context_requests=prompts:${LONG_PROMPTS},input:${LONG_INPUT_LEN},output:${LONG_OUTPUT_LEN}"
   } > "$artifact_dir/metadata.env"
 
-  systemctl --user --no-pager -l status "vllm@${instance}.service" fusion.service > "$artifact_dir/systemd-status.txt" 2>&1 || true
+  systemctl --user --no-pager -l status "vllm@${instance}.service" > "$artifact_dir/systemd-status.txt" 2>&1 || true
   journalctl --user-unit "vllm@${instance}.service" -n 700 --no-pager -o short-iso > "$artifact_dir/journal-vllm.txt" 2>&1 || true
-  journalctl --user-unit fusion.service -n 300 --no-pager -o short-iso > "$artifact_dir/journal-fusion.txt" 2>&1 || true
   nvidia-smi > "$artifact_dir/nvidia-smi.txt" 2>&1 || true
-  ps -eo pid,ppid,stat,pcpu,pmem,rss,vsz,args | grep -E 'vllm|fusion|tmux' | grep -v grep > "$artifact_dir/processes.txt" 2>&1 || true
+  ps -eo pid,ppid,stat,pcpu,pmem,rss,vsz,args | grep -E 'vllm|tmux' | grep -v grep > "$artifact_dir/processes.txt" 2>&1 || true
   [ ! -r "$HOME/.cache/vllm-${instance}/runtime_command.sh" ] || cp "$HOME/.cache/vllm-${instance}/runtime_command.sh" "$artifact_dir/runtime_command.sh"
   redact_file "$benchmark_env" "$artifact_dir/benchmark.env"
   redact_file "$instance_env" "$artifact_dir/model.env"
