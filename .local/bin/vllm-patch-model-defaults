@@ -13,65 +13,6 @@ if [ "$client_context_window" -lt 1024 ]; then
   client_context_window=1024
 fi
 
-mkdir -p "$HOME/.fusion/agent"
-cat > "$HOME/.fusion/vllm-defaults.env" <<EOF
-VLLM_BASE_URL=$base_url
-VLLM_MODEL=$model_id
-VLLM_MODEL_NAME=$model_name
-VLLM_RAW_CONTEXT_WINDOW=$raw_context_window
-VLLM_CONTEXT_WINDOW=$client_context_window
-VLLM_MAX_TOKENS=$max_tokens
-VLLM_MAX_NUM_SEQS=$max_num_seqs
-EOF
-
-fusion_settings="$HOME/.fusion/settings.json"
-if [ -f "$fusion_settings" ]; then
-  python3 - "$fusion_settings" "$model_id" <<'PY'
-import json
-import os
-import sys
-
-path, model_id = sys.argv[1:]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-if not isinstance(data, dict):
-    raise SystemExit(f'{path} must contain a JSON object')
-data['defaultProvider'] = 'local-vllm'
-data['defaultModelId'] = model_id
-data['fallbackProvider'] = 'local-vllm'
-data['fallbackModelId'] = model_id
-data['customProviders'] = []
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent="\t")
-    f.write('\n')
-os.replace(tmp, path)
-PY
-fi
-
-fusion_auth="$HOME/.fusion/agent/auth.json"
-python3 - "$fusion_auth" <<'PY'
-import json
-import os
-import sys
-
-path = sys.argv[1]
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-except FileNotFoundError:
-    data = {}
-if not isinstance(data, dict):
-    data = {}
-data['local-vllm'] = {'type': 'api_key', 'key': 'VLLM_API_KEY'}
-os.makedirs(os.path.dirname(path), exist_ok=True)
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent="\t")
-    f.write('\n')
-os.replace(tmp, path)
-PY
-
 opencode_config="$HOME/.config/opencode/opencode.json"
 if [ -f "$opencode_config" ]; then
   python3 - "$opencode_config" "$base_url" "$client_context_window" "$max_tokens" "$model_id" "$model_name" <<'PY'
