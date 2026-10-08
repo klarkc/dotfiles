@@ -21,6 +21,696 @@ single enabled vLLM target into the systemd user manager.
 EOF
 }
 
+zeroclaw_allowed_roots_json() {
+  local roots=(
+    "/nix/store"
+    "$HOME/.zeroclaw/worktrees"
+    "$HOME/.cache/nix"
+  )
+  local path escaped sep="" json="["
+
+  if [ -d "$HOME/Sources" ]; then
+    while IFS= read -r -d '' path; do
+      roots+=("$path")
+    done < <(find "$HOME/Sources" -type d -name .git -prune -print0)
+  fi
+
+  for path in "${roots[@]}"; do
+    escaped="$path"
+    escaped="${escaped//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    escaped="${escaped//
+  local enabled=()
+  local item key target
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    target="vllm-${key}.target"
+    if systemctl --user is-enabled --quiet "$target" 2>/dev/null; then
+      enabled+=("$key")
+    fi
+  done
+  if [ "${#enabled[@]}" -ne 1 ]; then
+    printf 'Expected exactly one enabled vLLM target, found %s: %s\n' \
+      "${#enabled[@]}" "${enabled[*]:-none}" >&2
+    return 1
+  fi
+  printf '%s\n' "${enabled[0]}"
+}
+
+import_systemd_environment() {
+  local model_key="$1"
+  local profile_override="$HOME/.profile_override"
+  local model_env="$HOME/.config/vllm/${model_key}.env"
+  local uri_host
+
+  [ -r "$profile_override" ] || {
+    printf 'Missing readable secret source: %s\n' "$profile_override" >&2
+    return 1
+  }
+  [ -r "$model_env" ] || {
+    printf 'Missing model environment: %s\n' "$model_env" >&2
+    return 1
+  }
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$profile_override"
+  set -u
+  : "${VLLM_API_KEY:?VLLM_API_KEY is required in ~/.profile_override}"
+
+  read_model_env() {
+    local key="$1"
+    awk -v key="$key" '
+      index($0, key "=") == 1 {
+        sub(/^[^=]*=/, "")
+        print
+        found = 1
+        exit
+      }
+      END { if (!found) exit 1 }
+    ' "$model_env"
+  }
+
+  SERVED_MODEL_NAME="$(read_model_env SERVED_MODEL_NAME)" || {
+    printf 'SERVED_MODEL_NAME is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  PORT="$(read_model_env PORT)" || {
+    printf 'PORT is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  HOST="$(read_model_env HOST 2>/dev/null || true)"
+
+  uri_host="${HOST:-127.0.0.1}"
+  case "$uri_host" in
+    0.0.0.0|::|"[::]") uri_host=127.0.0.1 ;;
+  esac
+
+  export VLLM_API_KEY
+  export ZEROCLAW_providers__models__vllm__default__api_key="$VLLM_API_KEY"
+  export ZEROCLAW_providers__models__vllm__default__model="$SERVED_MODEL_NAME"
+  export ZEROCLAW_providers__models__vllm__default__uri="http://${uri_host}:${PORT}/v1"
+  export ZEROCLAW_risk_profiles__default__allowed_roots
+  ZEROCLAW_risk_profiles__default__allowed_roots="$(zeroclaw_allowed_roots_json)"
+
+  systemctl --user import-environment \
+    VLLM_API_KEY \
+    ZEROCLAW_providers__models__vllm__default__api_key \
+    ZEROCLAW_providers__models__vllm__default__model \
+    ZEROCLAW_providers__models__vllm__default__uri \
+    ZEROCLAW_risk_profiles__default__allowed_roots
+
+  if [ -n "${DISCORD_BOT:-}" ]; then
+    export ZEROCLAW_channels__discord__default__bot_token="$DISCORD_BOT"
+    systemctl --user import-environment ZEROCLAW_channels__discord__default__bot_token
+    unset ZEROCLAW_channels__discord__default__bot_token
+  else
+    systemctl --user unset-environment ZEROCLAW_channels__discord__default__bot_token
+  fi
+
+  unset DISCORD_BOT VLLM_API_KEY
+  unset ZEROCLAW_providers__models__vllm__default__api_key
+  unset ZEROCLAW_providers__models__vllm__default__model
+  unset ZEROCLAW_providers__models__vllm__default__uri
+  unset ZEROCLAW_risk_profiles__default__allowed_roots
+
+  printf 'Imported private systemd environment for %s (%s)\n' "$model_key" "$SERVED_MODEL_NAME"
+}
+
+pick="${1:-}"
+if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+if [ "${pick:-}" = "--restore-environment" ]; then
+  pick="$(enabled_model)"
+  import_systemd_environment "$pick"
+  exit 0
+fi
+
+if [ -z "$pick" ]; then
+  echo "Select vLLM model to run:"
+  i=1
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    label="${item#*:}"
+    printf '  %s) %s (%s)\n' "$i" "$label" "$key"
+    i=$((i + 1))
+  done
+  printf 'Choice: '
+  read -r answer
+  case "$answer" in
+    1) pick="qwen3.6-35B-a3b" ;;
+    2) pick="qwen3.6-27B" ;;
+    *) echo "Invalid choice: $answer" >&2; exit 2 ;;
+  esac
+fi
+
+case "$pick" in
+  qwen3.6-35B-a3b|qwen3.6-27B) ;;
+  *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
+esac
+
+import_systemd_environment "$pick"
+
+selected_target="vllm-${pick}.target"
+selected_service="vllm@${pick}.service"
+all_targets=()
+all_services=()
+other_targets=()
+legacy_service="vllm.service"
+for item in "${choices[@]}"; do
+  key="${item%%:*}"
+  target="vllm-${key}.target"
+  service="vllm@${key}.service"
+  all_targets+=("$target")
+  all_services+=("$service")
+  if [ "$target" != "$selected_target" ]; then
+    other_targets+=("$target")
+  fi
+done
+
+unit_state() {
+  systemctl --user show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+since="$(date --iso-8601=seconds)"
+printf 'Stopping vLLM units through systemd...\n'
+systemctl --user stop "$legacy_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
+
+printf 'Persisting selected target: %s\n' "$selected_target"
+systemctl --user daemon-reload
+if [ "${#other_targets[@]}" -gt 0 ]; then
+  systemctl --user disable "${other_targets[@]}" 2>/dev/null || true
+fi
+systemctl --user disable "$legacy_service" 2>/dev/null || true
+systemctl --user enable "$selected_target"
+
+printf 'Starting selected target: %s\n' "$selected_target"
+systemctl --user reset-failed "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
+systemctl --user start --no-block "$selected_target"
+
+echo
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" || true
+
+cat <<EOF
+
+--- Current logs since $since: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 40 --no-pager -o short-iso || true
+
+cat <<EOF
+
+--- Following new logs: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 0 -f -o short-iso &
+journal_pid=$!
+
+while kill -0 "$journal_pid" 2>/dev/null; do
+  service_state="$(unit_state "$selected_service" ActiveState)"
+  service_result="$(unit_state "$selected_service" Result)"
+  target_state="$(unit_state "$selected_target" ActiveState)"
+  target_result="$(unit_state "$selected_target" Result)"
+
+  if [ "$service_state" = active ] \
+    && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service is active. Systemd will continue managing it."
+    systemctl --user --no-pager -l status "$selected_service" || true
+    exit 0
+  fi
+
+  if [ "$service_state" = failed ] || { [ -n "$service_result" ] && [ "$service_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  if [ "$target_state" = failed ] || { [ -n "$target_result" ] && [ "$target_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
+wait "$journal_pid"
+\n'/\\n}"
+    escaped="${escaped//
+  local enabled=()
+  local item key target
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    target="vllm-${key}.target"
+    if systemctl --user is-enabled --quiet "$target" 2>/dev/null; then
+      enabled+=("$key")
+    fi
+  done
+  if [ "${#enabled[@]}" -ne 1 ]; then
+    printf 'Expected exactly one enabled vLLM target, found %s: %s\n' \
+      "${#enabled[@]}" "${enabled[*]:-none}" >&2
+    return 1
+  fi
+  printf '%s\n' "${enabled[0]}"
+}
+
+import_systemd_environment() {
+  local model_key="$1"
+  local profile_override="$HOME/.profile_override"
+  local model_env="$HOME/.config/vllm/${model_key}.env"
+  local uri_host
+
+  [ -r "$profile_override" ] || {
+    printf 'Missing readable secret source: %s\n' "$profile_override" >&2
+    return 1
+  }
+  [ -r "$model_env" ] || {
+    printf 'Missing model environment: %s\n' "$model_env" >&2
+    return 1
+  }
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$profile_override"
+  set -u
+  : "${VLLM_API_KEY:?VLLM_API_KEY is required in ~/.profile_override}"
+
+  read_model_env() {
+    local key="$1"
+    awk -v key="$key" '
+      index($0, key "=") == 1 {
+        sub(/^[^=]*=/, "")
+        print
+        found = 1
+        exit
+      }
+      END { if (!found) exit 1 }
+    ' "$model_env"
+  }
+
+  SERVED_MODEL_NAME="$(read_model_env SERVED_MODEL_NAME)" || {
+    printf 'SERVED_MODEL_NAME is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  PORT="$(read_model_env PORT)" || {
+    printf 'PORT is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  HOST="$(read_model_env HOST 2>/dev/null || true)"
+
+  uri_host="${HOST:-127.0.0.1}"
+  case "$uri_host" in
+    0.0.0.0|::|"[::]") uri_host=127.0.0.1 ;;
+  esac
+
+  export VLLM_API_KEY
+  export ZEROCLAW_providers__models__vllm__default__api_key="$VLLM_API_KEY"
+  export ZEROCLAW_providers__models__vllm__default__model="$SERVED_MODEL_NAME"
+  export ZEROCLAW_providers__models__vllm__default__uri="http://${uri_host}:${PORT}/v1"
+
+  systemctl --user import-environment \
+    VLLM_API_KEY \
+    ZEROCLAW_providers__models__vllm__default__api_key \
+    ZEROCLAW_providers__models__vllm__default__model \
+    ZEROCLAW_providers__models__vllm__default__uri
+
+  if [ -n "${DISCORD_BOT:-}" ]; then
+    export ZEROCLAW_channels__discord__default__bot_token="$DISCORD_BOT"
+    systemctl --user import-environment ZEROCLAW_channels__discord__default__bot_token
+    unset ZEROCLAW_channels__discord__default__bot_token
+  else
+    systemctl --user unset-environment ZEROCLAW_channels__discord__default__bot_token
+  fi
+
+  unset DISCORD_BOT VLLM_API_KEY
+  unset ZEROCLAW_providers__models__vllm__default__api_key
+  unset ZEROCLAW_providers__models__vllm__default__model
+  unset ZEROCLAW_providers__models__vllm__default__uri
+
+  printf 'Imported private systemd environment for %s (%s)\n' "$model_key" "$SERVED_MODEL_NAME"
+}
+
+pick="${1:-}"
+if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+if [ "${pick:-}" = "--restore-environment" ]; then
+  pick="$(enabled_model)"
+  import_systemd_environment "$pick"
+  exit 0
+fi
+
+if [ -z "$pick" ]; then
+  echo "Select vLLM model to run:"
+  i=1
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    label="${item#*:}"
+    printf '  %s) %s (%s)\n' "$i" "$label" "$key"
+    i=$((i + 1))
+  done
+  printf 'Choice: '
+  read -r answer
+  case "$answer" in
+    1) pick="qwen3.6-35B-a3b" ;;
+    2) pick="qwen3.6-27B" ;;
+    *) echo "Invalid choice: $answer" >&2; exit 2 ;;
+  esac
+fi
+
+case "$pick" in
+  qwen3.6-35B-a3b|qwen3.6-27B) ;;
+  *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
+esac
+
+import_systemd_environment "$pick"
+
+selected_target="vllm-${pick}.target"
+selected_service="vllm@${pick}.service"
+all_targets=()
+all_services=()
+other_targets=()
+legacy_service="vllm.service"
+for item in "${choices[@]}"; do
+  key="${item%%:*}"
+  target="vllm-${key}.target"
+  service="vllm@${key}.service"
+  all_targets+=("$target")
+  all_services+=("$service")
+  if [ "$target" != "$selected_target" ]; then
+    other_targets+=("$target")
+  fi
+done
+
+unit_state() {
+  systemctl --user show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+since="$(date --iso-8601=seconds)"
+printf 'Stopping vLLM units through systemd...\n'
+systemctl --user stop "$legacy_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
+
+printf 'Persisting selected target: %s\n' "$selected_target"
+systemctl --user daemon-reload
+if [ "${#other_targets[@]}" -gt 0 ]; then
+  systemctl --user disable "${other_targets[@]}" 2>/dev/null || true
+fi
+systemctl --user disable "$legacy_service" 2>/dev/null || true
+systemctl --user enable "$selected_target"
+
+printf 'Starting selected target: %s\n' "$selected_target"
+systemctl --user reset-failed "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
+systemctl --user start --no-block "$selected_target"
+
+echo
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" || true
+
+cat <<EOF
+
+--- Current logs since $since: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 40 --no-pager -o short-iso || true
+
+cat <<EOF
+
+--- Following new logs: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 0 -f -o short-iso &
+journal_pid=$!
+
+while kill -0 "$journal_pid" 2>/dev/null; do
+  service_state="$(unit_state "$selected_service" ActiveState)"
+  service_result="$(unit_state "$selected_service" Result)"
+  target_state="$(unit_state "$selected_target" ActiveState)"
+  target_result="$(unit_state "$selected_target" Result)"
+
+  if [ "$service_state" = active ] \
+    && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service is active. Systemd will continue managing it."
+    systemctl --user --no-pager -l status "$selected_service" || true
+    exit 0
+  fi
+
+  if [ "$service_state" = failed ] || { [ -n "$service_result" ] && [ "$service_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  if [ "$target_state" = failed ] || { [ -n "$target_result" ] && [ "$target_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
+wait "$journal_pid"
+\r'/\\r}"
+    escaped="${escaped//
+  local enabled=()
+  local item key target
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    target="vllm-${key}.target"
+    if systemctl --user is-enabled --quiet "$target" 2>/dev/null; then
+      enabled+=("$key")
+    fi
+  done
+  if [ "${#enabled[@]}" -ne 1 ]; then
+    printf 'Expected exactly one enabled vLLM target, found %s: %s\n' \
+      "${#enabled[@]}" "${enabled[*]:-none}" >&2
+    return 1
+  fi
+  printf '%s\n' "${enabled[0]}"
+}
+
+import_systemd_environment() {
+  local model_key="$1"
+  local profile_override="$HOME/.profile_override"
+  local model_env="$HOME/.config/vllm/${model_key}.env"
+  local uri_host
+
+  [ -r "$profile_override" ] || {
+    printf 'Missing readable secret source: %s\n' "$profile_override" >&2
+    return 1
+  }
+  [ -r "$model_env" ] || {
+    printf 'Missing model environment: %s\n' "$model_env" >&2
+    return 1
+  }
+
+  set +u
+  # shellcheck disable=SC1090
+  . "$profile_override"
+  set -u
+  : "${VLLM_API_KEY:?VLLM_API_KEY is required in ~/.profile_override}"
+
+  read_model_env() {
+    local key="$1"
+    awk -v key="$key" '
+      index($0, key "=") == 1 {
+        sub(/^[^=]*=/, "")
+        print
+        found = 1
+        exit
+      }
+      END { if (!found) exit 1 }
+    ' "$model_env"
+  }
+
+  SERVED_MODEL_NAME="$(read_model_env SERVED_MODEL_NAME)" || {
+    printf 'SERVED_MODEL_NAME is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  PORT="$(read_model_env PORT)" || {
+    printf 'PORT is required in %s\n' "$model_env" >&2
+    return 1
+  }
+  HOST="$(read_model_env HOST 2>/dev/null || true)"
+
+  uri_host="${HOST:-127.0.0.1}"
+  case "$uri_host" in
+    0.0.0.0|::|"[::]") uri_host=127.0.0.1 ;;
+  esac
+
+  export VLLM_API_KEY
+  export ZEROCLAW_providers__models__vllm__default__api_key="$VLLM_API_KEY"
+  export ZEROCLAW_providers__models__vllm__default__model="$SERVED_MODEL_NAME"
+  export ZEROCLAW_providers__models__vllm__default__uri="http://${uri_host}:${PORT}/v1"
+
+  systemctl --user import-environment \
+    VLLM_API_KEY \
+    ZEROCLAW_providers__models__vllm__default__api_key \
+    ZEROCLAW_providers__models__vllm__default__model \
+    ZEROCLAW_providers__models__vllm__default__uri
+
+  if [ -n "${DISCORD_BOT:-}" ]; then
+    export ZEROCLAW_channels__discord__default__bot_token="$DISCORD_BOT"
+    systemctl --user import-environment ZEROCLAW_channels__discord__default__bot_token
+    unset ZEROCLAW_channels__discord__default__bot_token
+  else
+    systemctl --user unset-environment ZEROCLAW_channels__discord__default__bot_token
+  fi
+
+  unset DISCORD_BOT VLLM_API_KEY
+  unset ZEROCLAW_providers__models__vllm__default__api_key
+  unset ZEROCLAW_providers__models__vllm__default__model
+  unset ZEROCLAW_providers__models__vllm__default__uri
+
+  printf 'Imported private systemd environment for %s (%s)\n' "$model_key" "$SERVED_MODEL_NAME"
+}
+
+pick="${1:-}"
+if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+if [ "${pick:-}" = "--restore-environment" ]; then
+  pick="$(enabled_model)"
+  import_systemd_environment "$pick"
+  exit 0
+fi
+
+if [ -z "$pick" ]; then
+  echo "Select vLLM model to run:"
+  i=1
+  for item in "${choices[@]}"; do
+    key="${item%%:*}"
+    label="${item#*:}"
+    printf '  %s) %s (%s)\n' "$i" "$label" "$key"
+    i=$((i + 1))
+  done
+  printf 'Choice: '
+  read -r answer
+  case "$answer" in
+    1) pick="qwen3.6-35B-a3b" ;;
+    2) pick="qwen3.6-27B" ;;
+    *) echo "Invalid choice: $answer" >&2; exit 2 ;;
+  esac
+fi
+
+case "$pick" in
+  qwen3.6-35B-a3b|qwen3.6-27B) ;;
+  *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
+esac
+
+import_systemd_environment "$pick"
+
+selected_target="vllm-${pick}.target"
+selected_service="vllm@${pick}.service"
+all_targets=()
+all_services=()
+other_targets=()
+legacy_service="vllm.service"
+for item in "${choices[@]}"; do
+  key="${item%%:*}"
+  target="vllm-${key}.target"
+  service="vllm@${key}.service"
+  all_targets+=("$target")
+  all_services+=("$service")
+  if [ "$target" != "$selected_target" ]; then
+    other_targets+=("$target")
+  fi
+done
+
+unit_state() {
+  systemctl --user show "$1" --property="$2" --value 2>/dev/null || true
+}
+
+since="$(date --iso-8601=seconds)"
+printf 'Stopping vLLM units through systemd...\n'
+systemctl --user stop "$legacy_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
+
+printf 'Persisting selected target: %s\n' "$selected_target"
+systemctl --user daemon-reload
+if [ "${#other_targets[@]}" -gt 0 ]; then
+  systemctl --user disable "${other_targets[@]}" 2>/dev/null || true
+fi
+systemctl --user disable "$legacy_service" 2>/dev/null || true
+systemctl --user enable "$selected_target"
+
+printf 'Starting selected target: %s\n' "$selected_target"
+systemctl --user reset-failed "$selected_target" "$selected_service" "${all_services[@]}" 2>/dev/null || true
+systemctl --user start --no-block "$selected_target"
+
+echo
+systemctl --user --no-pager -l status "$selected_target" "$selected_service" || true
+
+cat <<EOF
+
+--- Current logs since $since: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 40 --no-pager -o short-iso || true
+
+cat <<EOF
+
+--- Following new logs: $selected_service ---
+EOF
+journalctl --user-unit "$selected_service" --since "$since" -n 0 -f -o short-iso &
+journal_pid=$!
+
+while kill -0 "$journal_pid" 2>/dev/null; do
+  service_state="$(unit_state "$selected_service" ActiveState)"
+  service_result="$(unit_state "$selected_service" Result)"
+  target_state="$(unit_state "$selected_target" ActiveState)"
+  target_result="$(unit_state "$selected_target" Result)"
+
+  if [ "$service_state" = active ] \
+    && { [ -z "$service_result" ] || [ "$service_result" = success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service is active. Systemd will continue managing it."
+    systemctl --user --no-pager -l status "$selected_service" || true
+    exit 0
+  fi
+
+  if [ "$service_state" = failed ] || { [ -n "$service_result" ] && [ "$service_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_service failed: state=${service_state:-unknown} result=${service_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  if [ "$target_state" = failed ] || { [ -n "$target_result" ] && [ "$target_result" != success ]; }; then
+    kill "$journal_pid" 2>/dev/null || true
+    wait "$journal_pid" 2>/dev/null || true
+    echo
+    echo "$selected_target failed: state=${target_state:-unknown} result=${target_result:-unknown}" >&2
+    systemctl --user --no-pager -l status "$selected_target" "$selected_service" >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
+wait "$journal_pid"
+\t'/\\t}"
+    json+="${sep}\"${escaped}\""
+    sep=","
+  done
+  printf '%s]\n' "$json"
+}
 enabled_model() {
   local enabled=()
   local item key target
