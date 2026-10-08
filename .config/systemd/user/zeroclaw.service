@@ -9,7 +9,8 @@ Wants=network-online.target
 Type=simple
 Environment=HOME=%h
 Environment=PATH=%h/.nix-profile/bin:/usr/bin:/bin
-PassEnvironment=ZEROCLAW_channels__discord__default__bot_token ZEROCLAW_providers__models__vllm__default__api_key ZEROCLAW_providers__models__vllm__default__model ZEROCLAW_providers__models__vllm__default__uri
+PassEnvironment=ZEROCLAW_channels__discord__default__bot_token ZEROCLAW_providers__models__vllm__default__api_key ZEROCLAW_providers__models__vllm__default__model ZEROCLAW_providers__models__vllm__default__uri ZEROCLAW_risk_profiles__default__allowed_roots
+ExecStartPre=/usr/bin/mkdir -p %h/.zeroclaw/worktrees
 ExecStart=%h/.nix-profile/bin/zeroclaw daemon
 Restart=always
 RestartSec=3s
