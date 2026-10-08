@@ -67,6 +67,7 @@ allowed_roots = [
   "/home/klarkc/.cache/nix",
 ]
 allowed_roots_read_only = [
+  "/home/klarkc/.config/git/ignore",
   "/home/klarkc/.gitconfig",
   "/nix/var/nix/daemon-socket",
   "/etc/nix/sentry-endpoint",
