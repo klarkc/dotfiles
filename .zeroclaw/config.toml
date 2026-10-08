@@ -67,6 +67,7 @@ allowed_roots = [
   "/home/example/.cache/nix",
 ]
 allowed_roots_read_only = [
+  "/home/example/.config/git/ignore",
   "/home/example/.gitconfig",
   "/nix/var/nix/daemon-socket",
   "/etc/nix/sentry-endpoint",
