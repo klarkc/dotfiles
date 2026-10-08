@@ -63,7 +63,7 @@ allowed_commands = [
 ]
 allowed_roots = [
   "/nix/store",
-  "/home/klarkc/Sources",
+  "/home/klarkc/.zeroclaw/worktrees",
   "/home/klarkc/.cache/nix",
 ]
 allowed_roots_read_only = [
