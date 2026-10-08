@@ -374,6 +374,95 @@ index b6f1041..8bca321 100644
    notify();
  }
  
+diff --git a/apps/desktop/src/lib/modelWarmup.ts b/apps/desktop/src/lib/modelWarmup.ts
+index 2422e60..e87d40b 100644
+--- a/apps/desktop/src/lib/modelWarmup.ts
++++ b/apps/desktop/src/lib/modelWarmup.ts
+@@ -12,7 +12,7 @@
+ 
+ import { getSettings } from "./settings.ts";
+ import { ensureTranscriber, ensureDiarizer, subscribeEngine, getEngineStatus } from "./asrEngine.ts";
+-import { aiStatus, downloadModels } from "./nativeAI.ts";
++import { aiStatus, ensureNativeAiReady } from "./nativeAI.ts";
+ import { isTauri } from "./runtime.ts";
+ import { createLogger } from "./logger.ts";
+ 
+@@ -84,22 +84,21 @@ async function run(): Promise<void> {
+   try {
+     if (isTauri()) {
+       const status = await aiStatus();
+-      if (status?.compiled) {
+-        if (!status.models_ready) {
+-          log.info("warming native AI models in the background");
+-          // The Rust download is one blocking call with no per-byte progress to
+-          // report, so this is honest about showing a spinner rather than
+-          // fabricating a percentage.
+-          setNativeStatus({ phase: "downloading", progress: null, label: "On-device models" });
+-          await downloadModels()
+-            .then(() => setNativeStatus({ phase: "ready", progress: 100, label: "" }))
+-            .catch((e: unknown) => {
+-              log.warn("native model warmup failed", e);
+-              setNativeStatus({ phase: "failed", progress: null, label: "" });
+-            });
+-        }
+-        return; // the native engine transcribes; the webview model isn't needed
++      if (status?.compiled && status.models_ready) {
++        setNativeStatus({ phase: "ready", progress: 100, label: "" });
++        return;
+       }
++      // Share the same readiness promise with file imports. Never initialise
++      // the remote browser workers inside a native desktop installation.
++      log.info("warming native AI models in the background");
++      setNativeStatus({ phase: "downloading", progress: null, label: "On-device models" });
++      await ensureNativeAiReady()
++        .then(() => setNativeStatus({ phase: "ready", progress: 100, label: "" }))
++        .catch((e: unknown) => {
++          log.warn("native model warmup failed", e);
++          setNativeStatus({ phase: "failed", progress: null, label: "" });
++        });
++      return;
+     }
+ 
+     // Both are started together and neither is awaited by the other: the
+diff --git a/apps/desktop/src/lib/nativeAI.ts b/apps/desktop/src/lib/nativeAI.ts
+index e66703a..64284e5 100644
+--- a/apps/desktop/src/lib/nativeAI.ts
++++ b/apps/desktop/src/lib/nativeAI.ts
+@@ -61,6 +61,34 @@ export async function downloadModels(): Promise<void> {
+   await invoke<void>("download_models");
+ }
+ 
++// Model warmup and file imports share one download/readiness operation. The
++// desktop must never switch to the browser's CDN-backed ASR worker just because
++// its native weights are still being downloaded in the background.
++let nativeReadyPromise: Promise<NativeAiStatus> | null = null;
++
++export function ensureNativeAiReady(): Promise<NativeAiStatus> {
++  if (nativeReadyPromise) return nativeReadyPromise;
++  nativeReadyPromise = (async () => {
++    if (!isTauri()) throw new Error("Native transcription requires the Ledgeur desktop app.");
++    let status = await aiStatus();
++    if (!status) throw new Error("Could not query the native transcription engine. Check the desktop app installation.");
++    if (!status.compiled) throw new Error("This Ledgeur build does not include native transcription.");
++    if (!status.models_ready) {
++      await downloadModels();
++      status = await aiStatus();
++      if (!status?.models_ready) {
++        throw new Error("Native transcription models are not ready after downloading. Check the local AI settings.");
++      }
++    }
++    return status;
++  })();
++  void nativeReadyPromise.then(
++    () => { nativeReadyPromise = null; },
++    () => { nativeReadyPromise = null; },
++  );
++  return nativeReadyPromise;
++}
++
+ /**
+  * Send audio to a native command as raw bytes rather than JSON.
+  *
 diff --git a/apps/desktop/src/lib/notes.ts b/apps/desktop/src/lib/notes.ts
 index ac9d649..ededde2 100644
 --- a/apps/desktop/src/lib/notes.ts
@@ -852,10 +941,10 @@ index 826642a..4d8676d 100644
  export interface Settings {
    /** The copilot proactively posts "you could say…" suggestions into the
 diff --git a/apps/desktop/src/lib/useFileImport.ts b/apps/desktop/src/lib/useFileImport.ts
-index cd48dc8..4062c05 100644
+index cd48dc8..de7ffd8 100644
 --- a/apps/desktop/src/lib/useFileImport.ts
 +++ b/apps/desktop/src/lib/useFileImport.ts
-@@ -6,20 +6,26 @@
+@@ -6,20 +6,27 @@
  // a microphone — and that the meeting is filed under the file's own date rather
  // than pretending it happened now.
  //
@@ -883,12 +972,13 @@ index cd48dc8..4062c05 100644
 +} from "./meetingsStore.ts";
  import { autoLabelSpeakers } from "./speakerNames.ts";
 +import {
-+  aiStatus, nativeTranscribeChunk, nativeDiarizeMeeting, onDiarizeProgress,
++  ensureNativeAiReady, nativeTranscribeChunk, nativeDiarizeMeeting, onDiarizeProgress,
 +} from "./nativeAI.ts";
++import { isTauri } from "./runtime.ts";
  import { generateMeetingNotes } from "./notes.ts";
  import { createLogger } from "./logger.ts";
  import { track } from "./analytics.ts";
-@@ -81,59 +87,113 @@ export function useFileImport() {
+@@ -81,59 +88,114 @@ export function useFileImport() {
        const audio = resample(decoded.audio, decoded.sampleRate, WHISPER_SAMPLE_RATE);
        const durationSec = audio.length / WHISPER_SAMPLE_RATE;
  
@@ -932,10 +1022,11 @@ index cd48dc8..4062c05 100644
 +      let segments: LocalSegment[] = [];
 +      let speakers: LocalSpeaker[] = [];
 +
-+      const nativeStatus = await aiStatus();
-+      const useNative = Boolean(nativeStatus?.compiled && nativeStatus?.models_ready);
++      const useNative = isTauri();
 +
 +      if (useNative) {
++        patch({ step: "Preparing on-device transcription models…" });
++        await ensureNativeAiReady();
 +        patch({
 +          step: `Transcribing ${Math.max(1, Math.round(durationSec / 60))} minute(s) of audio with Whisper…`,
 +          progress: 100,
@@ -1051,7 +1142,7 @@ index cd48dc8..4062c05 100644
  
        // Who are these people? The same pass the recorder runs: the on-device
        // model reads the transcript for introductions and greetings and names
-@@ -148,7 +208,7 @@ export function useFileImport() {
+@@ -148,7 +210,7 @@ export function useFileImport() {
        if (named.error) log.info("speaker names were not inferred", { reason: named.error });
  
        patch({ step: "Writing the notes…" });
@@ -1060,7 +1151,7 @@ index cd48dc8..4062c05 100644
        // Segments, not the flat string: the notes writer needs speaker labels.
        const notes = await generateMeetingNotes(segments);
  
-@@ -179,10 +239,21 @@ export function useFileImport() {
+@@ -179,10 +241,21 @@ export function useFileImport() {
          updatedAt: new Date().toISOString(),
        };
        await saveMeeting(meeting, "none");
