@@ -3,6 +3,7 @@ schema_version = 3
 [providers]
 
 [providers.models.vllm.default]
+context_window = 49152
 merge_system_into_user = false
 model = "default"
 requires_openai_auth = false
@@ -63,10 +64,10 @@ allowed_commands = [
 ]
 allowed_roots = [
   "/nix/store",
-  "/home/klarkc/.zeroclaw/worktrees",
   "/home/klarkc/.cache/nix",
 ]
 allowed_roots_read_only = [
+  "/home/klarkc/Sources",
   "/home/klarkc/.config/git/ignore",
   "/home/klarkc/.gitconfig",
   "/nix/var/nix/daemon-socket",
@@ -148,19 +149,6 @@ max_concurrent = 2
 name = "Qwen3.6 27B"
 provider = "vllm"
 
-[runtime_profiles.default.context_compression]
-enabled = true
-identifier_policy = "strict"
-max_passes = 3
-protect_first_n = 3
-protect_last_n = 4
-source_max_chars = 50000
-summary_max_chars = 4000
-threshold_ratio = 0.5
-timeout_secs = 60
-tool_result_retrim_chars = 2000
-tool_result_trim_exempt = []
-
 [observability]
 backend = "none"
 runtime_trace_mode = "none"
@@ -174,9 +162,9 @@ min_quality_score = 0.5
 
 [runtime_profiles.default.history_pruning]
 collapse_tool_results = true
-enabled = false
+enabled = true
 keep_recent = 4
-max_tokens = 8192
+max_tokens = 32768
 
 [trust]
 initial_score = 0.8
