@@ -10,7 +10,6 @@ usage() {
   cat <<'EOF'
 Usage: llm-config [MODEL]
        llm-config --restore-environment
-       llm-config --zeroclaw-daemon
 
 Models:
   qwen3.6-35B-a3b
@@ -19,44 +18,9 @@ Models:
 Without MODEL, shows an interactive menu.
 --restore-environment imports the minimal LLM/ZeroClaw environment for the
 single enabled vLLM target into the systemd user manager.
---zeroclaw-daemon discovers repository metadata roots under ~/Sources and starts
-ZeroClaw with access only to those .git directories plus its worktree area.
 EOF
 }
 
-zeroclaw_allowed_roots_value() {
-  local roots=(
-    "/nix/store"
-    "$HOME/.zeroclaw/worktrees"
-    "$HOME/.cache/nix"
-  )
-  local path joined="" sep=""
-
-  if [ -d "$HOME/Sources" ]; then
-    while IFS= read -r -d '' path; do
-      roots+=("$path")
-    done < <(find "$HOME/Sources" -type d -name .git -prune -print0)
-  fi
-
-  for path in "${roots[@]}"; do
-    case "$path" in
-      *,*)
-        printf 'ZeroClaw root contains unsupported comma: %s\n' "$path" >&2
-        return 1
-        ;;
-    esac
-    joined+="${sep}${path}"
-    sep=","
-  done
-  printf '%s\n' "$joined"
-}
-
-run_zeroclaw_daemon() {
-  mkdir -p "$HOME/.zeroclaw/worktrees"
-  export ZEROCLAW_risk_profiles__default__allowed_roots
-  ZEROCLAW_risk_profiles__default__allowed_roots="$(zeroclaw_allowed_roots_value)"
-  exec "$HOME/.nix-profile/bin/zeroclaw" daemon
-}
 enabled_model() {
   local enabled=()
   local item key target
@@ -155,9 +119,6 @@ pick="${1:-}"
 if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
   usage
   exit 0
-fi
-if [ "${pick:-}" = "--zeroclaw-daemon" ]; then
-  run_zeroclaw_daemon
 fi
 if [ "${pick:-}" = "--restore-environment" ]; then
   pick="$(enabled_model)"
