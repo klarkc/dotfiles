@@ -1,0 +1,819 @@
+#!/usr/bin/env python3
+"""Coordinate a confirmed OpenCode TUI model transition through Herdr.
+
+No signal/kill, DB mutation, or blind PTY injection. If the caller cannot
+prove the target Herdr pane corresponds to the OpenCode session, fail closed.
+"""
+import argparse
+import json
+import os
+import re
+import select
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+DB = Path.home() / ".local/share/opencode/opencode-stable.db"
+LOCAL_THRESHOLD = 30_000
+GPT_THRESHOLD = None  # GPT never compacts automatically
+CONFIRM_SECONDS = 12
+AGENT_ORDER = ("Build", "Plan", "Learn", "Design", "General", "Explore", "Scout", "Unknown")
+COMPACT_SECONDS = 360
+DEFAULT_CONTINUE = ("Continue the interrupted task from the saved state. "
+                    "First inspect the last completed tool actions and repository state, "
+                    "avoid repeating partial writes, and respect the agent's permissions.")
+
+def tell(message):
+    print(message, file=sys.stderr, flush=True)
+
+def run(*args, timeout=20, json_result=True):
+    completed = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                               check=False)
+    if completed.returncode:
+        raise RuntimeError(f"{' '.join(args[:4])} failed: {completed.stderr.strip()[:240]} "
+                           f"{completed.stdout.strip()[:150]}")
+    if not json_result:
+        return completed.stdout
+    if not completed.stdout.strip():
+        # Herdr pane mutations return exit status 0 with no JSON output.
+        # A successful operation must not be falsely diagnosed as a failure.
+        if len(args) >= 3 and args[:2] == ("herdr", "pane") and args[2] in (
+            "send-keys", "send-text", "run"
+        ):
+            return {}
+        raise RuntimeError(f"Empty JSON response from {' '.join(args[:3])}")
+    try:
+        parsed = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Unexpected Herdr JSON response: {completed.stdout[:160]}") from exc
+    if parsed.get("error") is not None:
+        raise RuntimeError(f"Herdr error: {str(parsed['error'])[:260]}")
+    return parsed.get("result", parsed)
+
+def sessions_running():
+    found = {}
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            argv = (proc / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+        except (OSError, PermissionError):
+            continue
+        if "--session" not in argv or not any("opencode" in item for item in argv[:2]):
+            continue
+        index = argv.index("--session")
+        if index + 1 >= len(argv):
+            continue
+        sid = argv[index + 1]
+        if re.fullmatch(r"ses_[a-zA-Z0-9]+", sid):
+            found[sid] = int(proc.name)
+    return found
+
+def session_info(db, sid, pid):
+    row = db.execute("SELECT title, model, directory FROM session WHERE id=?", (sid,)).fetchone()
+    if not row:
+        return None
+    title, encoded_model, directory = row
+    try:
+        model = json.loads(encoded_model or "{}")
+    except (ValueError, TypeError):
+        model = {}
+    name = str(model.get("providerID", "?")) + "/" + str(model.get("id", "?"))
+    context = None
+    context_kind = "unknown"
+    for (data,) in db.execute(
+        "SELECT data FROM message WHERE session_id=? ORDER BY time_created DESC LIMIT 160", (sid,)
+    ):
+        message = json.loads(data)
+        if message.get("role") != "assistant":
+            continue
+        tokens = message.get("tokens") or {}
+        if (message.get("mode") == "compaction" and
+            message.get("finish") == "stop" and not message.get("error") and
+            int(tokens.get("output") or 0) > 0):
+            # The preceding regular model request measured the *old* context.
+            # Successful compaction replaces it with a summary plus preserved
+            # tail/instructions. This is a conservative estimate, not a count.
+            recent_budget = 6000
+            instruction_budget = 12000
+            context = int(tokens.get("output") or 0) + recent_budget + instruction_budget
+            context_kind = "post-compaction-upper-estimate"
+            break
+        value = int(tokens.get("input") or 0) + int((tokens.get("cache") or {}).get("read") or 0)
+        if value and message.get("mode") != "compaction":
+            context = value
+            context_kind = "last-completed-request"
+            break
+    compactions = db.execute(
+        "SELECT count(*) FROM part WHERE session_id=? AND data like ?",
+        (sid, '%"type":"compaction"%'),
+    ).fetchone()[0]
+    return dict(id=sid, pid=pid, title=title or sid, directory=directory or "",
+                model=name, context=context, context_kind=context_kind, compactions=compactions)
+
+def list_sessions():
+    if not DB.exists():
+        return []
+    live = sessions_running()
+    with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=5) as db:
+        return [info for sid, pid in sorted(live.items())
+                if (info := session_info(db, sid, pid))]
+
+def ask_permission(seconds, target="modelo selecionado", compact=True,
+                   agent="Unknown", count=1):
+    """Ask once for each agent type with an independent deadline.
+
+    Build defaults to YES on Enter/timeout (Y/n); every other type defaults
+    to NO (y/N). Without an interactive controlling TTY, *all* default to
+    NO: unattended scripts must never interrupt working sessions.
+    """
+    default_yes = agent == "Build"
+    default = "SIM" if default_yes else "NÃO"
+    choice = "Y/n" if default_yes else "y/N"
+    action = "enfileirar se ocupado, compactar/migrar quando ocioso" if compact else "enfileirar se ocupado, migrar sem compactar"
+    qty = "sessão" if count == 1 else "sessões"
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR)
+    except OSError:
+        tell(f"  Agente {agent}: nenhum TTY interativo; decisão segura = NÃO.")
+        return False
+    try:
+        os.write(
+            fd,
+            (f"\nAgente {agent} ({count} {qty}): {action} para {target}? "
+             f"[{choice}] (timeout {seconds}s, padrão {default}): ").encode("utf-8")
+        )
+        ready, _, _ = select.select([fd], [], [], max(1, seconds))
+        if not ready:
+            tell(f"  Agente {agent}: timeout => {default}.")
+            return default_yes
+        answer = os.read(fd, 128).decode("utf-8", "replace").strip().casefold()
+        if not answer:
+            tell(f"  Agente {agent}: Enter => {default}.")
+            return default_yes
+        if answer in ("y", "yes", "s", "sim"):
+            return True
+        if answer in ("n", "no", "nao", "não"):
+            return False
+        tell(f"  Agente {agent}: resposta inválida; decisão segura = NÃO.")
+        return False
+    finally:
+        os.close(fd)
+
+def agent_info(payload):
+    if not isinstance(payload, dict):
+        raise RuntimeError("Unexpected Herdr agent info shape")
+    nested = payload.get("agent")
+    return nested if isinstance(nested, dict) else payload
+
+def find_agents(sessions):
+    # The Herdr agent detector may report no agents after an upgrade. Resolve
+    # persisted session-to-pane associations and validate against the live pane.
+    layout = Path.home()/".config/herdr/session.json"
+    found = {}
+    if layout.is_file():
+        data = json.loads(layout.read_text(encoding="utf-8"))
+        for workspace in data.get("workspaces", []):
+            wid, numbers = workspace.get("id"), workspace.get("public_pane_numbers", {})
+            for tab in workspace.get("tabs", []):
+                for raw, info in tab.get("panes", {}).items():
+                    ref = info.get("agent_session") or {}
+                    sid, num = ref.get("value"), numbers.get(str(raw))
+                    if sid in sessions and ref.get("agent") == "opencode" and isinstance(num, int):
+                        pane = f"{wid}:p{num}"
+                        if sid in found and found[sid] != pane:
+                            raise RuntimeError(f"Ambiguous pane for {sid}")
+                        found[sid] = pane
+    validated = {}
+    for sid, pane in found.items():
+        obj = run("herdr", "pane", "get", pane, timeout=12).get("pane", {})
+        ref = obj.get("agent_session") or {}
+        if obj.get("pane_id") == pane and ref.get("agent") == "opencode" and ref.get("value") == sid:
+            validated[sid] = pane
+    return validated
+
+def footer_label_from_text(text):
+    lines = re.findall(
+        r"\b(?:Build|Plan|Design|Learn|General|Explore|Scout)\s*·\s*([^\r\n]+)",
+        text, flags=re.IGNORECASE)
+    return re.split(r"\s{3,}", lines[-1].strip())[0].strip() if lines else None
+
+def agent_type_from_text(text):
+    """Classify by the current TUI footer, not the session's historical mode.
+
+    The last matching footer represents the active agent; older chat lines
+    can contain a different agent and must not determine consent defaults.
+    """
+    matches = re.findall(
+        r"\b(Build|Plan|Learn|Design|General|Explore|Scout)\s*·\s*[^\r\n]+",
+        text, flags=re.IGNORECASE,
+    )
+    if not matches:
+        return "Unknown"
+    return next(
+        (name for name in AGENT_ORDER if name.casefold() == matches[-1].casefold()),
+        "Unknown",
+    )
+
+
+def state_of(pane):
+    info = run("herdr", "pane", "get", pane, timeout=12).get("pane", {})
+    ref = info.get("agent_session") or {}
+    if ref.get("agent") != "opencode" or info.get("pane_id") != pane:
+        raise RuntimeError(f"Pane {pane} is not an OpenCode terminal")
+    state = info.get("agent_status", "unknown")
+    if state not in ("working", "idle", "done", "blocked"):
+        visible = pane_text(pane)
+        if "Select model" in visible or "Allow once" in visible:
+            state = "blocked"
+        elif re.search(r"(?i)(esc.*interrupt|press esc to interrupt)", visible):
+            state = "working"
+        elif footer_label_from_text(visible):
+            # The footer remains visible while tools are running. Only infer
+            # idle if the latest assistant message has *completed* and the
+            # turn ended normally or with a completed error. Otherwise refuse
+            # to drive the TUI when Herdr reports an unknown agent state.
+            sid = ref.get("value")
+            with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=5) as db:
+                latest = db.execute(
+                    "SELECT data FROM message WHERE session_id=? "
+                    "ORDER BY time_created DESC LIMIT 1", (sid,)
+                ).fetchone()
+            if latest:
+                message = json.loads(latest[0])
+                completed = bool((message.get("time") or {}).get("completed"))
+                if (message.get("role") == "assistant" and completed and
+                    (message.get("finish") == "stop" or message.get("error"))):
+                    state = "idle"
+    return state, ref.get("value")
+
+def still_same(pane, sid):
+    state, current_sid = state_of(pane)
+    if current_sid != sid:
+        raise RuntimeError(f"Pane {pane} now owns another session; expected {sid}")
+    return state
+
+def settle(pane, sid, limit=65):
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        state = still_same(pane, sid)
+        if state in ("idle", "done", "blocked"):
+            return state
+        time.sleep(1)
+    raise RuntimeError(f"Timed out waiting for {sid} to become idle")
+
+def pane_text(pane):
+    return run("herdr", "pane", "read", pane, "--source", "visible", "--lines", "55",
+               timeout=12, json_result=False)
+
+def choose_model(pane, sid, query, expected):
+    if footer_label_from_text(pane_text(pane)) == expected:
+        return
+    state = still_same(pane, sid)
+    if state not in ("idle", "done"):
+        raise RuntimeError(f"Cannot select model for {sid}: status={state}")
+    run("herdr", "pane", "send-keys", pane, "ctrl+x", "m", timeout=12)
+    for _ in range(12):
+        if "Select model" in pane_text(pane):
+            break
+        time.sleep(.25)
+    else:
+        raise RuntimeError(f"Model picker did not open in {sid}")
+    try:
+        run("herdr", "pane", "send-text", pane, query, timeout=12)
+        time.sleep(.45)
+        picker = pane_text(pane)
+        name, provider = expected.rsplit(" ", 1)
+        candidates = [line for line in picker.splitlines()
+                      if name in line and re.search(re.escape(provider) + r"\s*$", line)]
+        if query not in picker or not candidates:
+            raise RuntimeError(f"Model {expected!r} not listed after filtering in {sid}")
+        run("herdr", "pane", "send-keys", pane, "enter", timeout=12)
+        for _ in range(16):
+            label = pane_text(pane)
+            # TUI footer: Build · Qwen3.8 27B vLLM or Design · GPT-6.1 Sol OpenAI
+            if footer_label_from_text(label) == expected:
+                return
+            time.sleep(.4)
+        raise RuntimeError(f"Could not verify selected model in {sid}.")
+    except Exception:
+        # Avoid leaving the chooser open if the selection failed.
+        try:
+            run("herdr", "pane", "send-keys", pane, "esc", timeout=8)
+        except Exception:
+            pass
+        raise
+
+def tui_compaction_support(item, expected_model):
+    """True only for a process started with the inherited-compactor policy.
+
+    We cannot mutate a running OpenCode agent service or inspect its internal
+    cache through Herdr. Old TUIs are conservatively handled by the sidecar.
+    """
+    marker = Path.home()/".config/opencode/.compaction-inherits-session-model-since"
+    config_path = Path.home()/".config/opencode/opencode.json"
+    if not marker.is_file() or not config_path.is_file():
+        return False
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        if "model" in cfg.get("agent", {}).get("compaction", {}):
+            return False
+        started_policy = float(marker.read_text().strip())
+        pid = int(item["pid"])
+        proc = Path(f"/proc/{pid}")
+        try:
+            env = (proc / "environ").read_bytes().split(b"\0")
+        except PermissionError:
+            # Other isolated/sandboxed OpenCode processes can have a private
+            # environ even when same-user cmdline and stat are readable.
+            # The policy-activation timestamp remains the primary guard.
+            env = []
+        if any(e.startswith((b"OPENCODE_CONFIG=", b"OPENCODE_CONFIG_CONTENT=",
+                             b"OPENCODE_CONFIG_DIR=", b"XDG_CONFIG_HOME=")) for e in env):
+            return False
+        # A project-local compaction override would defeat inheritance.
+        directory = Path(item.get("directory", ""))
+        if not directory.is_absolute() or not directory.is_dir():
+            return False
+        for parent in (directory, *directory.parents):
+            for candidate in (
+                parent / ".opencode" / "opencode.json",
+                parent / ".opencode" / "opencode.jsonc",
+            ):
+                if not candidate.is_file():
+                    continue
+                try:
+                    overlay = json.loads(candidate.read_text())
+                    if "model" in overlay.get("agent", {}).get("compaction", {}):
+                        return False
+                except (ValueError, OSError, AttributeError, TypeError):
+                    return False
+        # proc/[pid]/stat field 22: start ticks since boot. Split on the
+        # LAST ')' because the process name may contain spaces or parentheses.
+        stats = (proc / "stat").read_text()
+        ticks = int(stats.rsplit(")", 1)[1].split()[19])
+        hz = os.sysconf("SC_CLK_TCK")
+        boot = time.time() - time.clock_gettime(time.CLOCK_BOOTTIME)
+        started_process = boot + ticks / hz
+        if started_process <= started_policy + 1:
+            return False
+        if not expected_model:
+            return False
+        return True
+    except (ValueError, OSError, KeyError, IndexError, AttributeError):
+        return False
+
+
+def native_tui_compact(pane, item, threshold, expected_model):
+    sid = item["id"]
+    begin = int(time.time() * 1000) - 1200
+    tell(f"  {sid}: /compact in the existing TUI ({expected_model}); no process restart.")
+    run("herdr", "pane", "send-keys", pane, "ctrl+x", "c", timeout=12)
+    deadline = time.monotonic() + COMPACT_SECONDS
+    response = None
+    while time.monotonic() < deadline:
+        time.sleep(1.5)
+        with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=7) as db:
+            for (raw,) in db.execute(
+                "SELECT data FROM message WHERE session_id=? AND time_created>=? "
+                "ORDER BY time_created DESC LIMIT 16", (sid, begin)
+            ):
+                value = json.loads(raw)
+                if value.get("role") == "assistant" and value.get("mode") == "compaction":
+                    response = value
+                    break
+            info = session_info(db, sid, item["pid"])
+        if response is None:
+            continue
+        actual = f"{response.get('providerID')}/{response.get('modelID')}"
+        if actual != expected_model:
+            raise RuntimeError(f"TUI compact used wrong model {actual}; expected {expected_model}")
+        error = response.get("error")
+        if error:
+            message = str((error.get("data") or {}).get("message", "")) if isinstance(error, dict) else str(error)
+            raise RuntimeError(f"Native TUI compact failed: {message[:240]}")
+        if not response.get("finish"):
+            continue
+        if response.get("finish") != "stop":
+            raise RuntimeError(f"Native TUI compact finish={response.get('finish')}")
+        if info is None or info.get("context_kind") != "post-compaction-upper-estimate":
+            raise RuntimeError("Compact summary finished but post-compaction state could not be verified")
+        if info.get("context") is None or info["context"] >= threshold:
+            raise RuntimeError(
+                f"Native TUI compact produced estimated context {info.get('context')}, "
+                f"still above target {threshold}"
+            )
+        state = still_same(pane, sid)
+        if state in ("idle", "done"):
+            tell(f"  {sid}: TUI compact OK; context estimated {info['context']:,}.")
+            return True
+        if state == "blocked":
+            raise RuntimeError("The OpenCode TUI is blocked after compaction")
+    raise RuntimeError("Timed out waiting for native TUI compact; no model change performed")
+
+
+def compact_session(pane, item, threshold):
+    """Prefer TUI-local /compact when compaction inherits the selected model.
+
+    Legacy TUIs keep their own cached, pinned compaction model. For those,
+    the verified sidecar remains the non-destructive fallback.
+    """
+    sid = item["id"]
+    context = item.get("context")
+    if context is None:
+        raise RuntimeError(f"Unknown context for {sid}; refusing a blind model switch")
+    if context < threshold:
+        tell(f"  {sid}: already fits local context (~{context:,} < {threshold:,}).")
+        return False
+
+    observed = str(item.get("observed") or item.get("model") or "")
+    source_is_local = observed.endswith("vLLM") or observed.startswith("vllm/")
+    model_info = json.loads((Path.home()/".config/opencode/opencode.json").read_text())
+    local_model = str(model_info.get("small_model", ""))
+    if not local_model.startswith("vllm/"):
+        raise RuntimeError("Cannot identify the selected vLLM from llm-config")
+    local_id = local_model.split("/", 1)[1]
+    raw_limits = (model_info.get("provider", {}).get("vllm", {})
+                  .get("models", {}).get(local_id, {}).get("limit", {}))
+    max_context = int(raw_limits.get("context", 43008))
+
+    if source_is_local:
+        if context >= max_context - 2000:
+            raise RuntimeError(
+                f"Local context ~{context:,} exceeds safe local compaction "
+                f"window ~{max_context:,}; use a new session with a handoff"
+            )
+        compactor = local_model
+        continuation = local_model
+    else:
+        # Never send a 137k-token GPT history to a ~43k Qwen compactor.
+        compactor = "openai/gpt-6.1-sol"
+        # Do not propagate an obsolete GPT-5.5 model into a synthetic message.
+        continuation = compactor
+
+    # The source TUI has to choose the same model as the expected compact
+    # engine. Only opt into same-process compaction if this specific TUI was
+    # started after the inherited-model materialization.
+    display = str(item.get("observed") or "")
+    source_matches = (
+        (compactor == "openai/gpt-6.1-sol" and display == "GPT-6.1 Sol OpenAI")
+        or (source_is_local and display.endswith(" vLLM"))
+    )
+    if source_matches and tui_compaction_support(item, compactor):
+        return native_tui_compact(pane, item, threshold, compactor)
+    tell(f"  {sid}: legacy/stale TUI compaction policy; using isolated "
+         f"OpenCode compactor={compactor} (context ~{context:,}).")
+    before = item.get("compactions", 0)
+    helper = Path.home()/".local/bin/opencode-isolated-compact"
+    output = run(
+        str(helper), sid, "--compactor", compactor,
+        "--continue-model", continuation, "--timeout", str(COMPACT_SECONDS),
+        timeout=COMPACT_SECONDS + STARTUP_TIMEOUT_EXTRA,
+        json_result=False,
+    )
+    if "SIDECAR_COMPACT_OK" not in output:
+        raise RuntimeError(
+            f"Isolated compaction did not produce an explicit success receipt: "
+            f"{output[-230:]}"
+        )
+    with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=6) as db:
+        updated = session_info(db, sid, item["pid"])
+        if updated is None:
+            raise RuntimeError(f"Missing original session after compact: {sid}")
+        receipt = db.execute(
+            "SELECT data FROM message WHERE session_id=? AND "
+            "data LIKE ? ORDER BY time_created DESC LIMIT 1",
+            (sid, '%"mode":"compaction"%'),
+        ).fetchone()
+    if not receipt:
+        raise RuntimeError("No compaction record persisted to original session database")
+    last = json.loads(receipt[0])
+    actual = f"{last.get('providerID')}/{last.get('modelID')}"
+    if actual != compactor or last.get("finish") != "stop" or last.get("error"):
+        raise RuntimeError(f"Post-compaction validation failed: model={actual}, "
+                           f"finish={last.get('finish')}")
+    if updated["context_kind"] != "post-compaction-upper-estimate":
+        raise RuntimeError("Unable to verify compacted context from the new summary")
+    if updated["context"] is None or updated["context"] >= threshold:
+        raise RuntimeError(
+            f"Compaction finished, but conservative new context estimate "
+            f"{updated.get('context')} is not under {threshold:,} tokens"
+        )
+    tell(f"  {sid}: native compaction VERIFIED model={actual}, "
+         f"estimated compact context ~{updated['context']:,} tokens.")
+    return True
+
+
+STARTUP_TIMEOUT_EXTRA = 85
+
+def save(plan, contents):
+    tmp = plan.with_name(plan.name + ".new")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(contents, stream, indent=2)
+        stream.write("\n")
+    os.replace(tmp, plan)
+
+def is_descendant_of(pid):
+    """Prevent switching the OpenCode process currently executing llm-config."""
+    current = os.getpid()
+    while current > 1:
+        if current == pid:
+            return True
+        try:
+            value = (Path("/proc") / str(current) / "status").read_text()
+            parent = re.search(r"^PPid:\s*(\d+)$", value, flags=re.MULTILINE)
+            if parent is None:
+                return False
+            current = int(parent.group(1))
+        except (OSError, ValueError):
+            return False
+    return False
+
+def prepare(args):
+    sessions = list_sessions()
+    local = args.target.startswith("vllm/")
+    threshold = LOCAL_THRESHOLD if local else None
+    target_label = args.display or (
+        "GPT-6.1 Sol OpenAI" if not local else args.target.split("/", 1)[-1] + " vLLM"
+    )
+    tell(f"\nOpenCode live sessions: {len(sessions)}. Target: {args.target}.")
+    if local:
+        tell(f"  Local context soft limit: {threshold:,} tokens.")
+    else:
+        tell("  GPT selected: automatic compaction disabled.")
+
+    mapping = find_agents({x["id"] for x in sessions}) if sessions else {}
+    candidates = []
+    for item in sessions:
+        pane = mapping.get(item["id"])
+        visible = pane_text(pane) if pane else ""
+        observed = footer_label_from_text(visible) if pane else None
+        agent_type = agent_type_from_text(visible)
+        status = still_same(pane, item["id"]) if pane else "unavailable"
+        ctx = f"{item['context']:,}" if item["context"] is not None else "unknown"
+        title = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", item["title"])
+        tell(f"  PID={item['pid']} {item['id']} [agent={agent_type}, "
+             f"model={observed or item['model']}, ctx~{ctx}, state={status}]")
+        tell(f"    {title[:100]}")
+        item["pane"] = pane
+        item["observed"] = observed
+        item["agent_type"] = agent_type
+        if observed != target_label or args.changing_vllm:
+            candidates.append(item)
+
+    result = {
+        "confirmed": False,
+        "target": args.target,
+        "sessions": [],
+        "created": time.time(),
+        "approvals_by_agent": {},
+        "skipped_sessions": [],
+    }
+    if not candidates and not args.changing_vllm:
+        tell("  No live sessions require a model change. No interruption/compaction.")
+        save(args.plan, result)
+        return
+    if not sessions:
+        save(args.plan, result)
+        return
+    if args.changing_vllm:
+        tell("  Changing the served vLLM model may interrupt ongoing subagent calls.")
+        tell("  An explicit NO for any active agent type will cancel the server restart.")
+    if local:
+        tell("  Approved groups: QUEUE active sessions without aborting tools. "
+             "Compact after the entire turn becomes idle.")
+    else:
+        tell("  Approved groups: switch sessions to GPT; no compaction.")
+
+    # Independent choice and independent timeout for each agent type.
+    # Build => [Y/n] (timeout yes); all others => [y/N] (timeout no).
+    grouped = {}
+    for item in candidates:
+        grouped.setdefault(item["agent_type"], []).append(item)
+    selected = []
+    for agent_type in AGENT_ORDER:
+        items = grouped.get(agent_type, [])
+        if not items:
+            continue
+        approved = ask_permission(
+            args.confirm_timeout, args.target, local, agent_type, len(items)
+        )
+        result["approvals_by_agent"][agent_type] = {
+            "approved": approved,
+            "default_yes": agent_type == "Build",
+            "session_ids": [item["id"] for item in items],
+        }
+        if approved:
+            selected.extend(items)
+            tell(f"  Agente {agent_type}: SIM; {len(items)} sessão(ões) selecionada(s).")
+        else:
+            result["skipped_sessions"].extend({
+                "id": item["id"], "agent_type": agent_type,
+                "reason": "declined_or_default_no",
+            } for item in items)
+            tell(f"  Agente {agent_type}: NÃO; sessões preservadas.")
+        save(args.plan, result)
+
+    if args.changing_vllm and len(selected) != len(candidates):
+        raise RuntimeError(
+            "Some agent types declined the vLLM service change. "
+            "Refusing to restart the shared vLLM while preserving their live sessions."
+        )
+    if not selected:
+        tell("  Nenhuma sessão autorizada; apenas os padrões de novas sessões mudarão.")
+        save(args.plan, result)
+        return
+
+    missing = [item["id"] for item in selected if not item["pane"]]
+    if missing:
+        raise RuntimeError(
+            "No verified terminal controller for selected sessions: "
+            + ", ".join(missing) + ". Nothing interrupted."
+        )
+
+    for item in selected:
+        if item["agent_type"] == "Unknown":
+            raise RuntimeError(
+                f"Cannot classify agent of {item['id']} reliably. "
+                "No selected session was interrupted."
+            )
+        if is_descendant_of(item["pid"]) or (
+            os.environ.get("HERDR_PANE_ID") == item["pane"]
+            and os.environ.get("HERDR_ENV") == "1"
+        ):
+            raise RuntimeError(
+                "llm-config is running from a selected agent's own process. "
+                "Use a separate shell terminal."
+            )
+        live_text = pane_text(item["pane"])
+        current_type = agent_type_from_text(live_text)
+        if current_type != item["agent_type"]:
+            raise RuntimeError(
+                f"Agent changed in {item['id']} during confirmation "
+                f"({item['agent_type']} -> {current_type}); nothing interrupted."
+            )
+        state = still_same(item["pane"], item["id"])
+        if state not in ("idle", "done", "working"):
+            raise RuntimeError(
+                f"{item['id']} is {state}; no selected sessions can be scheduled."
+            )
+
+    # A shared vLLM restart would interrupt currently executing local tools.
+    # We can queue TUI migrations, but not silently replace the active server.
+    # Fail closed until the server can be switched with all agents idle.
+    if args.changing_vllm and any(
+        still_same(item["pane"], item["id"]) == "working" for item in selected
+    ):
+        raise RuntimeError(
+            "Selected vLLM service requires a restart while an approved "
+            "OpenCode session is working. No server restarted and no tools "
+            "interrupted. Switch the vLLM service when all affected sessions "
+            "are idle; existing-service model migrations are queued."
+        )
+
+    result["confirmed"] = True
+    save(args.plan, result)
+    for item in selected:
+        pane, sid = item["pane"], item["id"]
+        working = still_same(pane, sid) == "working"
+        record = dict(id=sid, pane=pane, pid=item["pid"],
+                      agent_type=item["agent_type"], was_working=working,
+                      previous=item["observed"] or item["model"],
+                      queued=working,
+                      prepared=False, compacted=False)
+        result["sessions"].append(record)
+        save(args.plan, result)
+        if working:
+            tell(f"  {sid}: QUEUED until full turn is idle; "
+                 "current tool and generation continue uninterrupted.")
+            continue
+        try:
+            if local:
+                record["compacted"] = compact_session(pane, item, threshold)
+            else:
+                tell(f"  {sid}: GPT destination, no compaction.")
+            record["prepared"] = True
+            save(args.plan, result)
+        except Exception as exc:
+            record["failure"] = str(exc)
+            if local:
+                try:
+                    output = run(
+                        str(Path.home() / ".local/bin/opencode-session-handoff"),
+                        sid, timeout=35, json_result=False,
+                    )
+                    for line in output.splitlines():
+                        if line.startswith("PRIVATE_OFFLINE_HANDOFF="):
+                            record["handoff"] = line.split("=", 1)[1]
+                            tell(f"  PRIVATE LOCAL HANDOFF created: {record['handoff']}")
+                            break
+                except Exception as handoff_error:
+                    record["handoff_error"] = str(handoff_error)
+                    tell(f"  Handoff creation also failed: {handoff_error}")
+            save(args.plan, result)
+            tell(f"  SKIPPED {sid}: {exc}")
+    tell("Preparation complete. Busy sessions queued; "
+         "no Esc, abort, signal, or process termination was sent.")
+
+def finish(args):
+    payload = json.loads(args.plan.read_text(encoding="utf-8"))
+    if not payload.get("confirmed"):
+        return
+    if payload.get("target") != args.target:
+        raise RuntimeError("Target differs from prepared transition; refusing")
+    failures = 0
+    for item in payload.get("sessions", []):
+        sid = item["id"]
+        if item.get("queued"):
+            try:
+                output = run(
+                    str(Path.home() / ".local/bin/opencode-session-queue"),
+                    "enqueue", "--plan", str(args.plan),
+                    "--session", sid, "--target", args.target,
+                    "--display", args.display,
+                    timeout=25, json_result=False,
+                )
+                tell("  " + output.strip())
+            except Exception as exc:
+                failures += 1
+                tell(f"  QUEUE FAILED {sid}: {exc}")
+            continue
+        if not item.get("prepared"):
+            tell(f"  NOT RESUMED {sid}: {item.get('failure', 'preparation incomplete')}")
+            if item.get("handoff"):
+                tell(f"  Use a new local session with the private handoff: {item['handoff']}")
+            failures += 1
+            continue
+        pane = item["pane"]
+        try:
+            # The agent may switch from Build to Plan while compaction runs.
+            # Never apply a prior Build authorization to a new agent type.
+            live_type = agent_type_from_text(pane_text(pane))
+            if live_type != item.get("agent_type"):
+                raise RuntimeError(
+                    f"Agent changed since approval: {item.get('agent_type')} -> "
+                    f"{live_type}; session left unchanged"
+                )
+            settle(pane, sid, limit=90)
+            choose_model(pane, sid, args.display, args.label)
+            tell(f"  SWITCHED {sid}: {args.target}")
+            tell(f"  READY {sid}: no synthetic continuation prompt (turn already idle).")
+        except Exception as exc:
+            failures += 1
+            tell(f"  TRANSITION FAILED {sid}: {exc}. Inspect that TUI manually.")
+    if failures:
+        raise RuntimeError(f"{failures} session(s) not fully migrated; "
+                           "they have not been killed or removed.")
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("phase", choices=("prepare", "finish", "list"))
+    p.add_argument("--target", required=False, default="")
+    p.add_argument("--display", default="")
+    p.add_argument("--label", default="")
+    p.add_argument("--plan", type=Path)
+    p.add_argument("--confirm-timeout", type=int, default=CONFIRM_SECONDS)
+    p.add_argument("--changing-vllm", action="store_true")
+    args = p.parse_args()
+    if args.phase == "list":
+        sessions = list_sessions()
+        print(f"OpenCode TUI processes: {len(sessions)}")
+        try:
+            mapping = find_agents({s["id"] for s in sessions})
+        except Exception:
+            mapping = {}
+        for item in sessions:
+            ctx = f"{item['context']:,}" if item["context"] is not None else "unknown"
+            title = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", item["title"])
+            pane = mapping.get(item["id"])
+            try:
+                visible = pane_text(pane) if pane else ""
+                model = footer_label_from_text(visible) if pane else None
+                agent_type = agent_type_from_text(visible)
+            except Exception:
+                model, agent_type = None, "Unknown"
+            name = model or item["model"]
+            source = " (TUI)" if model else " (database)"
+            estimate = "~" if item.get("context_kind") != "last-completed-request" else ""
+            print(f"  PID {item['pid']:<7} agent={agent_type:<8} {name:<28}{source}"
+                  f" context{estimate}{ctx:<12} {title[:60]}")
+            print(f"    {item['id']}")
+        return
+    if not args.plan or not args.target:
+        p.error("--target and --plan required")
+    if args.phase == "finish" and (not args.display or not args.label):
+        p.error("--display and --label required for finish")
+    try:
+        if args.phase == "prepare":
+            prepare(args)
+        else:
+            finish(args)
+    except (RuntimeError, OSError, sqlite3.Error, subprocess.TimeoutExpired) as exc:
+        tell(f"llm-config session transition: {exc}")
+        raise SystemExit(1)
+
+if __name__ == "__main__":
+    main()

@@ -1,21 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Restore the user's systemd bus in remote shells when available.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -S "/run/user/$(id -u)/bus" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] &&
+   [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+
 choices=(
   "qwen3.6-35B-a3b:Qwen3.6 35B A3B"
-  "qwen3.6-27B:Qwen3.6 27B"
+  "qwen3.6-27B:Qwen3.8 27B"
 )
 
 usage() {
   cat <<'EOF'
-Usage: llm-config [MODEL]
-       llm-config --restore-environment
+Usage: llm-config [gpt|qwen3.6-35B-a3b|qwen3.6-27B]
+       llm-config [--status|--sessions|--preflight|--restore-environment]
+       llm-config --handoff SESSION_ID
+       llm-config --queue
+       llm-config --queue-resume
+       llm-config --queue-cancel SESSION_ID
 
-Models:
-  qwen3.6-35B-a3b
-  qwen3.6-27B
+Primary OpenCode models:
+  gpt                 GPT-6.1 Sol for Build, Plan, Design, Learn; vLLM for subagents
+  qwen3.6-35B-a3b    Qwen3.6 35B A3B for primary agents and subagents
+  qwen3.6-27B        Qwen3.8 27B for primary agents and subagents
 
-Without MODEL, shows an interactive menu.
+Without MODEL, shows an interactive menu. During model changes, running
+OpenCode sessions are grouped by the current TUI agent type and prompted
+independently, with a separate 12-second timeout for EACH type:
+  Build                 [Y/n] (Enter/timeout = YES)
+  Plan, Learn, Design   [y/N] (Enter/timeout = NO)
+  Other agents          [y/N] (Enter/timeout = NO)
+No interactive terminal defaults to NO for all agents.
+Declined groups retain their sessions and context. Approved, busy sessions
+are QUEUED under systemd --user: the current tool and full AI turn finish
+normally, then context is compacted (only if needed) and the model switched.
+No Esc or abort is sent. The llm-config command returns after scheduling.
+Use --queue to view progress, --queue-resume after reboot, or
+--queue-cancel SESSION_ID to cancel. Queue state lives under ~/.local/state.
+Shared vLLM server restarts still require affected sessions to be idle.
+Selecting GPT never compacts.
+Set
+LLM_CONFIG_CONFIRM_TIMEOUT to change the timeout PER AGENT TYPE.
+--sessions lists OpenCode processes without making changes.
+The compaction agent inherits the TUI's current model. For old OpenCode TUIs
+created before this policy was installed, a validated isolated sidecar is
+used as a fallback; new TUIs compact natively without reopening.
+--handoff SESSION_ID creates a private offline recovery prompt for a new local
+session. It is lossy, costs no GPT quota, and preserves the original history.
 --restore-environment imports the minimal LLM/ZeroClaw environment for the
 single enabled vLLM target into the systemd user manager.
 EOF
@@ -123,14 +159,97 @@ if [ "${pick:-}" = "-h" ] || [ "${pick:-}" = "--help" ]; then
   usage
   exit 0
 fi
+if [ "$pick" = "--queue" ]; then
+  exec "$HOME/.local/bin/opencode-session-queue" status
+fi
+if [ "$pick" = "--queue-resume" ]; then
+  exec "$HOME/.local/bin/opencode-session-queue" resume
+fi
+if [ "$pick" = "--queue-cancel" ]; then
+  [ "$#" -eq 2 ] || { echo "Usage: llm-config --queue-cancel SESSION_ID" >&2; exit 2; }
+  exec "$HOME/.local/bin/opencode-session-queue" cancel "$2"
+fi
+if [ "$pick" = "--handoff" ]; then
+  [ "$#" -eq 2 ] || { echo "Usage: llm-config --handoff SESSION_ID" >&2; exit 2; }
+  exec "$HOME/.local/bin/opencode-session-handoff" "$2"
+fi
 if [ "${pick:-}" = "--restore-environment" ]; then
   pick="$(enabled_model)"
   import_systemd_environment "$pick"
   exit 0
 fi
 
+policy="$HOME/.local/bin/opencode-model-policy"
+transition="$HOME/.local/bin/opencode-session-transition"
+transition_plan=""
+transition_target=""
+transition_display=""
+
+cleanup_transition() {
+  if [ -n "$transition_plan" ]; then
+    printf 'Transition diagnostic kept: %s\n' "$transition_plan" >&2
+  fi
+}
+trap cleanup_transition EXIT
+
+active_local_model() {
+  enabled_model
+}
+prepare_transition() {
+  local mode="$1" key="$2" changing_vllm="${3:-no}"
+  local envfile="$HOME/.config/vllm/$key.env" local_id local_name
+  local opts=()
+  if [ "$mode" = gpt ]; then
+    transition_target="openai/gpt-6.1-sol"
+    transition_display="GPT-6.1 Sol OpenAI"
+  else
+    [ -r "$envfile" ] || { echo "Missing $envfile" >&2; return 1; }
+    local_id="$(sed -n 's/^SERVED_MODEL_NAME=//p' "$envfile" | head -1)"
+    local_name="$(sed -n 's/^DISPLAY_MODEL_NAME=//p' "$envfile" | head -1)"
+    [ -n "$local_id" ] && [ -n "$local_name" ] || {
+      echo "Incomplete vLLM model metadata in $envfile" >&2; return 1;
+    }
+    transition_target="vllm/$local_id"
+    transition_display="$local_name vLLM"
+  fi
+  mkdir -p -m 700 "$HOME/.local/state/llm-transitions"
+  chmod 700 "$HOME/.local/state/llm-transitions"
+  transition_plan="$(mktemp "$HOME/.local/state/llm-transitions/transition.XXXXXXXX")"
+  chmod 600 "$transition_plan"
+  if [ "$changing_vllm" = yes ]; then
+    opts+=(--changing-vllm)
+  fi
+  "$transition" prepare --target "$transition_target" --display "$transition_display" --plan "$transition_plan" \
+    --confirm-timeout "${LLM_CONFIG_CONFIRM_TIMEOUT:-12}" "${opts[@]}"
+}
+finish_transition() {
+  if [ -z "$transition_plan" ]; then
+    return
+  fi
+  "$transition" finish --target "$transition_target" --plan "$transition_plan" \
+    --display "$transition_display" --label "$transition_display"
+  rm -f -- "$transition_plan"
+  transition_plan=""
+}
+route_primary() {
+  local mode="$1" key
+  key="$(active_local_model)"
+  prepare_transition "$mode" "$key"
+  "$policy" --mode "$mode" --local-key "$key"
+  if ! systemctl --user is-active --quiet "vllm@$key.service"; then
+    printf 'WARNING: vLLM service is not active; local subagents may fail.\n' >&2
+  fi
+  finish_transition
+}
+case "$pick" in
+  gpt|openai/gpt-6.1-sol) route_primary gpt; exit 0 ;;
+  --status|status) "$policy" --status --local-key "$(active_local_model)"; exit 0 ;;
+  --preflight) "$HOME/.local/bin/opencode-context-preflight"; exit 0 ;;
+  --sessions|--list-sessions) "$transition" list; exit 0 ;;
+esac
+
 if [ -z "$pick" ]; then
-  echo "Select vLLM model to run:"
+  echo "Select primary OpenCode model / active vLLM target:"
   i=1
   for item in "${choices[@]}"; do
     key="${item%%:*}"
@@ -138,20 +257,32 @@ if [ -z "$pick" ]; then
     printf '  %s) %s (%s)\n' "$i" "$label" "$key"
     i=$((i + 1))
   done
+  printf '  3) GPT-6.1 Sol (keep vLLM for subagents)\n'
   printf 'Choice: '
   read -r answer
   case "$answer" in
     1) pick="qwen3.6-35B-a3b" ;;
     2) pick="qwen3.6-27B" ;;
+    3) pick="gpt" ;;
     *) echo "Invalid choice: $answer" >&2; exit 2 ;;
   esac
 fi
 
 case "$pick" in
+  gpt) route_primary gpt; exit 0 ;;
   qwen3.6-35B-a3b|qwen3.6-27B) ;;
   *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
 esac
 
+if [ "$(active_local_model)" = "$pick" ] && systemctl --user is-active --quiet "vllm@$pick.service"; then
+  prepare_transition local "$pick"
+  "$policy" --mode local --local-key "$pick"
+  finish_transition
+  echo "vLLM already active; no service restart needed."
+  exit 0
+fi
+
+prepare_transition local "$pick" yes
 import_systemd_environment "$pick"
 
 selected_target="vllm-${pick}.target"
@@ -219,6 +350,8 @@ while kill -0 "$journal_pid" 2>/dev/null; do
     wait "$journal_pid" 2>/dev/null || true
     echo
     echo "$selected_service is active. Systemd will continue managing it."
+    "$policy" --mode local --local-key "$pick"
+    finish_transition
     systemctl --user --no-pager -l status "$selected_service" || true
     exit 0
   fi
