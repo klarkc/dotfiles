@@ -8,7 +8,9 @@ merge_system_into_user = false
 model = "default"
 requires_openai_auth = false
 temperature = 0.7
-timeout_secs = 86400
+# Patched ZeroClaw: 0 disables provider request and SSE idle timeouts.
+# Connection establishment still has a 10s deadline.
+timeout_secs = 0
 uri = "http://localhost:8000/v1"
 
 [providers.transcription.groq.default]
