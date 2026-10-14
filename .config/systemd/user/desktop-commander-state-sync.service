@@ -1,0 +1,13 @@
+[Unit]
+Description=Synchronize Desktop Commander credential snapshot
+
+[Service]
+Type=oneshot
+ExecStart=%h/.nix-profile/bin/desktop-commander-state sync
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Desktop Commander Remote device
+Requires=llm-environment.service
+After=llm-environment.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=%h/.nix-profile/bin/desktop-commander-state restore
+ExecStart=%h/.nix-profile/bin/desktop-commander-remote
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=desktop-commander-remote
+RuntimeDirectoryMode=0700
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=default.target

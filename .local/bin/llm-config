@@ -59,6 +59,9 @@ import_systemd_environment() {
   . "$profile_override"
   set -u
   : "${VLLM_API_KEY:?VLLM_API_KEY is required in ~/.profile_override}"
+  DESKTOP_COMMANDER_STATE_FILE="${DESKTOP_COMMANDER_STATE_FILE:-$HOME/.profile_override.desktop-commander.json}"
+  export DESKTOP_COMMANDER_STATE_FILE
+  systemctl --user import-environment DESKTOP_COMMANDER_STATE_FILE
 
   read_model_env() {
     local key="$1"
@@ -107,7 +110,7 @@ import_systemd_environment() {
     systemctl --user unset-environment ZEROCLAW_channels__discord__default__bot_token
   fi
 
-  unset DISCORD_BOT VLLM_API_KEY
+  unset DISCORD_BOT VLLM_API_KEY DESKTOP_COMMANDER_STATE_FILE
   unset ZEROCLAW_providers__models__vllm__default__api_key
   unset ZEROCLAW_providers__models__vllm__default__model
   unset ZEROCLAW_providers__models__vllm__default__uri
