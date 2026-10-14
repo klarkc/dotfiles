@@ -1,51 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-model_id="${SERVED_MODEL_NAME:?SERVED_MODEL_NAME is required}"
-model_name="${DISPLAY_MODEL_NAME:-$model_id}"
-raw_context_window="${MAX_MODEL_LEN:-49152}"
-max_tokens="${DEFAULT_MAX_TOKENS:-4096}"
-max_num_seqs="${MAX_NUM_SEQS:-2}"
-port="${PORT:-8000}"
-base_url="http://localhost:${port}/v1"
-client_context_window="$(( raw_context_window - ((max_tokens * 3) / 2) ))"
-if [ "$client_context_window" -lt 1024 ]; then
-  client_context_window=1024
+# vLLM systemd ExecStartPre. Preserve the GPT/local primary mode, and refresh
+# the OpenCode vLLM provider and subagent routing at model startup.
+key="${VLLM_INSTANCE:-}"
+if [ -z "$key" ]; then
+  : "${SERVED_MODEL_NAME:?SERVED_MODEL_NAME or VLLM_INSTANCE is required}"
+  for path in "$HOME"/.config/vllm/*.env; do
+    [ -f "$path" ] || continue
+    if grep -Fxq "SERVED_MODEL_NAME=$SERVED_MODEL_NAME" "$path"; then
+      key="${path##*/}"
+      key="${key%.env}"
+      break
+    fi
+  done
 fi
-
-opencode_config="$HOME/.config/opencode/opencode.json"
-if [ -f "$opencode_config" ]; then
-  python3 - "$opencode_config" "$base_url" "$client_context_window" "$max_tokens" "$model_id" "$model_name" <<'PY'
-import json
-import os
-import sys
-
-path, base_url, context_window, max_tokens, model_id, model_name = sys.argv[1:]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-if not isinstance(data, dict):
-    raise SystemExit(f'{path} must contain a JSON object')
-data['model'] = f"vllm/{model_id}"
-try:
-    data['provider']['vllm']['options']['baseURL'] = base_url
-except (KeyError, TypeError):
-    data.setdefault('provider', {})['vllm'] = {'options': {}}
-    data['provider']['vllm']['options']['baseURL'] = base_url
-models = data['provider']['vllm'].setdefault('models', {})
-current_id = models.get(model_id, {})
-if isinstance(current_id, dict):
-    current_id['name'] = model_name
-    current_id.setdefault('limit', {})['context'] = int(context_window)
-    current_id['limit']['output'] = int(max_tokens)
-    models[model_id] = current_id
-else:
-    models[model_id] = {'name': model_name, 'limit': {'context': int(context_window), 'output': int(max_tokens)}}
-tmp = path + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent="\t")
-    f.write('\n')
-os.replace(tmp, path)
-PY
+if [ -z "$key" ]; then
+  echo "Unable to resolve active vLLM instance for OpenCode defaults" >&2
+  exit 1
 fi
-
-echo "Selected vLLM model defaults: $model_id, raw_context=$raw_context_window, client_context=$client_context_window, max_tokens=$max_tokens, max_num_seqs=$max_num_seqs"
+exec "$HOME/.local/bin/opencode-model-policy" --mode keep --local-key "$key"

@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Read-only preflight for safe OpenCode GPT-to-vLLM transitions."""
+from importlib.machinery import SourceFileLoader
+from importlib.util import spec_from_loader, module_from_spec
+from pathlib import Path
+
+def load_transition():
+    path = Path.home()/".local/bin/opencode-session-transition"
+    loader = SourceFileLoader("opencode_session_transition_preflight", str(path))
+    spec = spec_from_loader(loader.name, loader)
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+def main():
+    transition = load_transition()
+    sessions = transition.list_sessions()
+    try:
+        mapping = transition.find_agents({s["id"] for s in sessions})
+    except Exception:
+        mapping = {}
+    print(f"Active OpenCode sessions: {len(sessions)}")
+    for info in sessions:
+        pane = mapping.get(info["id"])
+        try:
+            display_model = transition.footer_label_from_text(transition.pane_text(pane)) if pane else None
+        except Exception:
+            display_model = None
+        display_model = display_model or info["model"]
+        context = info.get("context")
+        value = f"{context:,}" if context is not None else "unknown"
+        method = info.get("context_kind", "unknown")
+        action = (
+            "COMPACT WITH GPT OR OFFLINE HANDOFF BEFORE LOCAL SWITCH"
+            if context is None or context >= transition.LOCAL_THRESHOLD
+            else "fits the conservative local context target"
+        )
+        source_model = (
+            "openai/gpt-6.1-sol" if display_model == "GPT-6.1 Sol OpenAI"
+            else "vllm/qwen3.8-27b" if display_model == "Qwen3.8 27B vLLM"
+            else None
+        )
+        native = transition.tui_compaction_support(info, source_model)
+        engine = "existing TUI (/compact)" if native else "isolated sidecar (legacy TUI)"
+        agent_type = transition.agent_type_from_text(
+            transition.pane_text(pane) if pane else ""
+        )
+        default = "Y/n (timeout SIM)" if agent_type == "Build" else "y/N (timeout NÃO)"
+        print(f"PID {info['pid']}: {info['id']}")
+        print(f"  Agent={agent_type}; confirmation={default}")
+        print(f"  TUI model={display_model}; context estimate={value}; basis={method}")
+        print(f"  Context strategy: {engine}")
+        print(f"  {action}")
+    print()
+    print("Each agent type receives its own confirmation and timeout (default 12s).")
+    print("Build: Y/n (yes by default); Plan/Learn/Design/others: y/N (no by default).")
+    print("Without a controlling TTY, every group defaults to no.")
+    print("Selecting GPT never forces a compaction.")
+    print("New OpenCode TUIs inherit their own selected model for native compaction.")
+    print("Older TUIs still use an isolated sidecar; they can have stale visual")
+    print("message state until a one-time reopening. The underlying DB is preserved.")
+    print("If GPT compaction fails or the quota is exhausted, the switch stops")
+    print("for that session and writes a private offline recovery handoff.")
+    print("The original OpenCode session and database remain untouched.")
+    print("To make an offline handoff directly: llm-config --handoff SESSION_ID")
+
+if __name__ == "__main__":
+    main()

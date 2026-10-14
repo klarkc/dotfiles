@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Run a verified native OpenCode compaction through a disposable local server.
+
+Avoids the stale compaction-agent settings held by already-running OpenCode
+TUI processes. Does not edit global config or start a second interactive TUI.
+"""
+import argparse
+import base64
+import json
+import os
+import re
+import secrets
+import sqlite3
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+STATE = Path.home() / ".local/state/llm-transitions"
+STARTUP_TIMEOUT = 35
+
+def status(message):
+    print(message, flush=True)
+
+def database_path():
+    data = (
+        Path(os.environ["XDG_DATA_HOME"]) if os.environ.get("XDG_DATA_HOME")
+        else Path.home() / ".local/share"
+    ) / "opencode"
+    for name in ("opencode-stable.db", "opencode.db"):
+        candidate = data / name
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(f"No OpenCode database in {data}")
+
+def session_record(dbfile, sid):
+    with sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True, timeout=9) as con:
+        row = con.execute(
+            "SELECT title,directory FROM session WHERE id=?", (sid,)
+        ).fetchone()
+    if not row:
+        raise RuntimeError(f"Session {sid} not present in target database")
+    return row
+
+def last_compaction(dbfile, sid, start_ms):
+    with sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True, timeout=9) as con:
+        for (data,) in con.execute(
+            "SELECT data FROM message WHERE session_id=? AND time_created>=? "
+            "ORDER BY time_created DESC LIMIT 24",
+            (sid, start_ms - 1500),
+        ):
+            message = json.loads(data)
+            if message.get("role") == "assistant" and message.get("mode") == "compaction":
+                return message
+    return None
+
+def serve(args, cwd, model):
+    STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE, 0o700)
+    pwd = secrets.token_urlsafe(28)
+    stamp = str(time.time_ns())
+    log_path = STATE / f"sidecar-{stamp}.log"
+    env = os.environ.copy()
+    env["OPENCODE_SERVER_PASSWORD"] = pwd
+    env["OPENCODE_CONFIG_CONTENT"] = json.dumps({
+        "agent": {"compaction": {"model": model}}
+    })
+    command = ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "0"]
+    if args.pure:
+        command.append("--pure")
+    log = open(log_path, "w+", encoding="utf-8")
+    os.chmod(log_path, 0o600)
+    proc = subprocess.Popen(
+        command, cwd=cwd, env=env,
+        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    address = None
+    end = time.monotonic() + STARTUP_TIMEOUT
+    while time.monotonic() < end:
+        if proc.poll() is not None:
+            break
+        log.flush()
+        with open(log_path, encoding="utf-8", errors="replace") as reader:
+            contents = reader.read()
+        m = re.search(r"http://127[.]0[.]0[.]1:(\d+)", contents)
+        if m:
+            address = f"http://127.0.0.1:{int(m.group(1))}"
+            break
+        time.sleep(0.2)
+    if not address:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            proc.kill()
+        raise RuntimeError(f"Sidecar failed to start; private diagnostic: {log_path}")
+    auth = base64.b64encode(f"opencode:{pwd}".encode()).decode("ascii")
+    return proc, log, log_path, address, {"Authorization": "Basic " + auth}
+
+def get_json(url, headers, timeout=15, payload=None):
+    h = dict(headers)
+    if payload is not None:
+        h["Content-Type"] = "application/json"
+    request = urllib.request.Request(
+        url, headers=h, method="POST" if payload is not None else "GET",
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+    return json.loads(raw) if raw else None
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("session_id")
+    parser.add_argument("--compactor", default="openai/gpt-6.1-sol")
+    parser.add_argument("--continue-model", default="vllm/qwen3.8-27b")
+    parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--pure", action="store_true",
+                        help="for an isolated local-model test without external plugins")
+    args = parser.parse_args()
+    if not re.fullmatch(r"ses_[a-zA-Z0-9]+", args.session_id):
+        parser.error("Session ID is invalid")
+    if args.timeout < 30 or args.timeout > 600:
+        parser.error("Timeout must be between 30 and 600 seconds")
+    for name in (args.compactor, args.continue_model):
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*/[a-zA-Z0-9._-]+", name):
+            parser.error(f"Invalid model reference: {name}")
+    dbfile = database_path()
+    title, cwd = session_record(dbfile, args.session_id)
+    if not Path(cwd).is_dir():
+        raise RuntimeError(f"Original worktree missing: {cwd}")
+    process = None
+    log_file = None
+    log_path = None
+    finished = False
+    try:
+        process, log_file, log_path, address, headers = serve(args, cwd, args.compactor)
+        agents = get_json(address + "/agent", headers, timeout=15)
+        actual = next(
+            (x.get("model") for x in agents if x.get("name") == "compaction"),
+            None,
+        )
+        desired_provider, desired_id = args.compactor.split("/", 1)
+        if actual != {"providerID": desired_provider, "modelID": desired_id}:
+            raise RuntimeError(
+                f"Sidecar compactor mismatch: expected {args.compactor}, got {actual}"
+            )
+        remote = get_json(
+            address + "/session/" + args.session_id, headers, timeout=15,
+        )
+        if remote.get("id") != args.session_id or remote.get("directory") != cwd:
+            raise RuntimeError("Sidecar did not resolve the exact original session/worktree")
+        status(f"SIDECAR_READY compactor={args.compactor} "
+               f"session={args.session_id} exact_session_verified=true")
+        if args.verify_only:
+            finished = True
+            return 0
+
+        # The compaction agent uses --compactor. The synthetic manual compact
+        # trigger uses --continue-model and auto=false to avoid a cloud
+        # autocontinue; llm-config selects the TUI model after success.
+        provider, model_id = args.continue_model.split("/", 1)
+        started_ms = int(time.time() * 1000)
+        status(f"SIDECAR_COMPACT_START source_model={args.compactor} "
+               f"next_model={args.continue_model} auto=false")
+        try:
+            get_json(
+                address + "/session/" + args.session_id + "/summarize",
+                headers, timeout=args.timeout,
+                payload={"providerID": provider, "modelID": model_id, "auto": False},
+            )
+        except urllib.error.HTTPError as error:
+            detail = error.read(350).decode("utf-8", errors="replace")
+            raise RuntimeError(f"Native OpenCode summarize HTTP {error.code}: {detail}") from error
+
+        deadline = time.monotonic() + 15
+        response = None
+        while time.monotonic() < deadline:
+            response = last_compaction(dbfile, args.session_id, started_ms)
+            if response and (response.get("finish") or response.get("error")):
+                break
+            time.sleep(0.5)
+        if response is None:
+            raise RuntimeError("Compaction endpoint responded without a persisted assistant result")
+        actual_model = f"{response.get('providerID')}/{response.get('modelID')}"
+        if actual_model != args.compactor:
+            raise RuntimeError(
+                f"Wrong model actually performed compaction: {actual_model}; "
+                f"expected {args.compactor}"
+            )
+        if response.get("error"):
+            e = response["error"]
+            detail = (e.get("data") or {}).get("message", "") if isinstance(e, dict) else str(e)
+            raise RuntimeError(
+                f"Native compaction failed with {actual_model}: "
+                f"{str(detail)[:350]}"
+            )
+        if response.get("finish") != "stop":
+            raise RuntimeError(
+                f"Compaction did not finish successfully (finish={response.get('finish')})"
+            )
+        output = int((response.get("tokens") or {}).get("output") or 0)
+        if output < 1:
+            raise RuntimeError("Compaction returned an empty summary")
+        status(f"SIDECAR_COMPACT_OK model={actual_model} "
+               f"output_tokens={output} auto=false")
+        finished = True
+        return 0
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if log_file is not None:
+            log_file.close()
+        if log_path and finished:
+            try:
+                log_path.unlink()
+            except OSError:
+                pass
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        print(f"SIDECAR_FAILURE: {str(exc)[:550]}", file=sys.stderr, flush=True)
+        sys.exit(1)
