@@ -1,4 +1,4 @@
-model = "gpt-5.5"
+model = "gpt-6-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 instructions = '''
@@ -26,7 +26,7 @@ hide_rate_limit_model_nudge = true
 [notice.model_migrations]
 "gpt-5.1-codex-max" = "gpt-5.2-codex"
 "gpt-5.1-codex-mini" = "gpt-5.2-codex"
-"gpt-5.3-codex" = "gpt-5.5"
+"gpt-5.3-codex" = "gpt-6-sol"
 
 [plugins."gmail@openai-curated"]
 enabled = true
