@@ -8,7 +8,7 @@ merge_system_into_user = false
 model = "default"
 requires_openai_auth = false
 temperature = 0.7
-timeout_secs = 120
+timeout_secs = 86400
 uri = "http://localhost:8000/v1"
 
 [providers.transcription.groq.default]
@@ -62,10 +62,7 @@ allowed_commands = [
   "nix",
   "nix-collect-garbage",
 ]
-allowed_roots = [
-  "/nix/store",
-  "/home/klarkc/.cache/nix",
-]
+allowed_roots = ["/nix/store", "/home/klarkc/.cache/nix"]
 allowed_roots_read_only = [
   "/home/klarkc/Sources",
   "/home/klarkc/.config/git/ignore",
@@ -320,7 +317,7 @@ agent = "default"
 
 [channels]
 cli = true
-message_timeout_secs = 300
+message_timeout_secs = 86400
 ack_reactions = true
 show_tool_calls = false
 session_persistence = true
