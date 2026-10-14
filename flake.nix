@@ -191,7 +191,7 @@
               "zeroclaw"
               "--no-default-features"
               "--features"
-              "agent-runtime,channel-discord,sandbox-landlock"
+              "agent-runtime,channel-discord,channel-webhook,gateway,sandbox-landlock"
             ];
             buildInputs = [ pkgs.stdenv.cc.cc ];
             doCheck = false;
