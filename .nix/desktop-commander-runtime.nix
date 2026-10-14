@@ -28,7 +28,7 @@ let
   state = pkgs.writeShellApplication {
     name = "desktop-commander-state";
     runtimeInputs = with pkgs; [ coreutils ];
-    text = builtins.readFile ../.local/libexec/desktop-commander-state;
+    text = builtins.readFile ./desktop-commander-state.sh;
   };
 
   remote = pkgs.writeShellApplication {
@@ -37,7 +37,7 @@ let
       pkgs.coreutils
       desktopCommander
     ];
-    text = builtins.readFile ../.local/libexec/desktop-commander-remote;
+    text = builtins.readFile ./desktop-commander-remote.sh;
   };
 in
 pkgs.buildEnv {
