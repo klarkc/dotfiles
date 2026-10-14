@@ -17,6 +17,23 @@
         "type": "github"
       }
     },
+    "desktop-commander-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791348068,
+        "narHash": "sha256-7X6NqLsc8HnAu/R1B5m56LWItWa2fgP8JQTYxBRh5pg=",
+        "owner": "wonderwhy-er",
+        "repo": "DesktopCommanderMCP",
+        "rev": "ea3ed35a7be9f2a3ea3e89185ff9bbb03fe5ab57",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wonderwhy-er",
+        "repo": "DesktopCommanderMCP",
+        "rev": "ea3ed35a7be9f2a3ea3e89185ff9bbb03fe5ab57",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -265,6 +282,7 @@
     "root": {
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
+        "desktop-commander-src": "desktop-commander-src",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",

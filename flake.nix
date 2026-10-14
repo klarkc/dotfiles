@@ -55,6 +55,13 @@
       url = "github:punkpeye/mcp-remote/77bbcfcd7892d339c27b5a14818b63cb5c4d3293";
       flake = false;
     };
+    # Desktop Commander Remote is pinned because it is a long-lived local
+    # service, not an ephemeral npx invocation. Keep this rev aligned with the
+    # package version in .nix/desktop-commander-runtime.nix.
+    desktop-commander-src = {
+      url = "github:wonderwhy-er/DesktopCommanderMCP/ea3ed35a7be9f2a3ea3e89185ff9bbb03fe5ab57";
+      flake = false;
+    };
   };
 
   outputs =
@@ -197,6 +204,9 @@
             # `.nix/mcp-remote-runtime.nix`. The source rev and
             # `pnpmDeps.hash` in that derivation must move together.
             mcp-remote-src = inputs.mcp-remote-src;
+          };
+          desktopCommanderRuntime = pkgs.callPackage ./.nix/desktop-commander-runtime.nix {
+            desktop-commander-src = inputs.desktop-commander-src;
           };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
@@ -447,6 +457,7 @@
                 ledgeurRuntime
                 vllmRuntime
                 mcpRemoteRuntime
+                desktopCommanderRuntime
                 zeroclawWithLandlock
               ];
           };
@@ -457,6 +468,7 @@
           packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
+          packages.desktop-commander-runtime = desktopCommanderRuntime;
           packages.zeroclaw = zeroclawWithLandlock;
         }
       );

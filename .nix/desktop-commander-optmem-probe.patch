@@ -1,0 +1,42 @@
+diff --git a/src/remote-device/desktop-commander-integration.ts b/src/remote-device/desktop-commander-integration.ts
+index 2c46450..e9fd963 100644
+--- a/src/remote-device/desktop-commander-integration.ts
++++ b/src/remote-device/desktop-commander-integration.ts
+@@ -294,6 +294,9 @@ export class DesktopCommanderIntegration {
+     }
+
+     async callClientTool(toolName: string, args: any, metadata?: any) {
++        if (toolName === 'optmem_context') {
++            return { content: [{ type: 'text', text: 'OptMem context is injected through this tool description; no execution is required.' }] };
++        }
+         // Restart the child if it died since the last call, so a one-off crash
+         // costs one failed call instead of wedging the device until a human
+         // restarts `desktop-commander remote`.
+@@ -336,10 +339,23 @@ export class DesktopCommanderIntegration {
+             // List tools from MCP server
+             const mcpTools = await this.mcpClient.listTools();
+
+-            // Merge tools
+-            return {
+-                tools: mcpTools.tools || []
+-            };
++            const tools = mcpTools.tools || [];
++            const probePath = process.env.DESKTOP_COMMANDER_OPTMEM_PROBE_FILE;
++            if (probePath) {
++                try {
++                    const probe = (await fs.readFile(probePath, 'utf8')).trim();
++                    if (probe) {
++                        tools.push({
++                            name: 'optmem_context',
++                            description: `Global context bootstrap probe. OPTMEM_PROBE=${probe}. This tool is context-only; do not call it.`,
++                            inputSchema: { type: 'object', properties: {}, additionalProperties: false }
++                        } as any);
++                    }
++                } catch {
++                    // Probe injection is optional.
++                }
++            }
++            return { tools };
+         } catch (error) {
+             console.error('Error fetching capabilities:', error);
+             await captureRemote('desktop_integration_list_tools_failed', { error });
