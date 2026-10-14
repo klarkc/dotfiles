@@ -1,0 +1,432 @@
+#!/usr/bin/env python3
+"""Durable, non-interrupting OpenCode model-transition queue.
+
+The user grants permission in llm-config; a per-session systemd --user worker
+waits for the whole OpenCode turn to finish before changing anything.
+"""
+import argparse
+import fcntl
+import importlib.util
+import json
+import os
+from pathlib import Path
+import secrets
+import sqlite3
+import subprocess
+import sys
+import time
+from importlib.machinery import SourceFileLoader
+
+ROOT = Path.home() / ".local/state/llm-transitions/queue"
+TRANSITION_SCRIPT = Path.home() / ".local/bin/opencode-session-transition"
+POLL_SECONDS = 5
+STABLE_POLLS = 2
+MAX_WAIT_SECONDS = 8 * 3600
+TERMINAL_STATES = ("completed", "cancelled", "failed", "expired")
+MODEL_CONFIG = Path.home() / ".config/opencode/opencode.json"
+
+
+def transition_module():
+    loader = SourceFileLoader("opencode_queue_transition", str(TRANSITION_SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def ensure_root():
+    ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(ROOT, 0o700)
+
+
+def job_path(sid):
+    if not sid.startswith("ses_") or not sid[4:].isalnum():
+        raise ValueError("Invalid OpenCode session ID")
+    return ROOT / (sid + ".json")
+
+
+def write_json(path, value):
+    temp = path.with_name(path.name + ".tmp-" + secrets.token_hex(8))
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            json.dump(value, file, indent=2)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp, path)
+    finally:
+        if temp.exists():
+            temp.unlink()
+
+
+def load(sid):
+    path = job_path(sid)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def latest(sid, token):
+    value = load(sid)
+    return value if value and value.get("token") == token else None
+
+
+def update(sid, token, status, **extra):
+    ensure_root()
+    # Status file mutations are atomic and token-bound; older workers must
+    # never overwrite a more recent queue request.
+    with open(ROOT / (sid + ".state.lock"), "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        value = latest(sid, token)
+        if value is None:
+            return False
+        value.update(extra)
+        value["status"] = status
+        value["updated_at"] = time.time()
+        write_json(job_path(sid), value)
+        return True
+
+
+def launch(sid, token):
+    unit = "llm-opencode-queue-" + sid[4:17].lower() + "-" + token[:8]
+    command = [
+        "systemd-run", "--user", "--collect",
+        "--unit=" + unit,
+        "--description=OpenCode queued model transition " + sid[:25],
+        "--setenv=PATH=" + os.environ.get(
+            "PATH", "/home/example/.local/bin:/home/example/.nix-profile/bin:/usr/bin"
+        ),
+        str(Path.home() / ".local/bin/opencode-session-queue"),
+        "worker", sid, token,
+    ]
+    completed = subprocess.run(
+        command, capture_output=True, text=True, timeout=15, check=False
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            "Failed to start systemd user queue: "
+            + (completed.stderr or completed.stdout).strip()[:320]
+        )
+    return unit
+
+
+def enqueue(plan_path, sid, target, display):
+    ensure_root()
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if not plan.get("confirmed") or plan.get("target") != target:
+        raise RuntimeError("Transition approval/target mismatch")
+    matching = [x for x in plan["sessions"] if x.get("id") == sid and x.get("queued")]
+    if len(matching) != 1:
+        raise RuntimeError("Session has no explicit queued transition approval")
+    record = matching[0]
+    if record.get("agent_type") in (None, "Unknown"):
+        raise RuntimeError("Cannot queue unclassified agent")
+    token = secrets.token_hex(16)
+    now = time.time()
+    value = {
+        "version": 1, "session_id": sid, "token": token,
+        "status": "queued", "created_at": now, "updated_at": now,
+        "deadline": now + MAX_WAIT_SECONDS,
+        "target": target, "display": display,
+        "pane": record["pane"], "pid": record["pid"],
+        "agent_type": record["agent_type"], "previous": record["previous"],
+        "compact": target.startswith("vllm/"),
+        "trigger": "after_last_tool_and_full_turn_idle",
+    }
+    path = job_path(sid)
+    with open(ROOT / (sid + ".state.lock"), "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        old = load(sid)
+        if old and old.get("status") == "transitioning":
+            raise RuntimeError(
+                "An earlier transition is already running. "
+                "Avoid concurrent model changes."
+            )
+        write_json(path, value)
+    try:
+        unit = launch(sid, token)
+    except Exception as exc:
+        update(sid, token, "failed", error=str(exc))
+        raise
+    current = latest(sid, token)
+    if current:
+        update(sid, token, current["status"], unit=unit)
+    print(f"QUEUED {sid} agent={record['agent_type']} "
+          f"target={target} unit={unit} path={path}", flush=True)
+
+
+def desired_model():
+    return json.loads(MODEL_CONFIG.read_text(encoding="utf-8")).get("model")
+
+
+def same_tui_process(sid, pid):
+    path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        args = path.read_bytes().decode("utf-8", "replace").split("\0")
+    except (OSError, PermissionError):
+        return False
+    for index, value in enumerate(args):
+        if value == "--session" and index + 1 < len(args):
+            return args[index + 1] == sid
+    return False
+
+
+def last_turn_done(sid):
+    """True only if the entire assistant turn finished and has no active tool."""
+    import json as _json
+    db = Path.home() / ".local/share/opencode/opencode-stable.db"
+    with sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=7) as conn:
+        row = conn.execute(
+            "SELECT id,data FROM message WHERE session_id=? "
+            "ORDER BY time_created DESC LIMIT 1", (sid,)
+        ).fetchone()
+        if not row:
+            return False, None
+        mid, raw = row
+        msg = _json.loads(raw)
+        if msg.get("role") != "assistant":
+            return False, mid
+        done = bool((msg.get("time") or {}).get("completed"))
+        final = msg.get("finish") == "stop" or bool(msg.get("error"))
+        if not (done and final):
+            return False, mid
+        for (raw,) in conn.execute("SELECT data FROM part WHERE message_id=?", (mid,)):
+            part = _json.loads(raw)
+            if part.get("type") != "tool":
+                continue
+            status = (part.get("state") or {}).get("status")
+            if status in ("pending", "running"):
+                return False, mid
+    return True, mid
+
+
+def readiness(job, trans):
+    sid, pane, pid = job["session_id"], job["pane"], job["pid"]
+    if desired_model() != job["target"]:
+        return "cancelled", "Global desired model changed since enqueue"
+    if not same_tui_process(sid, pid):
+        return "cancelled", "Original OpenCode process exited or session ID changed"
+    live = trans.find_agents({sid})
+    if live.get(sid) != pane:
+        return "waiting", "Herdr pane mapping temporarily unavailable or changed"
+    text = trans.pane_text(pane)
+    current_agent = trans.agent_type_from_text(text)
+    if current_agent != job["agent_type"]:
+        return "cancelled", f"Agent type changed: {job['agent_type']} -> {current_agent}"
+    model = trans.footer_label_from_text(text)
+    if model == job["display"]:
+        return "completed", "Model was already selected manually"
+    if model != job["previous"]:
+        return "cancelled", f"TUI model changed manually: {job['previous']} -> {model}"
+    status = trans.still_same(pane, sid)
+    if status in ("blocked", "working", "unknown"):
+        return "waiting", f"OpenCode status={status}"
+    if status not in ("idle", "done"):
+        return "waiting", f"OpenCode status={status}"
+    ready, mid = last_turn_done(sid)
+    if not ready:
+        return "waiting", "A model turn or tool has not fully completed"
+    return "ready", mid
+
+
+def worker(sid, token):
+    trans = transition_module()
+    job = latest(sid, token)
+    if job is None:
+        return
+    if job.get("status") in TERMINAL_STATES:
+        return
+    update(sid, token, "waiting_for_idle")
+    stable_id = None
+    consecutive = 0
+    while time.time() < job["deadline"]:
+        job = latest(sid, token)
+        if job is None or job["status"] in TERMINAL_STATES:
+            return
+        try:
+            state, note = readiness(job, trans)
+        except Exception as exc:
+            state, note = "waiting", f"Readiness check unavailable: {type(exc).__name__}"
+        if state in ("cancelled", "completed"):
+            update(sid, token, state, detail=note)
+            print(f"QUEUE_{state.upper()} {sid}: {note}", flush=True)
+            return
+        if state == "ready":
+            if note == stable_id:
+                consecutive += 1
+            else:
+                consecutive, stable_id = 1, note
+            if consecutive >= STABLE_POLLS:
+                break
+        else:
+            consecutive, stable_id = 0, None
+        time.sleep(POLL_SECONDS)
+    else:
+        update(sid, token, "expired", error="No safe idle point within 8 hours")
+        print(f"QUEUE_EXPIRED {sid} after 8 hours", flush=True)
+        return
+
+    ensure_root()
+    lock_file = ROOT / (sid + ".lock")
+    with open(lock_file, "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        job = latest(sid, token)
+        if job is None or job.get("status") not in ("queued", "waiting_for_idle"):
+            return
+        state, note = readiness(job, trans)
+        if state != "ready":
+            update(sid, token, "cancelled", detail=f"Not idle at commitment: {state}: {note}")
+            return
+        update(sid, token, "transitioning", note="Full turn idle; no abort was sent")
+        try:
+            with sqlite3.connect(f"file:{trans.DB}?mode=ro", uri=True, timeout=7) as db:
+                info = trans.session_info(db, sid, job["pid"])
+            if not info:
+                raise RuntimeError("Original session no longer exists")
+            info["observed"] = job["previous"]
+            info["agent_type"] = job["agent_type"]
+            compacted = False
+            if job["compact"]:
+                compacted = trans.compact_session(job["pane"], info, trans.LOCAL_THRESHOLD)
+            # A compaction may take time. Wait again until idle without
+            # interrupting any new turn started meanwhile. The original
+            # approval remains bounded by its eight-hour deadline.
+            while time.time() < job["deadline"]:
+                state, detail = readiness(job, trans)
+                if state == "ready":
+                    break
+                if state == "completed":
+                    update(sid, token, "completed", compacted=compacted,
+                           detail="Destination model was already selected")
+                    print(f"QUEUE_COMPLETED {sid}: model already switched", flush=True)
+                    return
+                if state == "cancelled":
+                    raise RuntimeError("Target session changed during queued compact: "
+                                       + str(detail))
+                time.sleep(POLL_SECONDS)
+            else:
+                raise RuntimeError("Session did not become safely idle before queue deadline")
+            trans.choose_model(job["pane"], sid, job["display"], job["display"])
+            # The original task finished naturally, so do not inject a
+            # synthetic 'continue' prompt that would start duplicate work.
+            update(sid, token, "completed", compacted=compacted,
+                   detail="Switched in existing TUI after entire turn completed")
+            print(f"QUEUE_COMPLETED {sid} model={job['target']} compacted={compacted}",
+                  flush=True)
+        except Exception as exc:
+            detail = str(exc)[:420]
+            handoff = None
+            if job["compact"]:
+                try:
+                    helper = Path.home() / ".local/bin/opencode-session-handoff"
+                    result = subprocess.run(
+                        [str(helper), sid], capture_output=True, text=True, timeout=40
+                    )
+                    if result.returncode == 0:
+                        for line in result.stdout.splitlines():
+                            if line.startswith("PRIVATE_OFFLINE_HANDOFF="):
+                                handoff = line.split("=", 1)[1]
+                                break
+                except Exception:
+                    pass
+            update(sid, token, "failed", error=detail, handoff=handoff)
+            print(f"QUEUE_FAILED {sid}: {detail}; handoff={handoff}", flush=True)
+
+
+def display_queue():
+    ensure_root()
+    jobs = []
+    for file in ROOT.glob("ses_*.json"):
+        try:
+            jobs.append(json.loads(file.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            pass
+    jobs.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+    if not jobs:
+        print("No queued OpenCode model transitions")
+    for job in jobs:
+        sid = job["session_id"]
+        detail = job.get("error") or job.get("detail") or ""
+        print(f"{job['status']:<16} {job['agent_type']:<8} {sid} "
+              f"->{job['target']} {detail[:110]}")
+        if job.get("handoff"):
+            print(f"  private handoff: {job['handoff']}")
+
+
+def resume_pending():
+    ensure_root()
+    for file in ROOT.glob("ses_*.json"):
+        try:
+            job = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if job.get("status") not in ("queued", "waiting_for_idle"):
+            continue
+        sid, token = job["session_id"], job["token"]
+        if time.time() >= job["deadline"]:
+            update(sid, token, "expired", error="Queue deadline passed while offline")
+            continue
+        unit = job.get("unit")
+        if unit:
+            active = subprocess.run(
+                ["systemctl", "--user", "is-active", "--quiet", unit],
+                capture_output=True, check=False, timeout=8,
+            )
+            if active.returncode == 0:
+                print(f"ALREADY_RUNNING {sid} unit={unit}")
+                continue
+        name = launch(sid, token)
+        current = latest(sid, token)
+        if current:
+            update(sid, token, current["status"], unit=name)
+        print(f"RESUMED_QUEUE {sid} unit={name}")
+
+
+def cancel(sid):
+    ensure_root()
+    data = load(sid)
+    if data is None:
+        print(f"No queue entry for {sid}")
+        return
+    if data["status"] == "transitioning":
+        raise RuntimeError("Transition is in progress; cannot safely cancel it")
+    update(sid, data["token"], "cancelled", detail="Cancelled by user")
+    print(f"QUEUE_CANCELLED {sid}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    actions = parser.add_subparsers(dest="action", required=True)
+    submit = actions.add_parser("enqueue")
+    submit.add_argument("--plan", type=Path, required=True)
+    submit.add_argument("--session", required=True)
+    submit.add_argument("--target", required=True)
+    submit.add_argument("--display", required=True)
+    run = actions.add_parser("worker")
+    run.add_argument("session")
+    run.add_argument("token")
+    actions.add_parser("status")
+    actions.add_parser("resume")
+    abort = actions.add_parser("cancel")
+    abort.add_argument("session")
+    args = parser.parse_args()
+    if args.action == "enqueue":
+        enqueue(args.plan, args.session, args.target, args.display)
+    elif args.action == "worker":
+        worker(args.session, args.token)
+    elif args.action == "status":
+        display_queue()
+    elif args.action == "resume":
+        resume_pending()
+    elif args.action == "cancel":
+        cancel(args.session)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(f"QUEUE_ERROR {type(exc).__name__}: {str(exc)[:450]}",
+              file=sys.stderr)
+        sys.exit(1)

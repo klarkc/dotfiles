@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Write a private bounded offline recovery handoff from an OpenCode session.
+
+The original database and conversation remain unchanged.
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import sqlite3
+import subprocess
+from pathlib import Path
+
+DB = Path.home() / ".local/share/opencode/opencode-stable.db"
+STATE = Path.home() / ".local/state/llm-transitions/handoffs"
+SUMMARY_LIMIT = 18000
+RECENT_LIMIT = 26000
+SNIPPET_LIMIT = 1600
+
+def clean(text, limit):
+    text = text.replace("\x00", "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n[... truncated; original session retained ...]"
+
+def text_parts(db, mid):
+    data = []
+    for (raw,) in db.execute(
+        "SELECT data FROM part WHERE message_id=? ORDER BY time_created", (mid,)
+    ):
+        item = json.loads(raw)
+        if item.get("type") == "text" and isinstance(item.get("text"), str):
+            data.append(item["text"])
+    return "\n".join(data)
+
+def git_evidence(cwd):
+    if not cwd or not Path(cwd).is_dir():
+        return "Working directory unavailable"
+    results = []
+    for args in (
+        ["git", "-C", cwd, "status", "--short", "--branch", "--untracked-files=no"],
+        ["git", "-C", cwd, "diff", "--stat"],
+    ):
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=8)
+            if result.returncode == 0:
+                results.append(clean(result.stdout, 4000))
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return "\n".join(results) or "No tracked diff was reported"
+
+def export(sid):
+    if not re.fullmatch(r"ses_[A-Za-z0-9]+", sid):
+        raise RuntimeError("Invalid OpenCode session ID")
+    if not DB.is_file():
+        raise RuntimeError("OpenCode session database is unavailable")
+    with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=10) as db:
+        row = db.execute(
+            "SELECT title,directory FROM session WHERE id=?", (sid,)
+        ).fetchone()
+        if not row:
+            raise RuntimeError(f"Session not found: {sid}")
+        title, directory = row
+        summary = None
+        for mid, ts, raw in db.execute(
+            "SELECT id,time_created,data FROM message WHERE session_id=? "
+            "AND data LIKE ? ORDER BY time_created DESC LIMIT 150",
+            (sid, '%"mode":"compaction"%'),
+        ):
+            d = json.loads(raw)
+            if d.get("role") == "assistant" and d.get("finish") == "stop" and d.get("summary") is True:
+                content = text_parts(db, mid)
+                if content.strip():
+                    summary = (mid, ts, clean(content, SUMMARY_LIMIT))
+                    break
+        anchor_ts = summary[1] if summary else 0
+        candidates = db.execute(
+            "SELECT id,time_created,data FROM message WHERE session_id=? "
+            "AND time_created>? ORDER BY time_created DESC LIMIT 130",
+            (sid, anchor_ts),
+        ).fetchall()
+        recent = []
+        for mid, ts, raw in reversed(candidates):
+            msg = json.loads(raw)
+            role = msg.get("role")
+            if role not in ("user", "assistant") or msg.get("mode") == "compaction":
+                continue
+            body = text_parts(db, mid)
+            if not body.strip():
+                continue
+            when = dt.datetime.fromtimestamp(ts/1000).isoformat(timespec="seconds")
+            chunk = (f"\n### {role} ({msg.get('agent',role)}), {when}, message {mid}\n\n"
+                     f"{clean(body, SNIPPET_LIMIT)}\n")
+            recent.append(chunk)
+        # Favor newest exchanges and never exceed the explicit local budget.
+        total = 0
+        selected = []
+        for chunk in reversed(recent[-36:]):
+            if total + len(chunk) > RECENT_LIMIT:
+                continue
+            selected.append(chunk)
+            total += len(chunk)
+        selected.reverse()
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE, 0o700)
+    dest = STATE / f"handoff-{sid}-{stamp}.md"
+    lines = [
+        "# OpenCode local-model continuation handoff",
+        "",
+        "This is a LOSSY RECOVERY ARTIFACT, not a native compact.",
+        "Verify all decisions against the preserved original session when necessary.",
+        f"Session ID: {sid}",
+        f"Title: {title or '(untitled)'}",
+        f"Worktree: {directory}",
+        "",
+        "## Last completed summary",
+        summary[2] if summary else "No previously completed summary found.",
+        "",
+        "## Recent text exchanges",
+        "".join(selected) if selected else "No recent text messages were found.",
+        "",
+        "## Current Git state (read-only)",
+        git_evidence(directory),
+        "",
+        "## Next agent instructions",
+        "- Verify repository status and incomplete operations before editing.",
+        "- Treat omitted transcript/tool outputs as unknown, never inferred.",
+        "- Avoid repeating partially executed tool or file writes.",
+        "- Keep local context bounded and delegate narrow tasks.",
+        "- Continue the last unfinished USER task, not the handoff generation.",
+    ]
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write("\n".join(lines) + "\n")
+    return dest
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("session_id")
+    args = parser.parse_args()
+    path = export(args.session_id)
+    print(f"PRIVATE_OFFLINE_HANDOFF={path}")
+    print(f"BYTES={path.stat().st_size}")
+    print("Open a fresh local-model session and supply the handoff as the starting prompt.")
+    print("Original OpenCode session retained; no database modifications.")

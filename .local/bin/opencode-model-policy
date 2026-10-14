@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Apply the OpenCode model policy selected by llm-config.
+
+Primary: GPT-6.1 Sol or the currently served vLLM model.
+Subagents: always the currently served vLLM model.
+The systemd vLLM patcher calls this with --mode keep on every restart.
+"""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import stat
+import tempfile
+
+GPT_MODEL = "openai/gpt-6.1-sol"
+PRIMARY_AGENTS = ("build", "plan", "design", "learn")
+LOCAL_SUBAGENTS = ("general", "explore", "scout")
+LOCAL_HELPERS = ("title", "summary")
+
+def atomic_write(path, contents, permissions):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    try:
+        os.fchmod(fd, permissions)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(contents)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+def read_env(path):
+    if not path.is_file():
+        raise SystemExit(f"Missing vLLM model environment: {path}")
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key] = value.strip().strip('"').strip("'")
+    return values
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("gpt", "local", "keep"), default="keep")
+    parser.add_argument("--local-key", required=True)
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--config-path", type=Path, default=Path.home() / ".config/opencode/opencode.json")
+    parser.add_argument("--env-directory", type=Path, default=Path.home() / ".config/vllm")
+    args = parser.parse_args()
+    config_path = args.config_path
+    mode_path = config_path.parent / ".llm-primary-mode"
+    model_env = read_env(args.env_directory / (args.local_key + ".env"))
+    local_id = model_env.get("SERVED_MODEL_NAME")
+    if not local_id:
+        raise SystemExit("SERVED_MODEL_NAME missing in vLLM model environment")
+    local_model = f"vllm/{local_id}"
+    output = int(model_env.get("DEFAULT_MAX_TOKENS", 4096))
+    raw_context = int(model_env.get("MAX_MODEL_LEN", 49152))
+    context = max(1024, raw_context - (output * 3 // 2))
+    base_url = f"http://localhost:{int(model_env.get('PORT', 8000))}/v1"
+
+    if not config_path.is_file():
+        raise SystemExit(f"Missing OpenCode config: {config_path}")
+    lock_path = config_path.parent / ".llm-model-policy.lock"
+    with open(lock_path, "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise SystemExit("OpenCode config root must be a JSON object")
+        saved_mode = mode_path.read_text(encoding="utf-8").strip() if mode_path.is_file() else None
+        if saved_mode not in ("gpt", "local"):
+            saved_mode = "gpt" if str(data.get("model", "")).startswith("openai/") else "local"
+        selected_mode = saved_mode if args.mode == "keep" else args.mode
+        primary = GPT_MODEL if selected_mode == "gpt" else local_model
+
+        if args.status:
+            agents = data.get("agent", {})
+            print(f"primary-model={data.get('model')} backend={'GPT' if saved_mode == 'gpt' else 'vLLM'}")
+            print(f"vllm-current={local_model} vllm-context={context} vllm-output={output}")
+            for agent in PRIMARY_AGENTS + LOCAL_SUBAGENTS + ("compaction",):
+                print(f"agent.{agent}={agents.get(agent, {}).get('model', '(inherited)')}")
+            return
+
+        old_compactor_pinned = "model" in data.get("agent", {}).get("compaction", {})
+        data["model"] = primary
+        data["small_model"] = local_model
+        agents = data.setdefault("agent", {})
+        for name in PRIMARY_AGENTS:
+            agents.setdefault(name, {})["model"] = primary
+        for name in LOCAL_SUBAGENTS + LOCAL_HELPERS:
+            agents.setdefault(name, {})["model"] = local_model
+        # Do NOT pin compaction to the globally selected model: this would
+        # switch GPT-origin sessions to the small vLLM compactor prematurely.
+        # OpenCode 1.18.31 uses the session's selected model when this
+        # override is absent. A live TUI compact stays in its own event stream.
+        agents.setdefault("compaction", {}).pop("model", None)
+        vllm = data.setdefault("provider", {}).setdefault("vllm", {})
+        vllm.setdefault("options", {})["baseURL"] = base_url
+        models = vllm.setdefault("models", {})
+        detail = models.get(local_id)
+        if not isinstance(detail, dict):
+            detail = {}
+        detail["name"] = model_env.get("DISPLAY_MODEL_NAME", local_id)
+        detail.setdefault("limit", {})["context"] = context
+        detail["limit"]["output"] = output
+        models[local_id] = detail
+        original_mode = stat.S_IMODE(config_path.stat().st_mode)
+        atomic_write(config_path, json.dumps(data, indent="\t", ensure_ascii=False) + "\n", original_mode)
+        inherit_marker = config_path.parent / ".compaction-inherits-session-model-since"
+        if old_compactor_pinned or not inherit_marker.is_file():
+            # Processes already running before this marker may still cache a
+            # pinned compactor; the transition controller must use sidecar
+            # fallback for those legacy sessions.
+            import time
+            atomic_write(inherit_marker, str(time.time()) + "\n", 0o600)
+        if args.mode != "keep" or not mode_path.is_file():
+            atomic_write(mode_path, selected_mode + "\n", 0o600)
+        print(f"OpenCode primary={primary}; subagents={local_model}; local-context={context}; mode={selected_mode}")
+
+if __name__ == "__main__":
+    main()
