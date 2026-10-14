@@ -1,0 +1,139 @@
+diff --git a/crates/zeroclaw-channels/src/orchestrator/mod.rs b/crates/zeroclaw-channels/src/orchestrator/mod.rs
+index 34a133594..3efbe49b3 100644
+--- a/crates/zeroclaw-channels/src/orchestrator/mod.rs
++++ b/crates/zeroclaw-channels/src/orchestrator/mod.rs
+@@ -2497,19 +2497,9 @@ fn channel_user_error_message(error: &anyhow::Error, safe_error: &str) -> String
+ }
+ 
+ fn is_context_window_overflow_error(err: &anyhow::Error) -> bool {
+-    let lower = err.to_string().to_lowercase();
+-    [
+-        "exceeds the context window",
+-        "context window of this model",
+-        "maximum context length",
+-        "context length exceeded",
+-        "too many tokens",
+-        "token limit exceeded",
+-        "prompt is too long",
+-        "input is too long",
+-    ]
+-    .iter()
+-    .any(|hint| lower.contains(hint))
++    // Keep channel recovery aligned with provider-side context truncation.
++    // The shared detector also inspects nested causes from wrapped errors.
++    zeroclaw_providers::reliable::is_context_window_exceeded(err)
+ }
+ 
+ fn load_cached_model_preview(
+@@ -16067,6 +16057,18 @@ temperature = 0.3
+             "OpenAI Codex stream error: Your input exceeds the context window of this model.",
+         );
+         assert!(is_context_window_overflow_error(&overflow_err));
++        let discord_err = anyhow::Error::msg(
++            "The request is too large for the selected model. Reduce the conversation or choose a model with a larger context window.",
++        );
++        assert!(is_context_window_overflow_error(&discord_err));
++        let terminal = zeroclaw_providers::ReliableProviderTerminalFailure::new(
++            zeroclaw_providers::ReliableProviderTerminalFailureKind::ContextWindow,
++            None,
++            "All model providers/models failed after 0 failure event(s). Events:".into(),
++        );
++        assert!(is_context_window_overflow_error(&anyhow::Error::new(
++            terminal
++        )));
+ 
+         let other_err =
+             anyhow::Error::msg("OpenAI Codex API error (502 Bad Gateway): error code: 502");
+diff --git a/crates/zeroclaw-providers/src/reliable.rs b/crates/zeroclaw-providers/src/reliable.rs
+index d0cdcdc43..9dd3c174d 100644
+--- a/crates/zeroclaw-providers/src/reliable.rs
++++ b/crates/zeroclaw-providers/src/reliable.rs
+@@ -564,6 +564,18 @@ pub fn is_tool_schema_error(err: &anyhow::Error) -> bool {
+ }
+ 
+ pub fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
++    // Streaming recovery may preserve only a typed terminal classification,
++    // without the original provider error message in the source chain.
++    if err.chain().any(|cause| {
++        cause
++            .downcast_ref::<ReliableProviderTerminalFailure>()
++            .is_some_and(|failure| {
++                failure.kind() == ReliableProviderTerminalFailureKind::ContextWindow
++            })
++    }) {
++        return true;
++    }
++
+     let hints = [
+         "exceeds the context window",
+         "exceeds the available context size",
+@@ -575,6 +587,8 @@ pub fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
+         "prompt is too long",
+         "input is too long",
+         "prompt exceeds max length",
++        "request is too large for the selected model",
++        "reduce the conversation or choose a model with a larger context window",
+     ];
+ 
+     err.chain().any(|cause| {
+@@ -8090,6 +8104,23 @@ mod tests {
+         )));
+     }
+ 
++    #[test]
++    fn is_context_window_exceeded_detects_selected_model_error() {
++        assert!(is_context_window_exceeded(&anyhow::Error::msg(
++            "The request is too large for the selected model. Reduce the conversation or choose a model with a larger context window."
++        )));
++    }
++
++    #[test]
++    fn is_context_window_exceeded_detects_typed_terminal_without_text() {
++        let failure = ReliableProviderTerminalFailure::new(
++            ReliableProviderTerminalFailureKind::ContextWindow,
++            None,
++            "All model providers/models failed after 0 failure event(s). Events:".to_owned(),
++        );
++        assert!(is_context_window_exceeded(&anyhow::Error::new(failure)));
++    }
++
+     #[test]
+     fn is_context_window_exceeded_detects_nested_provider_cause() {
+         let err = anyhow::Error::msg("maximum context length exceeded")
+diff --git a/crates/zeroclaw-runtime/src/agent/turn/context_recovery.rs b/crates/zeroclaw-runtime/src/agent/turn/context_recovery.rs
+index c01a7d4f0..931ee56bc 100644
+--- a/crates/zeroclaw-runtime/src/agent/turn/context_recovery.rs
++++ b/crates/zeroclaw-runtime/src/agent/turn/context_recovery.rs
+@@ -219,6 +219,32 @@ mod tests {
+         );
+     }
+ 
++    /// Streaming recovery can discard the raw provider error while keeping the
++    /// typed context classification. This is the form seen by Discord.
++    #[tokio::test]
++    async fn typed_stream_context_failure_triggers_in_loop_retry_compaction() {
++        use zeroclaw_providers::{
++            ReliableProviderTerminalFailure, ReliableProviderTerminalFailureKind,
++        };
++
++        let mut history = overflowing_history();
++        let before = history.len();
++        let failure = ReliableProviderTerminalFailure::new(
++            ReliableProviderTerminalFailureKind::ContextWindow,
++            None,
++            "All model providers/models failed after 0 failure event(s). Events:".into(),
++        );
++        let err = anyhow::Error::new(failure);
++        let observer = NoopObserver;
++        let recovered =
++            try_recover_context_overflow(&mut history, &err, 1, None, None, &observer, 32_000)
++                .await;
++
++        assert!(recovered, "typed context failure must initiate retry");
++        assert!(history.len() < before, "history must actually shrink");
++        assert_eq!(history.last().map(|m| m.role.as_str()), Some("assistant"));
++    }
++
+     /// An unrelated provider error is not a compaction trigger at all.
+     #[tokio::test]
+     async fn unrecoverable_error_emits_no_compacting_context_lifecycle() {
