@@ -1,6 +1,6 @@
 [Unit]
 Description=Import local LLM secrets and model selection into systemd
-Before=zeroclaw.service
+Before=zeroclaw.service desktop-commander-remote.service
 
 [Service]
 Type=oneshot

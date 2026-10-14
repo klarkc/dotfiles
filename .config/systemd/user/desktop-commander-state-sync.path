@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch Desktop Commander credential rotation
+
+[Path]
+PathChanged=%h/.desktop-commander-device/device.json
+Unit=desktop-commander-state-sync.service
+
+[Install]
+WantedBy=default.target
