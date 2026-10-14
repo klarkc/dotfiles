@@ -1,0 +1,161 @@
+diff --git a/crates/zeroclaw-providers/src/compatible.rs b/crates/zeroclaw-providers/src/compatible.rs
+index a55c9fa1a..0c1e5c70f 100644
+--- a/crates/zeroclaw-providers/src/compatible.rs
++++ b/crates/zeroclaw-providers/src/compatible.rs
+@@ -52,7 +52,7 @@ pub struct OpenAiCompatibleModelProvider {
+     /// Whether this model_provider supports OpenAI-style native tool calling.
+     /// When false, tools are injected into the system prompt as text.
+     native_tool_calling: bool,
+-    /// HTTP request timeout in seconds for LLM API calls. Default: 120.
++    /// Request timeout in seconds. Zero disables HTTP and streaming read deadlines.
+     timeout_secs: u64,
+     /// Extra HTTP headers to include in all API requests.
+     extra_headers: std::collections::HashMap<String, String>,
+@@ -528,13 +528,11 @@ impl OpenAiCompatibleBuilder {
+         self
+     }
+ 
+-    /// Override the HTTP request timeout for LLM API calls. Values of 0
+-    /// are ignored (the default 120 s is kept) so a stray `Some(0)` from
+-    /// config cannot silently disable the safety timeout.
++    /// Override the HTTP request timeout for LLM API calls. A value of zero
++    /// explicitly disables both total HTTP and streaming idle timeouts.
++    /// The connection establishment timeout remains 10 seconds.
+     pub fn timeout_secs(mut self, timeout_secs: u64) -> Self {
+-        if timeout_secs > 0 {
+-            self.timeout_secs = Some(timeout_secs);
+-        }
++        self.timeout_secs = Some(timeout_secs);
+         self
+     }
+ 
+@@ -845,9 +843,13 @@ impl OpenAiCompatibleModelProvider {
+             }
+ 
+             let builder = Client::builder()
+-                .timeout(std::time::Duration::from_secs(timeout))
+                 .connect_timeout(std::time::Duration::from_secs(10))
+                 .default_headers(headers);
++            let builder = if timeout == 0 {
++                builder
++            } else {
++                builder.timeout(std::time::Duration::from_secs(timeout))
++            };
+             let builder = self.add_tls_cert_to_builder(builder);
+             let builder = zeroclaw_config::schema::apply_runtime_proxy_to_builder(
+                 builder,
+@@ -868,6 +870,26 @@ impl OpenAiCompatibleModelProvider {
+             });
+         }
+ 
++        if timeout == 0 {
++            // No request deadline, but retain a bounded TCP connection attempt.
++            let builder = Client::builder().connect_timeout(std::time::Duration::from_secs(10));
++            let builder = zeroclaw_config::schema::apply_runtime_proxy_to_builder(
++                builder,
++                "model_provider.compatible",
++            );
++            return builder.build().unwrap_or_else(|error| {
++                ::zeroclaw_log::record!(
++                    WARN,
++                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
++                        .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
++                        .with_attrs(
++                            ::serde_json::json!({"error": super::format_error_chain(&error)})
++                        ),
++                    "Failed to build proxied no-timeout client: "
++                );
++                Client::new()
++            });
++        }
+         zeroclaw_config::schema::build_runtime_proxy_client_with_timeouts(
+             "model_provider.compatible",
+             timeout,
+@@ -875,10 +897,15 @@ impl OpenAiCompatibleModelProvider {
+         )
+     }
+ 
+-    /// HTTP client for streaming SSE connections — no overall timeout (reqwest's
+-    /// total timeout kills long-running streams mid-response), but a `read_timeout`
+-    /// idle bound (`STREAM_IDLE_TIMEOUT`) so a silent connection fails fast instead
+-    /// of hanging forever. Streaming paths must use this client instead of http_client().
++    /// Streaming SSE requests have no total timeout: long responses must not be
++    /// terminated mid-stream. The configured provider timeout also controls idle
++    /// reads, but retains the 300s historical minimum when it is nonzero.
++    /// Explicit timeout_secs=0 disables the stream idle bound.
++    fn streaming_idle_timeout(&self) -> Option<std::time::Duration> {
++        (self.timeout_secs != 0)
++            .then(|| std::time::Duration::from_secs(self.timeout_secs).max(STREAM_IDLE_TIMEOUT))
++    }
++
+     fn streaming_http_client(&self) -> Client {
+         let has_user_agent = self.user_agent.is_some();
+         let has_extra_headers = !self.extra_headers.is_empty();
+@@ -916,8 +943,12 @@ impl OpenAiCompatibleModelProvider {
+ 
+             let builder = Client::builder()
+                 .connect_timeout(std::time::Duration::from_secs(10))
+-                .read_timeout(STREAM_IDLE_TIMEOUT)
+                 .default_headers(headers);
++            let builder = if let Some(timeout) = self.streaming_idle_timeout() {
++                builder.read_timeout(timeout)
++            } else {
++                builder
++            };
+             let builder = self.add_tls_cert_to_builder(builder);
+             let builder = zeroclaw_config::schema::apply_runtime_proxy_to_builder(
+                 builder,
+@@ -937,9 +968,12 @@ impl OpenAiCompatibleModelProvider {
+             });
+         }
+ 
+-        let builder = Client::builder()
+-            .connect_timeout(std::time::Duration::from_secs(10))
+-            .read_timeout(STREAM_IDLE_TIMEOUT);
++        let builder = Client::builder().connect_timeout(std::time::Duration::from_secs(10));
++        let builder = if let Some(timeout) = self.streaming_idle_timeout() {
++            builder.read_timeout(timeout)
++        } else {
++            builder
++        };
+         let builder =
+             zeroclaw_config::schema::apply_runtime_proxy_to_builder(builder, "provider.compatible");
+         builder.build().unwrap_or_else(|error| {
+@@ -8618,6 +8652,37 @@ mod tests {
+         assert_eq!(p.timeout_secs, 300);
+     }
+ 
++    #[test]
++    fn provider_timeout_controls_streaming_idle_timeout() {
++        let p = make_model_provider("test", "https://example.com", None);
++        assert_eq!(p.streaming_idle_timeout(), Some(STREAM_IDLE_TIMEOUT));
++
++        let long_timeout = OpenAiCompatibleModelProvider::builder("test")
++            .display_name("test")
++            .base_url("https://example.com")
++            .credential(None)
++            .auth_style(AuthStyle::Bearer)
++            .timeout_secs(86400)
++            .build();
++        assert_eq!(
++            long_timeout.streaming_idle_timeout(),
++            Some(std::time::Duration::from_secs(86400))
++        );
++
++        let no_timeout = OpenAiCompatibleModelProvider::builder("test")
++            .display_name("test")
++            .base_url("https://example.com")
++            .credential(None)
++            .auth_style(AuthStyle::Bearer)
++            .timeout_secs(0)
++            .build();
++        assert_eq!(no_timeout.timeout_secs, 0);
++        assert_eq!(no_timeout.streaming_idle_timeout(), None);
++        // Both connection types must still construct valid clients.
++        let _ = no_timeout.http_client();
++        let _ = no_timeout.streaming_http_client();
++    }
++
+     #[test]
+     fn extra_headers_default_empty() {
+         let p = make_model_provider("test", "https://example.com", None);
