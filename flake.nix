@@ -176,7 +176,12 @@
             pname = "zeroclaw";
             version = "0.8.5";
             src = inputs.zeroclaw-src;
-            patches = [ ./.nix/zeroclaw-readonly-roots.patch ];
+            # Keep the local Landlock and typed Discord context-overflow fixes
+            # when updating the pinned upstream version; rebase both patches.
+            patches = [
+              ./.nix/zeroclaw-readonly-roots.patch
+              ./.nix/zeroclaw-context-overflow.patch
+            ];
             cargoDeps = pkgs.rustPlatform.importCargoLock {
               lockFile = "${inputs.zeroclaw-src}/Cargo.lock";
             };
