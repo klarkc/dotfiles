@@ -213,7 +213,18 @@
 			"/run/user/1000/**": "allow",
 			"/nix/var/**": "allow",
 			"/nix/store/**": "allow"
-		}
+		},
+		"enpass_*": "deny",
+		"enpass_list_vaults": "allow",
+		"enpass_sync_status": "allow",
+		"enpass_lock_vault": "allow",
+		"enpass_unlock_vault": "ask",
+		"enpass_list_items": "ask",
+		"enpass_list_attachments": "ask",
+		"enpass_get_item": "ask",
+		"enpass_get_password": "ask",
+		"enpass_get_otp": "ask",
+		"enpass_export_attachment": "deny"
 	},
 	"mcp": {
 		"atlassian": {
@@ -224,6 +235,12 @@
 		"bitbucket_read": {
 			"type": "local",
 			"command": ["sh", "-c", "exec \"$HOME/.local/bin/bitbucket-read-mcp\""],
+			"enabled": true,
+			"timeout": 30000
+		},
+		"enpass": {
+			"type": "local",
+			"command": ["sh", "-c", "exec \"$HOME/.nix-profile/bin/enpass-mcp-readonly\""],
 			"enabled": true,
 			"timeout": 30000
 		}
