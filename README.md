@@ -26,7 +26,7 @@ git checkout main
 - CapsLock as Escape
 - Ctrl+ç as Ctrl+b through keyd, while ç remains Unicode without Ctrl
 - Using [satty](https://github.com/gabm/Satty) with [scrot](https://github.com/resurrecting-open-source-projects/scrot) for annotated screenshots
-- [codex](https://github.com/openai/codex) and [opencode](https://github.com/anomalyco/opencode) as coding agents
+- [OpenCode](https://github.com/anomalyco/opencode) as the coding agent (Codex CLI retained only for ChatGPT OAuth login)
 - [kolu](https://github.com/juspay/kolu) for coding agent orchestration
 
 ## Machines
@@ -48,7 +48,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Sunshine](https://github.com/LizardByte/Sunshine) game streaming server (to play games on my TV)
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
-- AI Agents with [codex](https://github.com/openai/codex) and [lumen](https://github.com/jnsahaj/lumen)
+- AI coding with OpenCode (and optional Lumen); Codex is not an active coding agent
 - [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) with Landlock-confined tools and a hardened user service
 
 ## Supported setups
@@ -127,15 +127,37 @@ The CI workflow at `.github/workflows/test.yml` invokes `SMOKE_TESTS_ENABLED=fal
 
 Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings.
 
-The repo ships two:
+The repo ships three live smoke tests:
 
-- `.local/bin/atlassian-smoke-test` — verifies Rovo MCP connectivity (api-token via Basic auth, oauth via bridge) and acceptance criteria (required tools, expected Atlassian site).
-- `.local/bin/coding-agents-smoke-test` — verifies that the user's active coding agents (opencode, codex) can use the Atlassian Rovo MCP integration to request real Bitbucket, Jira, and Confluence resources. The script issues a constrained prompt to each active agent asking it to call Atlassian MCP tools (e.g. `bitbucketRepository`, `getVisibleJiraProjects`, `getConfluenceSpaces`) and return a fixed JSON status object. Each probe drives the real agent with `opencode run --format json` or `codex exec --json`. The smoke fails if no agent returns a parseable status or if any of Bitbucket/Jira/Confluence are reported unreachable from every probed agent. Auth detection:
-  - **opencode**: parses the tracked `~/.config/opencode/opencode.json`; if the configured model's provider has a usable credential (e.g. `{env:VLLM_API_KEY}` for the local vLLM provider), the probe runs. Otherwise SKIPPED.
-  - **codex**: uses Codex/ChatGPT OAuth state at `${CODEX_HOME:-$HOME/.codex}/auth.json`. The probe considers auth available when the JSON file contains non-empty `access_token` and `refresh_token` fields either at the top level or nested under a `tokens` object. The probe never prints token values; it logs only boolean diagnostics (`codex: OAuth auth available` / `OAuth auth unavailable`).
-  - Run `CODING_AGENTS_SELFTEST=1 .local/bin/coding-agents-smoke-test` to exercise the Codex OAuth detector against the top-level and `tokens`-nested auth shapes without driving the live agents.
+- `atlassian-smoke-test`: Rovo MCP connectivity, Jira and Confluence resources, and available Atlassian tools.
+- `bitbucket-read-mcp-smoke-test`: real PR listing, metadata, diff and comments through the read-only MCP. The generic `api-token` pass tests Rovo; the `oauth` pass tests the independent Bitbucket REST fallback.
+- `coding-agents-smoke-test`: invokes **OpenCode only** and verifies a real Bitbucket PR MCP call (optional full mode also verifies Jira and Confluence). Codex is deliberately not probed. To override a slow default model, set `CODING_AGENTS_MODEL=openai/gpt-5.6-sol` if authenticated.
 
-#### OpenCode + Codex OAuth
+#### Bitbucket PRs (read-only MCP)
+
+OpenCode's `bitbucket_read` local MCP is backed by `.local/bin/bitbucket-read-mcp`. It exposes **only** `get` / `list` for repositories and `list` / `get` / `diff` / `comments` / `listTasks` for pull requests. Write attempts fail before any network request. The remote `atlassian` MCP remains available for Jira and Confluence OAuth.
+
+The bridge prefers the official Rovo MCP with `ATLASSIAN_USER_EMAIL` + `ATLASSIAN_MCP_TOKEN`, falling back to Bitbucket REST with `SOLO098_ATLASSIAN_USER_EMAIL` + `SOLO098_ATLASSIAN_BB_READ_TOKEN`. It also accepts the generic runtime alias `BITBUCKET_READ_TOKEN`. Existing variables are loaded from `~/.profile_override`; **never commit secrets, materialize them in Nix evaluation, or configure MCP Authorization headers in tracked JSON**. No new secret or token is necessary.
+
+```bash
+# Offline safety/contract checks
+~/.local/bin/bitbucket-read-mcp --selftest
+
+# Real read tests, no agent or write API calls
+~/.local/bin/bitbucket-read-mcp-smoke-test rovo
+~/.local/bin/bitbucket-read-mcp-smoke-test rest
+
+# OpenCode-mediated PR test
+CODING_AGENTS_MODEL=openai/gpt-5.6-sol ~/.local/bin/coding-agents-smoke-test api-token
+# Optional deeper agent-mediated Jira/Confluence check:
+CODING_AGENTS_MODEL=openai/gpt-5.6-sol CODING_AGENTS_TIMEOUT_SECONDS=360 ~/.local/bin/coding-agents-smoke-test full
+```
+
+Use `BITBUCKET_READ_BACKEND=rovo` or `rest` to force a backend for diagnosis (default `auto`). PR write guidance stays manual through `.agents/skills/atlassian-write-human-guidance/SKILL.md`.
+
+#### OpenCode + Codex OAuth (Codex is an authentication helper only)
+
+The `codex` executable remains in the Nix profile **only** to perform or renew ChatGPT web OAuth login. It is not configured as a separate coding agent, MCP client, reviewer, or smoke-test target. The tracked `.codex/config.toml` and Codex-specific Atlassian MCP have been retired. Preserve the private runtime `~/.codex/auth.json`: it is still consumed by OpenCode's OAuth import wrapper.
 
 `opencode` uses OpenCode's native auth store at `~/.local/share/opencode/auth.json`. The wrapped `opencode` command lazily syncs Codex OAuth before launch when `~/.codex/auth.json` exists and is newer than the OpenCode auth file, or when the OpenCode auth file does not exist yet.
 

@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Live Bitbucket MCP smoke test: Rovo in api-token mode, REST in oauth mode.
+
+The generic Makefile tests each *-smoke-test twice. In this script the second
+mode validates the independent REST fallback; it is not an OAuth flow.
+Print only status and counts, never PR contents or credentials.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+BRIDGE = Path(__file__).with_name("bitbucket-read-mcp")
+
+
+def fail(message):
+    raise SystemExit("bitbucket-read-mcp-smoke-test: FAIL " + message)
+
+
+def call(backend, actions):
+    env = os.environ.copy()
+    env["BITBUCKET_READ_BACKEND"] = backend
+    messages = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ]
+    for i, (tool, arguments) in enumerate(actions, start=3):
+        messages.append({
+            "jsonrpc": "2.0", "id": i, "method": "tools/call",
+            "params": {"name": tool, "arguments": arguments},
+        })
+    proc = subprocess.run(
+        [str(BRIDGE)], env=env, capture_output=True, text=True, timeout=135,
+        input="\n".join(json.dumps(message) for message in messages) + "\n",
+    )
+    if proc.returncode:
+        fail(f"{backend} MCP subprocess exited {proc.returncode}")
+    try:
+        responses = [json.loads(line) for line in proc.stdout.splitlines()]
+    except ValueError:
+        fail(f"{backend} returned invalid JSON")
+    if len(responses) != len(messages):
+        fail(f"{backend} returned {len(responses)} responses instead of {len(messages)}")
+    for response in responses:
+        if "error" in response:
+            fail(f"{backend} returned JSON-RPC error for request {response.get('id')}")
+    names = {t["name"] for t in responses[1]["result"]["tools"]}
+    if names != {"bitbucketRepository", "bitbucketPullRequest"}:
+        fail(f"{backend} has unexpected MCP tools")
+    return responses[2:]
+
+
+def first_pr_id(result):
+    text = result.get("content", [{}])[0].get("text", "")
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+
+    def find(item, depth=0):
+        if depth >= 12:
+            return None
+        if isinstance(item, dict):
+            values = item.get("values")
+            if isinstance(values, list):
+                for obj in values:
+                    if isinstance(obj, dict) and isinstance(obj.get("id"), int):
+                        return obj["id"]
+            for key in ("data", "result", "pullrequests", "items"):
+                if key in item:
+                    found = find(item[key], depth + 1)
+                    if found is not None:
+                        return found
+        if isinstance(item, list):
+            for obj in item:
+                found = find(obj, depth + 1)
+                if found is not None:
+                    return found
+        return None
+
+    return find(data)
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "api-token"
+    backend = {"api-token": "rovo", "oauth": "rest", "rovo": "rovo", "rest": "rest"}.get(mode)
+    if backend is None:
+        fail("choose api-token/rovo (Rovo MCP) or oauth/rest (REST fallback)")
+
+    list_actions = [("bitbucketPullRequest", {
+        "action": "list", "workspaceId": "solo_sig", "repoId": "solosig",
+        "state": "OPEN", "pagelen": 1,
+    })]
+    responses = call(backend, list_actions)
+    if responses[0]["result"].get("isError"):
+        fail(f"{backend} PR list returned a tool error")
+    pr_id = first_pr_id(responses[0]["result"])
+    if pr_id is None:
+        # Listing can be empty when all PRs have been merged.
+        list_actions[0][1]["state"] = "MERGED"
+        responses = call(backend, list_actions)
+        if responses[0]["result"].get("isError"):
+            fail(f"{backend} merged PR list returned a tool error")
+        pr_id = first_pr_id(responses[0]["result"])
+    if pr_id is None:
+        fail(f"{backend} cannot identify a PR from list response")
+
+    actions = [
+        ("bitbucketPullRequest", {"action": verb, "workspaceId": "solo_sig", "repoId": "solosig", "prId": pr_id})
+        for verb in ("get", "diff", "comments")
+    ]
+    actions.append(("bitbucketPullRequest", {
+        "action": "merge", "workspaceId": "solo_sig", "repoId": "solosig", "prId": pr_id,
+    }))
+    responses = call(backend, actions)
+    for verb, response in zip(("get", "diff", "comments"), responses[:3]):
+        if response["result"].get("isError") or not response["result"].get("content"):
+            fail(f"{backend} PR {verb} failed")
+    if responses[3]["result"].get("isError") is not True:
+        fail(f"{backend} write operation was not rejected")
+    print(f"bitbucket-read-mcp-smoke-test: PASS backend={backend} list/get/diff/comments; write rejected")
+
+
+if __name__ == "__main__":
+    main()

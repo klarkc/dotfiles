@@ -51,7 +51,8 @@
 !/.local/bin
 /.local/bin/*
 !/.local/bin/atlassian-smoke-test
-!/.local/bin/atlassian-bitbucket-mcp-basic
+!/.local/bin/bitbucket-read-mcp
+!/.local/bin/bitbucket-read-mcp-smoke-test
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/home-cleanup
 !/.local/bin/home-cleanup-post
@@ -88,8 +89,6 @@
 # codex
 !/.codex
 /.codex/*
-!/.codex/config.toml
-!/.codex/*.config.toml
 
 # vllm
 !/.config/vllm

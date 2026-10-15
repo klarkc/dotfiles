@@ -273,6 +273,18 @@
                   archive-pack-test
                   touch $out
                 '';
+            # Pure offline contract: unsafe Bitbucket mutations are rejected
+            # before either API backend is reached.
+            bitbucket-read-mcp-contract =
+              pkgs.runCommand "bitbucket-read-mcp-contract"
+                {
+                  nativeBuildInputs = [ pkgs.python3 ];
+                  bridge = ./.local/bin/bitbucket-read-mcp;
+                }
+                ''
+                  python3 "$bridge" --selftest
+                  touch $out
+                '';
             # Static verification that the opencode MCP integration for
             # Atlassian Rovo MCP is configured correctly without
             # committing any secret. The check fails if the MCP entry
@@ -317,7 +329,15 @@
                       sys.exit("FAIL: mcp.atlassian must not define a headers block (would commit secrets)")
                   if "oauth" in atlassian and atlassian["oauth"] is False:
                       sys.exit("FAIL: mcp.atlassian.oauth=false would suppress OAuth auto-detection; remove the field")
-                  print(f"opencode-mcp-atlassian-config: url={url} enabled={atlassian['enabled']} no_secrets=true")
+                  bb = mcp.get("bitbucket_read") or {}
+                  if bb.get("type") != "local" or not bb.get("enabled", False):
+                      sys.exit("FAIL: bitbucket_read local MCP must be enabled")
+                  expected_command = ["sh", "-c", 'exec "$HOME/.local/bin/bitbucket-read-mcp"']
+                  if bb.get("command") != expected_command:
+                      sys.exit("FAIL: bitbucket_read MCP command differs from tracked read-only bridge")
+                  if bb.get("environment") or bb.get("headers"):
+                      sys.exit("FAIL: bitbucket_read MCP must inherit runtime credentials, not store secrets")
+                  print("opencode-mcp-atlassian-config: OAuth + Bitbucket read-only MCP configured; secrets runtime-only")
                   PY
                   touch $out
                 '';
@@ -455,6 +475,8 @@
                 flake-edit
                 uv
                 gh
+                # Authentication helper only: Codex CLI refreshes ChatGPT OAuth,
+                # which opencode-with-codex-auth imports when newer. Not a coding agent.
                 codex
                 opencodeWithCodexAuth
                 opencodeCodexAuthTools

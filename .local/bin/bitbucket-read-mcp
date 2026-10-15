@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""Read-only Bitbucket MCP for OpenCode and other stdio MCP clients.
+
+Use the existing Atlassian Rovo MCP token first, then the scoped
+Bitbucket REST read token as a fallback. Never invoke write operations.
+Secrets are read from the runtime environment, not from the Nix store.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+ROVO_ENDPOINT = "https://mcp.atlassian.com/v1/mcp/authv2"
+REST_ENDPOINT = "https://api.bitbucket.org/2.0"
+MAX_TEXT = 120_000
+ALLOWED_ACTIONS = {
+    "bitbucketRepository": ("get", "list"),
+    "bitbucketPullRequest": ("list", "get", "diff", "comments", "listTasks"),
+}
+TOOLS = [
+    {
+        "name": "bitbucketRepository",
+        "description": "Read Bitbucket repository metadata. Only get and list are supported.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["get", "list"], "default": "get"},
+                "workspaceId": {"type": "string", "default": "solo_sig"},
+                "repoId": {"type": "string", "default": "solosig"},
+                "page": {"type": "integer", "minimum": 1},
+                "pagelen": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bitbucketPullRequest",
+        "description": (
+            "Read Bitbucket pull requests, diffs, comments and review tasks. "
+            "Never create, approve, merge, comment, or update anything."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "get", "diff", "comments", "listTasks"],
+                },
+                "workspaceId": {"type": "string", "default": "solo_sig"},
+                "repoId": {"type": "string", "default": "solosig"},
+                "prId": {"type": "integer", "minimum": 1},
+                "state": {"type": "string", "enum": ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"]},
+                "page": {"type": "integer", "minimum": 1},
+                "pagelen": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+
+# Cache the Rovo session in the long-lived stdio server process.
+_ROVO_SESSION: str | None = None
+
+
+class BackendError(Exception):
+    pass
+
+
+def fail(message: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": message}], "isError": True}
+
+
+def result_text(value: Any) -> dict[str, Any]:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    if len(text) > MAX_TEXT:
+        return {
+            "content": [{
+                "type": "text",
+                "text": json.dumps(
+                    {"truncated": True, "first_characters": text[:MAX_TEXT]},
+                    ensure_ascii=False,
+                ),
+            }],
+            "isError": False,
+        }
+    return {"content": [{"type": "text", "text": text}], "isError": False}
+
+
+def validate(tool: str, raw: Any) -> dict[str, Any]:
+    if tool not in ALLOWED_ACTIONS:
+        raise ValueError("unknown tool")
+    if not isinstance(raw, dict):
+        raise ValueError("tool arguments must be an object")
+    accepted = {k for k in TOOLS[0 if tool == "bitbucketRepository" else 1]["inputSchema"]["properties"]}
+    if set(raw) - accepted:
+        raise ValueError("unknown or forbidden arguments")
+    action = raw.get("action", "get" if tool == "bitbucketRepository" else None)
+    if action not in ALLOWED_ACTIONS[tool]:
+        raise ValueError("forbidden action (read-only MCP)")
+    result = {"action": action}
+    for name in ("workspaceId", "repoId"):
+        value = raw.get(name, "solo_sig" if name == "workspaceId" else "solosig")
+        if not isinstance(value, str) or value in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.~-]{1,100}", value):
+            raise ValueError(f"invalid {name}")
+        result[name] = value
+    if tool == "bitbucketPullRequest" and action != "list":
+        value = raw.get("prId")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError("a positive integer prId is required")
+        result["prId"] = value
+    for name in ("page", "pagelen"):
+        if name in raw:
+            v = raw[name]
+            if isinstance(v, bool) or not isinstance(v, int) or not (1 <= v <= (50 if name == "pagelen" else 10000)):
+                raise ValueError(f"invalid {name}")
+            result[name] = v
+    if "state" in raw:
+        if tool != "bitbucketPullRequest" or action != "list" or raw["state"] not in ("OPEN", "MERGED", "DECLINED", "SUPERSEDED"):
+            raise ValueError("invalid state")
+        result["state"] = raw["state"]
+    return result
+
+
+def parse_http_response(raw: str) -> tuple[int, dict[str, str], str]:
+    # curl can print an initial proxy CONNECT response. Use the last HTTP header block.
+    matches = list(re.finditer(r"(?m)^HTTP/\S+\s+(\d{3})[^\r\n]*", raw))
+    if not matches:
+        raise BackendError("Rovo HTTP response missing")
+    last = matches[-1]
+    tail = raw[last.start():]
+    sep = re.search(r"\r?\n\r?\n", tail)
+    if not sep:
+        raise BackendError("Rovo HTTP headers missing")
+    headers = {}
+    for line in tail[: sep.start()].splitlines()[1:]:
+        if ":" in line:
+            name, value = line.split(":", 1)
+            headers[name.lower()] = value.strip()
+    return int(last.group(1)), headers, tail[sep.end():]
+
+
+def rovo_post(payload: dict[str, Any], auth: str, session: str | None = None) -> tuple[int, dict[str, str], dict[str, Any]]:
+    # Pass Authorization on curl's config stdin, never argv, logs, disk or Nix.
+    config = f'header = "Authorization: Basic {auth}"\n'
+    if session:
+        config += f'header = "Mcp-Session-Id: {session}"\n'
+    command = [
+        "curl", "--silent", "--show-error", "--include", "--max-time", "22",
+        "--config", "-", "--request", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", "Accept: application/json, text/event-stream",
+        "--data-raw", json.dumps(payload, separators=(",", ":")), ROVO_ENDPOINT,
+    ]
+    try:
+        proc = subprocess.run(command, input=config, text=True, capture_output=True, timeout=25, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BackendError(f"Rovo transport unavailable ({type(exc).__name__})") from None
+    if proc.returncode:
+        raise BackendError(f"Rovo transport failed (curl exit {proc.returncode})")
+    status, headers, body = parse_http_response(proc.stdout)
+    response: dict[str, Any] = {}
+    try:
+        response = json.loads(body)
+    except ValueError:
+        for line in body.splitlines():
+            if line.startswith("data:"):
+                try:
+                    candidate = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                if isinstance(candidate, dict) and ("result" in candidate or "error" in candidate):
+                    response = candidate
+    return status, headers, response
+
+
+def from_rovo(tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    email = os.environ.get("ATLASSIAN_USER_EMAIL") or os.environ.get("SOLO098_ATLASSIAN_USER_EMAIL")
+    token = os.environ.get("ATLASSIAN_MCP_TOKEN") or os.environ.get("SOLO098_ATLASSIAN_ROVOMCP_SAFE_TOKEN")
+    if not email or not token:
+        raise BackendError("Rovo runtime credentials unavailable")
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode("ascii")
+    global _ROVO_SESSION
+    if _ROVO_SESSION is None:
+        status, headers, obj = rovo_post({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "bitbucket-read-mcp", "version": "1.0.0"},
+            },
+        }, auth)
+        session = headers.get("mcp-session-id")
+        if status != 200 or not session or obj.get("error"):
+            raise BackendError(f"Rovo init HTTP {status}")
+        rovo_post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, auth, session)
+        _ROVO_SESSION = session
+    status, _, obj = rovo_post({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": tool, "arguments": args},
+    }, auth, _ROVO_SESSION)
+    if status != 200 or obj.get("error"):
+        _ROVO_SESSION = None
+        raise BackendError(f"Rovo tool HTTP {status}")
+    result = obj.get("result")
+    if not isinstance(result, dict) or result.get("isError"):
+        raise BackendError("Rovo tool returned an error")
+    content = result.get("content")
+    if not isinstance(content, list) or not content:
+        raise BackendError("Rovo tool returned no content")
+    text = "\n".join(item.get("text", "") for item in content if isinstance(item, dict))
+    if not text:
+        raise BackendError("Rovo tool returned empty content")
+    return result_text(text)
+
+
+def from_rest(tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    email = os.environ.get("ATLASSIAN_USER_EMAIL") or os.environ.get("SOLO098_ATLASSIAN_USER_EMAIL")
+    token = os.environ.get("BITBUCKET_READ_TOKEN") or os.environ.get("SOLO098_ATLASSIAN_BB_READ_TOKEN")
+    if not email or not token:
+        raise BackendError("Bitbucket REST runtime credentials unavailable")
+    workspace = urllib.parse.quote(args["workspaceId"], safe="")
+    repo = urllib.parse.quote(args["repoId"], safe="")
+    base = f"{REST_ENDPOINT}/repositories/{workspace}"
+    action = args["action"]
+    if tool == "bitbucketRepository":
+        path = base + (f"/{repo}" if action == "get" else "")
+    else:
+        path = f"{base}/{repo}/pullrequests"
+        if action != "list":
+            path += f"/{args['prId']}"
+            path += {"get": "", "diff": "/diff", "comments": "/comments", "listTasks": "/tasks"}[action]
+    params = {k: args[k] for k in ("page", "pagelen") if k in args}
+    if "state" in args:
+        params["state"] = args["state"]
+    if action == "list" and "pagelen" not in params:
+        params["pagelen"] = 20
+    url = path + ("?" + urllib.parse.urlencode(params) if params else "")
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode("ascii")
+    request = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=18) as response:
+            body = response.read(MAX_TEXT * 3 + 1).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise BackendError(f"Bitbucket REST HTTP {exc.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise BackendError(f"Bitbucket REST transport unavailable ({type(exc).__name__})") from None
+    return result_text(body)
+
+
+def handle_tool(tool: str, args: Any) -> dict[str, Any]:
+    try:
+        clean = validate(tool, args)
+    except ValueError as exc:
+        return fail(str(exc))
+    backend = os.environ.get("BITBUCKET_READ_BACKEND", "auto")
+    if backend not in ("auto", "rovo", "rest"):
+        return fail("invalid BITBUCKET_READ_BACKEND; choose auto, rovo or rest")
+    errors = []
+    if backend in ("auto", "rovo"):
+        try:
+            return from_rovo(tool, clean)
+        except BackendError as exc:
+            errors.append(str(exc))
+    if backend in ("auto", "rest"):
+        try:
+            return from_rest(tool, clean)
+        except BackendError as exc:
+            errors.append(str(exc))
+    return fail("; ".join(errors))
+
+
+def dispatch(request: dict[str, Any]) -> dict[str, Any] | None:
+    rid = request.get("id")
+    method = request.get("method")
+    if method == "notifications/initialized":
+        return None
+    if rid is None:
+        return None
+    response: dict[str, Any] = {"jsonrpc": "2.0", "id": rid}
+    if method == "initialize":
+        response["result"] = {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "bitbucket-read-mcp", "version": "1.0.0"},
+        }
+    elif method == "ping":
+        response["result"] = {}
+    elif method == "tools/list":
+        response["result"] = {"tools": TOOLS}
+    elif method == "tools/call":
+        params = request.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        tool = params.get("name", "")
+        if tool not in ALLOWED_ACTIONS:
+            response["error"] = {"code": -32601, "message": "unknown tool"}
+        else:
+            response["result"] = handle_tool(tool, params.get("arguments", {}))
+    else:
+        response["error"] = {"code": -32601, "message": "unknown method"}
+    return response
+
+
+def selftest() -> None:
+    assert len(TOOLS) == 2
+    for tool in TOOLS:
+        name = tool["name"]
+        assert set(tool["inputSchema"]["properties"]["action"]["enum"]) == set(ALLOWED_ACTIONS[name])
+        for verb in ("create", "approve", "merge", "comment", "delete", "update"):
+            assert handle_tool(name, {"action": verb})["isError"]
+    assert validate("bitbucketPullRequest", {"action": "get", "prId": 29})["prId"] == 29
+    for args in ({"action": "diff", "prId": 0}, {"action": "get", "prId": 1, "url": "http://localhost"}, {"action": "get", "prId": 1, "workspaceId": "../x"}, {"action": "get", "prId": 1, "workspaceId": ".."}):
+        assert handle_tool("bitbucketPullRequest", args)["isError"]
+    assert dispatch({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+    print("bitbucket-read-mcp: offline selftest PASS")
+
+
+def main() -> None:
+    if sys.argv[1:] == ["--selftest"]:
+        selftest()
+        return
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            message = json.loads(line)
+            if not isinstance(message, dict):
+                continue
+            response = dispatch(message)
+            if response is not None:
+                print(json.dumps(response, separators=(",", ":"), ensure_ascii=False), flush=True)
+        except (ValueError, TypeError):
+            print(json.dumps({
+                "jsonrpc": "2.0", "id": None,
+                "error": {"code": -32700, "message": "invalid request"},
+            }), flush=True)
+
+
+if __name__ == "__main__":
+    main()
