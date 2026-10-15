@@ -17,7 +17,7 @@ choices=(
 
 usage() {
   cat <<'EOF'
-Usage: llm-config [gpt|qwen3.6-35B-a3b|qwen3.6-27B]
+Usage: llm-config [gpt|full-gpt|qwen3.6-35B-a3b|qwen3.6-27B]
        llm-config [--status|--sessions|--preflight|--restore-environment]
        llm-config --handoff SESSION_ID
        llm-config --queue
@@ -26,6 +26,8 @@ Usage: llm-config [gpt|qwen3.6-35B-a3b|qwen3.6-27B]
 
 Primary OpenCode models:
   gpt                 GPT-6.1 Sol for Build, Plan, Design, Learn; vLLM for subagents
+  full-gpt            GPT-6.1 Sol (medium) for Build, Plan, Design, Learn;
+                      GPT-6 Luna (low/none) for General, Explore, Scout and helpers
   qwen3.6-35B-a3b    Qwen3.6 35B A3B for primary agents and subagents
   qwen3.6-27B        Qwen3.8 27B for primary agents and subagents
 
@@ -47,7 +49,10 @@ Selecting GPT never compacts.
 Set
 LLM_CONFIG_CONFIRM_TIMEOUT to change the timeout PER AGENT TYPE.
 --sessions lists OpenCode processes without making changes.
-The compaction agent inherits the TUI's current model. For old OpenCode TUIs
+In full-gpt, the default and small models are GPT; vLLM is not needed.
+Luna is lighter than Sol, but that does not guarantee a longer ChatGPT
+five-hour usage window. The compaction agent inherits the TUI's current model.
+For old OpenCode TUIs
 created before this policy was installed, a validated isolated sidecar is
 used as a fallback; new TUIs compact natively without reopening.
 --handoff SESSION_ID creates a private offline recovery prompt for a new local
@@ -199,7 +204,7 @@ prepare_transition() {
   local mode="$1" key="$2" changing_vllm="${3:-no}"
   local envfile="$HOME/.config/vllm/$key.env" local_id local_name
   local opts=()
-  if [ "$mode" = gpt ]; then
+  if [ "$mode" = gpt ] || [ "$mode" = full-gpt ]; then
     transition_target="openai/gpt-6.1-sol"
     transition_display="GPT-6.1 Sol OpenAI"
   else
@@ -236,13 +241,14 @@ route_primary() {
   key="$(active_local_model)"
   prepare_transition "$mode" "$key"
   "$policy" --mode "$mode" --local-key "$key"
-  if ! systemctl --user is-active --quiet "vllm@$key.service"; then
-    printf 'WARNING: vLLM service is not active; local subagents may fail.\n' >&2
+  if [ "$mode" != full-gpt ] && ! systemctl --user is-active --quiet "vllm@$key.service"; then
+    printf 'WARNING: vLLM service is not active; local agents may fail.\n' >&2
   fi
   finish_transition
 }
 case "$pick" in
   gpt|openai/gpt-6.1-sol) route_primary gpt; exit 0 ;;
+  full-gpt) route_primary full-gpt; exit 0 ;;
   --status|status) "$policy" --status --local-key "$(active_local_model)"; exit 0 ;;
   --preflight) "$HOME/.local/bin/opencode-context-preflight"; exit 0 ;;
   --sessions|--list-sessions) "$transition" list; exit 0 ;;
@@ -258,18 +264,21 @@ if [ -z "$pick" ]; then
     i=$((i + 1))
   done
   printf '  3) GPT-6.1 Sol (keep vLLM for subagents)\n'
+  printf '  4) Full GPT — Sol primaries / Luna lightweight subagents\n'
   printf 'Choice: '
   read -r answer
   case "$answer" in
     1) pick="qwen3.6-35B-a3b" ;;
     2) pick="qwen3.6-27B" ;;
     3) pick="gpt" ;;
+    4) pick="full-gpt" ;;
     *) echo "Invalid choice: $answer" >&2; exit 2 ;;
   esac
 fi
 
 case "$pick" in
   gpt) route_primary gpt; exit 0 ;;
+  full-gpt) route_primary full-gpt; exit 0 ;;
   qwen3.6-35B-a3b|qwen3.6-27B) ;;
   *) echo "Unknown model: $pick" >&2; usage >&2; exit 2 ;;
 esac
