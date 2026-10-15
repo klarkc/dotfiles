@@ -260,8 +260,11 @@ mount_workspace = true
 allowed_workspace_roots = []
 
 [reliability]
-provider_retries = 2
-provider_backoff_ms = 500
+# Local vLLM can take 2-5 minutes to recover after an OOM/systemd restart.
+# Retry transient connection errors with capped exponential backoff (~295 s).
+# Authentication, schema, and context errors still fail without retrying.
+provider_retries = 32
+provider_backoff_ms = 1000
 api_keys = []
 channel_initial_backoff_secs = 2
 channel_max_backoff_secs = 60
