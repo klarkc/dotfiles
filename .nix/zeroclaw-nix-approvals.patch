@@ -1,0 +1,300 @@
+diff --git a/crates/zeroclaw-config/src/policy.rs b/crates/zeroclaw-config/src/policy.rs
+--- a/crates/zeroclaw-config/src/policy.rs
++++ b/crates/zeroclaw-config/src/policy.rs
+@@ -2041,6 +2041,27 @@
+     None
+ }
+ 
++/// Resolve the Git verb after global options, particularly -C.
++fn git_action_after_global_options(args: &[String]) -> Option<&str> {
++    let mut i = 0;
++    while i < args.len() {
++        match args[i].as_str() {
++            "-c" | "-C" | "--git-dir" | "--work-tree" | "--namespace" => i += 2,
++            arg if arg.starts_with("--git-dir=")
++                || arg.starts_with("--work-tree=")
++                || arg.starts_with("--namespace=")
++                || (arg.starts_with("-C") && arg.len() > 2)
++                || (arg.starts_with("-c") && arg.len() > 2) =>
++            {
++                i += 1;
++            }
++            arg if arg.starts_with('-') => i += 1,
++            verb => return Some(verb),
++        }
++    }
++    None
++}
++
+ fn generic_segment_risk(
+     base: &str,
+     args: &[String],
+@@ -2106,27 +2127,51 @@
+     }
+ 
+     match base {
++        // Nix commands execute inside the Landlock workspace, so local
++        // build/run/develop outputs cannot write to read-only Sources or the
++        // wider host. Keep global profile/store/registry/daemon operations
++        // gated: their targets are not confined to the workspace and can
++        // invoke privileged Nix daemon operations.
++        "nix" => Some(match args.first().map(String::as_str) {
++            None
++            | Some("--version" | "--help" | "-h" | "build" | "run" | "develop"
++                | "shell" | "eval" | "log" | "path-info") => CommandRiskLevel::Low,
++            Some("flake") => {
++                if args.get(1).is_some_and(|sub| {
++                    matches!(
++                        sub.as_str(),
++                        "show" | "metadata" | "check" | "init" | "new"
++                            | "lock" | "update" | "archive"
++                    )
++                }) {
++                    CommandRiskLevel::Low
++                } else {
++                    CommandRiskLevel::Medium
++                }
++            }
++            // Store and profile changes can have out-of-sandbox effects.
++            // Inspecting paths is fine; garbage collection or global
++            // installations still need an approval.
++            Some("store") if args.get(1).is_some_and(|sub| {
++                matches!(sub.as_str(), "ls" | "cat" | "path-info" | "verify")
++            }) => CommandRiskLevel::Low,
++            _ => CommandRiskLevel::Medium,
++        }),
+         "git" => Some(
+-            if args.first().is_some_and(|verb| {
++            if git_action_after_global_options(args).is_some_and(|verb| {
+                 matches!(
+-                    verb.as_str(),
+-                    "commit"
+-                        | "push"
+-                        | "reset"
+-                        | "clean"
+-                        | "rebase"
+-                        | "merge"
+-                        | "cherry-pick"
+-                        | "revert"
+-                        | "branch"
+-                        | "checkout"
+-                        | "switch"
+-                        | "tag"
++                    verb,
++                    "status" | "diff" | "log" | "show" | "grep" | "ls-files"
++                        | "rev-parse" | "rev-list" | "ls-tree" | "cat-file"
++                        | "merge-base" | "describe" | "shortlog" | "blame"
++                        | "version" | "--version"
+                 )
+             }) {
+-                CommandRiskLevel::Medium
+-            } else {
+                 CommandRiskLevel::Low
++            } else {
++                // Unknown verbs, Git options that can change behavior and
++                // commands such as add/fetch/push/checkout are not read-only.
++                CommandRiskLevel::Medium
+             },
+         ),
+         "npm" | "pnpm" | "yarn" => Some(
+@@ -2622,9 +2667,70 @@
+         })
+     }
+ 
++    /// Nix builds may materialize result links only inside the workspace.
++    /// The daemon-controlled Nix store handles builds with --no-link.
++    /// Landlock also verifies resolved paths against symlink escapes.
++    fn nix_output_target_is_authorized(&self, args: &[String]) -> bool {
++        match args.first().map(String::as_str) {
++            Some("build") => {}
++            None | Some("--version" | "--help" | "-h") => return true,
++            // Require the subcommand first: a global option before build
++            // must not bypass the result-link confinement check.
++            Some(option) if option.starts_with('-') => return false,
++            _ => return true,
++        }
++
++        let mut link = "result";
++        let mut index = 1;
++        while index < args.len() {
++            let arg = args[index].as_str();
++            if arg == "--out-link" || arg == "-o" {
++                let Some(next) = args.get(index + 1) else {
++                    return false;
++                };
++                link = next;
++                index += 2;
++                continue;
++            }
++            if let Some(value) = arg.strip_prefix("--out-link=") {
++                link = value;
++            } else if let Some(value) = arg.strip_prefix("-o") {
++                if !value.is_empty() {
++                    link = value;
++                }
++            }
++            index += 1;
++        }
++
++        // Shell expansion, embedded whitespace and parent traversal are
++        // intentionally unsupported. Require literal, confined link paths.
++        let link = link.trim_matches(|ch| ch == '"' || ch == char::from(39));
++        if link.is_empty()
++            || link.chars().any(|ch| matches!(ch, '$' | '\\' | '*' | '?' | '[' | ']'))
++            || link.contains(char::from(96))
++            || link.chars().any(char::is_whitespace)
++        {
++            return false;
++        }
++        let path = std::path::Path::new(link);
++        if path
++            .components()
++            .any(|part| matches!(part, std::path::Component::ParentDir))
++        {
++            return false;
++        }
++        let target = if path.is_absolute() {
++            path.to_path_buf()
++        } else {
++            self.workspace_dir.join(path)
++        };
++        target.starts_with(&self.workspace_dir)
++    }
++
+     fn is_args_safe(&self, base: &str, args: &[String], args_cased: &[String]) -> bool {
+         let base = base.to_ascii_lowercase();
+         match base.as_str() {
++            "nix" => self.nix_output_target_is_authorized(args_cased),
+             "find" => {
+                 // find -exec and find -ok allow arbitrary command execution
+                 !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
+@@ -7308,6 +7414,54 @@
+ 
+     // ── SubAgent escalation validator ──────────────────────────────
+ 
++    #[test]
++    fn nix_build_links_are_workspace_confined() {
++        let policy = SecurityPolicy {
++            workspace_dir: PathBuf::from("/home/user/agent/workspace"),
++            allowed_commands: vec!["nix".into()],
++            ..SecurityPolicy::default()
++        };
++        assert!(policy.is_command_allowed("nix --version"));
++        assert!(policy.is_command_allowed("nix build .#default"));
++        assert!(policy.is_command_allowed("nix build .#default -o result-test"));
++        assert!(policy.is_command_allowed(
++            "nix build .#default --out-link /home/user/agent/workspace/test-result"
++        ));
++        assert!(policy.is_command_allowed("nix build .#default --no-link"));
++        assert!(!policy.is_command_allowed(
++            "nix build .#default --out-link /home/user/Sources/unwanted"
++        ));
++        assert!(!policy.is_command_allowed("nix build -o ../escape"));
++        assert!(!policy.is_command_allowed("nix build --out-link /tmp/result"));
++        assert!(!policy.is_command_allowed("nix build -o"));
++    }
++
++    #[test]
++    fn nix_and_git_effects_are_not_classified_as_read_only() {
++        let p = SecurityPolicy::default();
++        assert_eq!(p.command_risk_level("nix --version"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix build .#default"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix run .#hello"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix develop"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix flake update"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix profile upgrade klarkc"), CommandRiskLevel::Medium);
++        assert_eq!(p.command_risk_level("nix build --impure"), CommandRiskLevel::Low);
++        assert_eq!(p.command_risk_level("nix store gc"), CommandRiskLevel::Medium);
++        assert_eq!(
++            p.command_risk_level("git -C /home/user/Sources/foo commit -m test"),
++            CommandRiskLevel::Medium
++        );
++        assert_eq!(
++            p.command_risk_level("git -C /home/user/Sources/foo status"),
++            CommandRiskLevel::Low
++        );
++        assert_eq!(
++            p.command_risk_level("git -C /home/user/Sources/foo add ."),
++            CommandRiskLevel::Medium
++        );
++        assert_eq!(p.command_risk_level("git fetch"), CommandRiskLevel::Medium);
++    }
++
+     fn parent_policy_for_escalation_tests() -> SecurityPolicy {
+         SecurityPolicy {
+             workspace_dir: PathBuf::from("/workspace"),
+diff --git a/crates/zeroclaw-runtime/src/agent/turn/approval_gate.rs b/crates/zeroclaw-runtime/src/agent/turn/approval_gate.rs
+--- a/crates/zeroclaw-runtime/src/agent/turn/approval_gate.rs
++++ b/crates/zeroclaw-runtime/src/agent/turn/approval_gate.rs
+@@ -8,6 +8,62 @@
+ use crate::approval::{ApprovalRequest, ApprovalRequirement, ApprovalResponse};
+ use std::time::Duration;
+ 
++fn shell_approval_requirement(
++    tool_name: &str,
++    tool_args: &serde_json::Value,
++    requirement: ApprovalRequirement,
++) -> ApprovalRequirement {
++    // Tool-wide shell auto-approval and session Always grants only cover
++    // low-risk commands. Medium/high effects require a fresh human approval.
++    if tool_name == "shell"
++        && requirement == ApprovalRequirement::Approved
++        && tool_args
++            .get("command")
++            .and_then(serde_json::Value::as_str)
++            .is_none_or(|command| {
++                zeroclaw_config::policy::SecurityPolicy::default().command_risk_level(command)
++                    != zeroclaw_config::policy::CommandRiskLevel::Low
++            })
++    {
++        ApprovalRequirement::Prompt
++    } else {
++        requirement
++    }
++}
++
++#[cfg(test)]
++mod local_nix_approval_tests {
++    use super::*;
++
++    #[test]
++    fn elevated_shell_actions_prompt_even_after_tool_auto_approval() {
++        for command in ["nix profile upgrade klarkc", "nix store gc",
++                        "git -C /home/user/Sources/project commit -m test"] {
++            assert_eq!(
++                shell_approval_requirement(
++                    "shell",
++                    &serde_json::json!({"command": command}),
++                    ApprovalRequirement::Approved,
++                ),
++                ApprovalRequirement::Prompt,
++                "must prompt: {command}"
++            );
++        }
++        for command in ["nix --version", "nix build .#hello -o result", "nix run .#hello", "nix develop",
++                        "git -C /home/user/Sources/project status"] {
++            assert_eq!(
++                shell_approval_requirement(
++                    "shell",
++                    &serde_json::json!({"command": command}),
++                    ApprovalRequirement::Approved,
++                ),
++                ApprovalRequirement::Approved,
++                "must auto-approve: {command}"
++            );
++        }
++    }
++}
++
+ pub(crate) enum ApprovalGateOutcome {
+     Proceed { approved: bool },
+     Deny(ToolExecutionOutcome),
+@@ -28,6 +84,8 @@
+         .approval
+         .map(|mgr| mgr.approval_requirement(tool_name))
+         .unwrap_or(ApprovalRequirement::NotRequired);
++    approval_requirement =
++        shell_approval_requirement(tool_name, tool_args, approval_requirement);
+     if let Some(mgr) = ctx.approval
+         && approval_requirement == ApprovalRequirement::Prompt
+     {

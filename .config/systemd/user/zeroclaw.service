@@ -8,7 +8,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=HOME=%h
-Environment=PATH=%h/.nix-profile/bin:/usr/bin:/bin
+# Nix is provided by Determinate Nix, not by the klarkc profile.
+# Also carried into sandboxed shell children (PATH is an approved safe var).
+Environment=PATH=/nix/var/nix/profiles/default/bin:%h/.nix-profile/bin:/usr/bin:/bin
+# Read-only git inspection must not opportunistically update the index.
+Environment=GIT_OPTIONAL_LOCKS=0
 PassEnvironment=ZEROCLAW_channels__discord__default__bot_token ZEROCLAW_providers__models__vllm__default__api_key ZEROCLAW_providers__models__vllm__default__model ZEROCLAW_providers__models__vllm__default__uri
 UnsetEnvironment=ZEROCLAW_risk_profiles__default__allowed_roots ZEROCLAW_risk_profiles__default__allowed_roots_read_only
 ExecStart=%h/.nix-profile/bin/zeroclaw daemon
