@@ -260,6 +260,20 @@
               enable = true;
               package = treefmtEval.config.build.wrapper;
             };
+            # For human git commits run the FULL make test including live smokes.
+            # A nix flake check sandbox deliberately avoids recursive invocation.
+            hooks.make-test = {
+              enable = true;
+              name = "Full make test";
+              entry = "bash .local/bin/git-hook-make-test";
+              pass_filenames = false;
+              always_run = true;
+              require_serial = true;
+              after = [
+                "treefmt"
+                "flake-follows"
+              ];
+            };
           };
         in
         {
@@ -280,9 +294,11 @@
                 {
                   nativeBuildInputs = [ pkgs.python3 ];
                   bridge = ./.local/bin/bitbucket-read-mcp;
+                  agentProbe = ./.local/bin/coding-agents-smoke-test;
                 }
                 ''
                   python3 "$bridge" --selftest
+                  python3 "$agentProbe" --selftest
                   touch $out
                 '';
             # Static verification that the opencode MCP integration for
@@ -358,11 +374,12 @@
                 {
                   nativeBuildInputs = [ pkgs.python3 ];
                   patcher = ./.local/bin/vllm-patch-model-defaults;
+                  modelPolicy = ./.local/bin/opencode-model-policy;
                   opencodeConfig = ./.config/opencode/opencode.json;
                   vllmConfigs = ./.config/vllm;
                 }
                 ''
-                  python3 - "$patcher" "$opencodeConfig" "$vllmConfigs" <<'PY'
+                  python3 - "$patcher" "$opencodeConfig" "$vllmConfigs" "$modelPolicy" <<'PY'
                   import json
                   import re
                   import sys
@@ -372,17 +389,73 @@
                   opencode_path = sys.argv[2]
                   vllm_dir = Path(sys.argv[3])
 
-                  # (a) The patcher must update opencode top-level model.
+                  # (a) Preserve the actual delegated policy, not the obsolete
+                  # pre-policy string assignment to vllm/<served_model_name>.
                   patcher_src = Path(patcher_path).read_text(encoding="utf-8")
-                  patch_pattern = re.compile(
-                      r"data\[\s*['\"]model['\"]\s*\]\s*=\s*f?\s*['\"]vllm/"
-                  )
-                  if not patch_pattern.search(patcher_src):
-                      sys.exit(
-                          "FAIL: vllm-patch-model-defaults does not set "
-                          "data[\"model\"] = f\"vllm/{served_model_name}\"; "
-                          "opencode top-level model must follow the active vLLM target"
-                      )
+                  policy_path = Path(sys.argv[4])
+                  policy_src = policy_path.read_text(encoding="utf-8")
+                  if not all(
+                      fragment in patcher_src
+                      for fragment in ("opencode-model-policy", "--mode keep", "--local-key")
+                  ):
+                      sys.exit("FAIL: vLLM patcher must delegate to opencode-model-policy --mode keep")
+                  if 'data["model"] = primary' not in policy_src:
+                      sys.exit("FAIL: model policy no longer updates the OpenCode primary model")
+
+                  # Exercise the policy itself using isolated copies, never $HOME.
+                  import runpy
+                  import shutil
+                  import subprocess
+                  import tempfile
+
+                  constants = runpy.run_path(str(policy_path))
+                  gpt_model = constants["GPT_MODEL"]
+                  economy_model = constants["GPT_ECONOMY_MODEL"]
+                  available = []
+                  for candidate in vllm_dir.glob("*.env"):
+                      for row in candidate.read_text(encoding="utf-8").splitlines():
+                          if row.startswith("SERVED_MODEL_NAME="):
+                              available.append((candidate.stem, row.split("=", 1)[1].strip().strip('"').strip("'")))
+                              break
+                  if not available:
+                      sys.exit("FAIL: no local model environment with SERVED_MODEL_NAME")
+                  local_key, local_id = sorted(available)[0]
+                  with tempfile.TemporaryDirectory(prefix="opencode-policy-test-") as work:
+                      for mode in ("local", "gpt", "full-gpt"):
+                          config_dir = Path(work) / mode
+                          config_dir.mkdir()
+                          isolated = config_dir / "opencode.json"
+                          shutil.copyfile(opencode_path, isolated)
+                          command = [
+                              sys.executable,
+                              str(policy_path),
+                              "--mode", mode,
+                              "--local-key", local_key,
+                              "--config-path", str(isolated),
+                              "--env-directory", str(vllm_dir),
+                          ]
+                          result = subprocess.run(command, capture_output=True, text=True)
+                          if result.returncode:
+                              sys.exit(f"FAIL: model policy {mode}: {result.stderr.strip()}")
+                          actual = json.loads(isolated.read_text(encoding="utf-8"))
+                          primary = f"vllm/{local_id}" if mode == "local" else gpt_model
+                          subagent = economy_model if mode == "full-gpt" else f"vllm/{local_id}"
+                          if actual.get("model") != primary or actual.get("small_model") != subagent:
+                              sys.exit(f"FAIL: model policy {mode}: unexpected primary/small model")
+                          agents = actual.get("agent") or {}
+                          for name in ("build", "plan", "design", "learn"):
+                              if agents.get(name, {}).get("model") != primary:
+                                  sys.exit(f"FAIL: {mode}: primary agent {name} model differs")
+                          for name in ("general", "explore", "scout", "summary", "title"):
+                              if agents.get(name, {}).get("model") != subagent:
+                                  sys.exit(f"FAIL: {mode}: subagent {name} model differs")
+                          command[command.index(mode)] = "keep"
+                          result = subprocess.run(command, capture_output=True, text=True)
+                          if result.returncode:
+                              sys.exit(f"FAIL: model policy keep ({mode}): {result.stderr.strip()}")
+                          kept = json.loads(isolated.read_text(encoding="utf-8"))
+                          if kept.get("model") != primary or kept.get("small_model") != subagent:
+                              sys.exit(f"FAIL: model policy keep unexpectedly changed mode {mode}")
 
                   # (b) Every tracked .env SERVED_MODEL_NAME must exist in
                   #     provider.vllm.models.

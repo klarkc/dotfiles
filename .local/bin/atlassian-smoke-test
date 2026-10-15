@@ -412,31 +412,35 @@ PY
 }
 
 mode_oauth() {
-  local bridge="${ATLASSIAN_OAUTH_BRIDGE:-mcp-remote}"
-
+  local bridge
+  bridge="$(printenv ATLASSIAN_OAUTH_BRIDGE || true)"
+  if [ -z "$bridge" ]; then
+    bridge="mcp-remote"
+  fi
   if ! command -v "$bridge" >/dev/null 2>&1; then
-    log "oauth bridge '$bridge' not found on PATH"
-    log "packaging preference: existing nixpkgs package first, dedicated flake input/package second, other managers (e.g. npm) last"
-    log "when the bridge is available, run: $bridge $ENDPOINT"
-    log "SKIP oauth smoke (no bridge installed)"
-    return 0
+    fail "OAuth MCP bridge is not installed: $bridge" 5
   fi
 
-  log "starting OAuth bridge $bridge against $ENDPOINT"
-  log 'token cache will be created under ~/.mcp-auth or $MCP_REMOTE_CONFIG_DIR'
-  log "this mode requires a browser to complete consent the first time"
-
-  # Smoke test: bridge will either reuse cached tokens or prompt for a
-  # browser login. We only verify it can reach the endpoint; we do not
-  # issue MCP requests ourselves, to keep this mode portable.
-  #
-  # The bridge handles its own lifecycle; here we just print what it
-  # reports and let it exit cleanly. Bridge-specific flags are forwarded
-  # by the caller. The Atlassian Rovo MCP endpoint is always passed as
-  # the first positional argument so the bridge can connect even when
-  # the caller supplies no extra flags.
-  "$bridge" "$ENDPOINT" "$@"
-  log "PASS oauth bridge invocation completed"
+  log "checking OAuth bridge connectivity to $ENDPOINT"
+  # mcp-remote is a stdio daemon. Under make/pre-commit, stdin can remain
+  # open forever, causing a hang. Supply EOF deliberately and bound runtime.
+  # Never echo bridge logs: they can contain sensitive OAuth callback URLs.
+  local output code
+  if output="$(timeout --kill-after=3 45s "$bridge" "$ENDPOINT" "$@" </dev/null 2>&1)"; then
+    code=0
+  else
+    code="$?"
+  fi
+  if [ "$code" != "0" ]; then
+    fail "OAuth bridge returned exit $code before completing connectivity check" 5
+  fi
+  if ! printf '%s\n' "$output" | grep -Fq "Connected to remote server using"; then
+    fail "OAuth bridge did not confirm remote connection" 5
+  fi
+  if ! printf '%s\n' "$output" | grep -Fq "Proxy established successfully"; then
+    fail "OAuth bridge did not confirm stdio proxy setup" 5
+  fi
+  log "PASS OAuth bridge connected and exited cleanly after stdin EOF"
 }
 
 usage() {
