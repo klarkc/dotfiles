@@ -580,8 +580,12 @@ def prepare(args):
         save(args.plan, result)
         return
     if args.changing_vllm:
-        tell("  Changing the served vLLM model may interrupt ongoing subagent calls.")
-        tell("  An explicit NO for any active agent type will cancel the server restart.")
+        if args.server_unavailable:
+            tell("  vLLM already offline: TUI approvals only govern TUI changes; "
+                 "server recovery may proceed with declined sessions untouched.")
+        else:
+            tell("  Changing the served vLLM model may interrupt ongoing subagent calls.")
+            tell("  An explicit NO for any active agent type will cancel the server restart.")
     if local:
         tell("  Approved groups: QUEUE active sessions without aborting tools. "
              "Compact after the entire turn becomes idle.")
@@ -617,7 +621,7 @@ def prepare(args):
             tell(f"  Agente {agent_type}: NÃO; sessões preservadas.")
         save(args.plan, result)
 
-    if args.changing_vllm and len(selected) != len(candidates):
+    if args.changing_vllm and not args.server_unavailable and len(selected) != len(candidates):
         raise RuntimeError(
             "Some agent types declined the vLLM service change. "
             "Refusing to restart the shared vLLM while preserving their live sessions."
@@ -664,7 +668,7 @@ def prepare(args):
     # A shared vLLM restart would interrupt currently executing local tools.
     # We can queue TUI migrations, but not silently replace the active server.
     # Fail closed until the server can be switched with all agents idle.
-    if args.changing_vllm and any(
+    if args.changing_vllm and not args.server_unavailable and any(
         still_same(item["pane"], item["id"]) == "working" for item in selected
     ):
         raise RuntimeError(
@@ -777,6 +781,8 @@ def main():
     p.add_argument("--plan", type=Path)
     p.add_argument("--confirm-timeout", type=int, default=CONFIRM_SECONDS)
     p.add_argument("--changing-vllm", action="store_true")
+    p.add_argument("--server-unavailable", action="store_true",
+                   help="A validated offline vLLM, with no live listener")
     args = p.parse_args()
     if args.phase == "list":
         sessions = list_sessions()
@@ -807,6 +813,8 @@ def main():
     if args.phase == "finish" and (not args.display or not args.label):
         p.error("--display and --label required for finish")
     try:
+        if args.server_unavailable and not args.changing_vllm:
+            raise RuntimeError("--server-unavailable requires --changing-vllm")
         if args.phase == "prepare":
             prepare(args)
         else:
