@@ -1,12 +1,12 @@
 # Agent Notes
 
 - Read `README.md` first for repo context and usage.
-- **Mandatory dotfiles delivery workflow, for every change (including documentation-only, config-only, and changes that do not add profile packages):**
+- **Mandatory dotfiles delivery workflow, for every change (including documentation-only and config-only changes):**
   1. Start from the latest `/home/example` `main` and create an **isolated, persistent Git worktree** (for example under `~/Sources/.worktrees/`, never `/tmp`). Implement and test the entire feature there; **do not develop by editing tracked files directly in `/home/example`**. Permission to update home is permission for the later integration step, not a waiver of isolation.
   2. Validate and commit from the feature worktree **inside `nix develop`**, running Git hooks normally. Never disable or bypass them.
   3. Once validated, reconcile against any concurrent changes in `/home/example` and integrate the tested commit(s) into the home repository `main` via a safe merge/fast-forward or cherry-pick. Do not overwrite unrelated agents' edits. Verify the home checkout is in the expected state.
-  4. **After integration, run `nix profile upgrade klarkc` from `/home/example`**, even if the change does not add/update Nix packages or appears to need only a systemd reload. Inspect the exit status and verify the installed profile; reload/restart impacted services and smoke-test them when applicable.
-  5. Report the resulting commit, profile-upgrade outcome, and validations. If the upgrade fails, report the blocker explicitly and do not claim the workflow is complete. Only skip a phase if the user explicitly instructs you to do so.
+  4. **Run `nix profile upgrade klarkc` from `/home/example` only when Nix-related inputs or definitions have changed** (for example `flake.nix`, `flake.lock`, `.nix/*.nix`, or Nix-managed package/runtime definitions). Do not upgrade for unrelated documentation, scripts, application configuration, or systemd-only changes. On an applicable upgrade, inspect the exit status and verify the installed profile. Independently reload/restart affected services and run relevant smoke tests when needed.
+  5. Report the resulting commit, whether an upgrade was required and its outcome if performed, and validations. If a required upgrade fails, report the blocker explicitly and do not claim the workflow is complete. Only skip a required phase if the user explicitly instructs you to do so.
 - Git commits in this repository must be created from inside `nix develop`, because the Git hooks require the development shell environment. Enter the shell before running `git commit`; do not bypass or disable hooks to commit from outside it.
 - This repository is checked out directly as `$HOME`. Keep repository-support files hidden from the user's normal home listing.
 - Repo-internal support directories must use dot paths, for example `.nix` for Nix expressions and `.patches` for patch files.
