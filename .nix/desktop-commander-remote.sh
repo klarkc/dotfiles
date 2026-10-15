@@ -4,6 +4,6 @@ mkdir -p "$runtime_dir"
 chmod 700 "$runtime_dir"
 probe="$runtime_dir/optmem-probe"
 umask 077
-od -An -N16 -tx1 /dev/urandom | tr -d " \n" > "$probe"
+od -An -N16 -tx1 /dev/urandom | tr -d " \n" >"$probe"
 export DESKTOP_COMMANDER_OPTMEM_PROBE_FILE="$probe"
 exec desktop-commander remote

@@ -123,6 +123,22 @@ SKIP_SMOKE=1 make test
 
 Use `make fmt` separately if you want to apply formatting locally; CI does not auto-format.
 
+The OpenCode PR smoke test invokes the **real** OpenCode model, forces
+non-interactive stdin EOF (OpenCode 1.18.x can stall at init otherwise),
+and only passes after a completed MCP tool event whose real PR ID is
+also referenced by the model. The quick smoke forces the REST fallback
+inside the local read-only MCP; the separate Bitbucket smoke validates
+the official Rovo backend. OAuth secrets remain runtime-only.
+
+**Mandatory pre-commit gate:** Every real Git commit, including documentation-only
+changes, runs make test automatically through git-hooks. The hook unsets
+SKIP_SMOKE and sets SMOKE_TESTS_ENABLED=true, so a real commit cannot
+bypass live checks. Network access and Atlassian/GPT credentials
+are prerequisites for committing. During nix flake check only, the
+hook prevents its own recursive invocation in the /build sandbox;
+the outer flake check still executes all offline contracts and hook checks.
+Do not disable hooks to work around a failure.
+
 The CI workflow at `.github/workflows/test.yml` invokes `SMOKE_TESTS_ENABLED=false make test` instead of bare `nix flake check`.
 
 Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings.

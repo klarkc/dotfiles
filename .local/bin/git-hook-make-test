@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# nix flake check executes pre-commit in an isolated /build derivation.
+# Calling make test again there would recurse indefinitely, without network.
+# Only the derivation skips this hook; real commits require the full test.
+if [[ -n "${NIX_BUILD_TOP:-}" && "$PWD" == /build/* ]]; then
+  echo "make-test: nested flake-check sandbox; recursion prevented"
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+echo "make-test: mandatory complete make test before commit"
+# Ignore caller-provided flags intended to bypass live smoke checks.
+exec env -u SKIP_SMOKE SMOKE_TESTS_ENABLED=true make test
