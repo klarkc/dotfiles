@@ -1,0 +1,14 @@
+use_default_settings: true
+general:
+  instance_name: "Local Search Fallback"
+  debug: false
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
+server:
+  bind_address: "127.0.0.1"
+  port: 8980
+  limiter: false
+  public_instance: false

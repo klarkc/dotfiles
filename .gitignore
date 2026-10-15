@@ -102,6 +102,8 @@
 /.config/opencode/*
 !/.config/opencode/opencode.json
 !/.config/opencode/opencode.workspace.json
+!/.config/opencode/tools
+!/.config/opencode/tools/*.ts
 
 # kolu (uncomment to persist updates to config)
 #!/.config/kolu
@@ -117,3 +119,12 @@
 !/.config/btop
 /.config/btop/*
 !/.config/btop/btop.conf
+
+# Shared local search router source and tests
+!/.local/lib
+/.local/lib/*
+!/.local/lib/web-search-router
+!/.local/lib/web-search-router/*.py
+!/.local/lib/web-search-router/README.md
+!/.local/lib/web-search-router/searxng-settings.yml
+/.local/lib/web-search-router/__pycache__/
