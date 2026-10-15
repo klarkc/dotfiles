@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${1:-}"
+case "$mode" in
+  api-token|oauth) ;;
+  *) echo "usage: optmem-bash-smoke-test {api-token|oauth}" >&2; exit 2 ;;
+esac
+cd "$(git rev-parse --show-toplevel)"
+root=".local/lib/optmem-bash"
+# Only run the expensive synthetic fixtures once for make test; the two
+# credential modes exist solely to satisfy the repo-wide smoke contract.
+if [[ "$mode" == "oauth" ]]; then
+  echo "optmem-bash: oauth smoke not applicable; no external credentials"
+  exit 0
+fi
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B "$root/test_bash_optmem_agent.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B "$root/writer/test_optmem_writer.py"
+systemd-analyze verify   .config/systemd/user/optmem-bash-capture.service   .config/systemd/user/optmem-bash-capture.timer   .config/systemd/user/optmem-bash-extract.service   .config/systemd/user/optmem-bash-extract.timer
+echo "optmem-bash: all isolated acceptance tests passed"

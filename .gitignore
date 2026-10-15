@@ -53,6 +53,7 @@
 !/.local/bin/atlassian-smoke-test
 !/.local/bin/bitbucket-read-mcp
 !/.local/bin/bitbucket-read-mcp-smoke-test
+!/.local/bin/optmem-bash-smoke-test
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/git-hook-make-test
 !/.local/bin/home-cleanup
@@ -123,6 +124,12 @@
 # Shared local search router source and tests
 !/.local/lib
 /.local/lib/*
+# Tracked OptMem Bash collector, stage-only writer and isolated self-tests.
+!/.local/lib/optmem-bash
+!/.local/lib/optmem-bash/**
+/.local/lib/optmem-bash/test-fixtures-20261015/
+/.local/lib/optmem-bash/writer/synthetic-cases/
+/.local/lib/optmem-bash/**/__pycache__/
 !/.local/lib/web-search-router
 !/.local/lib/web-search-router/*.py
 !/.local/lib/web-search-router/README.md

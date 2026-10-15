@@ -1,0 +1,12 @@
+[Unit]
+Description=Extract Bash knowledge with local vLLM if eligible evidence exists
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=1h
+RandomizedDelaySec=10min
+Persistent=yes
+Unit=optmem-bash-extract.service
+
+[Install]
+WantedBy=timers.target
