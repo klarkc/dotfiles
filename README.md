@@ -139,6 +139,12 @@ hook prevents its own recursive invocation in the /build sandbox;
 the outer flake check still executes all offline contracts and hook checks.
 Do not disable hooks to work around a failure.
 
+The OpenCode configuration JSON is also modified by the runtime model policy
+(when switching local/GPT modes). Its incidental JSON whitespace is excluded
+from the Prettier formatter check; the separate MCP and model-policy Nix checks
+still parse and validate it, so actual configuration errors continue to fail
+make test. The verification must not rewrite another active agent's model mode.
+
 The CI workflow at `.github/workflows/test.yml` invokes `SMOKE_TESTS_ENABLED=false make test` instead of bare `nix flake check`.
 
 Smoke tests follow the repo convention `.local/bin/*-smoke-test`. They are out-of-band: they need network access and user secrets, must never be added to `nix flake check`, and must never print tokens, Authorization headers, or generated Basic base64 strings.
