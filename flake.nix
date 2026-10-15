@@ -182,6 +182,8 @@
               ./.nix/zeroclaw-readonly-roots.patch
               ./.nix/zeroclaw-context-overflow.patch
               ./.nix/zeroclaw-provider-timeout.patch
+              # Keep safe Nix builds automatic, but elevate Nix/Git effects.
+              ./.nix/zeroclaw-nix-approvals.patch
             ];
             cargoDeps = pkgs.rustPlatform.importCargoLock {
               lockFile = "${inputs.zeroclaw-src}/Cargo.lock";

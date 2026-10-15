@@ -62,7 +62,6 @@ allowed_commands = [
   "tail",
   "date",
   "nix",
-  "nix-collect-garbage",
 ]
 allowed_roots = ["/nix/store", "/home/example/.cache/nix"]
 allowed_roots_read_only = [
@@ -86,8 +85,6 @@ auto_approve = [
   "content_search",
   "image_info",
   "weather",
-  "browser",
-  "browser_open",
 ]
 block_high_risk_commands = true
 excluded_tools = []
@@ -115,7 +112,7 @@ forbidden_paths = [
 level = "supervised"
 require_approval_for_medium_risk = true
 sandbox_backend = "landlock"
-shell_env_passthrough = []
+shell_env_passthrough = ["GIT_OPTIONAL_LOCKS"]
 workspace_only = true
 sandbox_enabled = true
 
