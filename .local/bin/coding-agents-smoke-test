@@ -188,8 +188,14 @@ def main() -> None:
         allow = {TOOL: True}
         permission = {"*": "deny", TOOL: "allow"}
         if mode == "full":
-            allow["atlassian_*"] = True
-            permission["atlassian_*"] = "allow"
+            # Never expose Rovo's Jira/Confluence write operations to the
+            # automated agent. Only these two verified read tools are allowed.
+            for tool in (
+                "atlassian_getVisibleJiraProjects",
+                "atlassian_getConfluenceSpaces",
+            ):
+                allow[tool] = True
+                permission[tool] = "allow"
         agents[agent_name] = {
             "description": "Read-only test agent. Only approved MCP tools.",
             "mode": "primary",
@@ -217,8 +223,9 @@ def main() -> None:
         )
         if mode == "full":
             prompt += (
-                " Also use Atlassian MCP to read a Jira project and a Confluence "
-                "space; report only data actually returned by the tools."
+                " Also call atlassian_getVisibleJiraProjects and "
+                "atlassian_getConfluenceSpaces for host.example.invalid. "
+                "Use only these three read-only tools and no writes."
             )
         try:
             run = subprocess.run(
@@ -245,6 +252,36 @@ def main() -> None:
         fail("no completed Bitbucket PR MCP tool event with real PR data")
     if not cited:
         fail("model did not reference the PR ID returned by the MCP tool")
+    if mode == "full":
+        required = {
+            "atlassian_getVisibleJiraProjects",
+            "atlassian_getConfluenceSpaces",
+        }
+        completed = set()
+        for line in run.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            part = event.get("part") or {}
+            if not isinstance(part, dict) or part.get("tool") not in required:
+                continue
+            state = part.get("state") or {}
+            output = state.get("output")
+            if state.get("status") != "completed" or not isinstance(output, str):
+                continue
+            try:
+                obj = json.loads(output)
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict) and (obj.get("isError") or obj.get("error")):
+                continue
+            if output.strip() and "MCP error" not in output:
+                completed.add(part["tool"])
+        if completed != required:
+            fail("extended check lacked completed Jira/Confluence read tools")
     print(
         "coding-agents-smoke-test: PASS model="+model
         +" tool="+TOOL
