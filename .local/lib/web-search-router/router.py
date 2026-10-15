@@ -166,6 +166,28 @@ def provider(name, query):
     raise ValueError('Unknown provider')
 
 
+def site_domains(query):
+    """Extract site: domain constraints to enforce locally across fallbacks.
+
+    Public search engines may ignore site: when rate-limited or when their
+    HTML endpoint rewrites the query. Filtering returned URLs protects the
+    caller from unrelated matches from a fallback provider.
+    """
+    return tuple(dict.fromkeys(
+        domain.strip('.').lower()
+        for domain in re.findall(r'(?<!\\S)site:(?:https?://)?([A-Za-z0-9.-]+)', query, re.I)
+        if domain.strip('.')
+    ))
+
+
+def matches_site(url, domains):
+    host = urlparse(url).hostname
+    return bool(host and any(
+        host == domain or host.endswith('.' + domain)
+        for domain in domains
+    ))
+
+
 class Router:
     def __init__(self, order=None, ttl=600, clock=None):
         names = order if order is not None else os.environ.get('SEARCH_ROUTER_PROVIDERS', ','.join(ORDER)).split(',')
@@ -188,6 +210,7 @@ class Router:
             if cached and cached[0] > now:
                 return 200, {**cached[1], 'cached': True}
         failures = []
+        sites = site_domains(query)
         for name in self.order:
             with self.lock:
                 if self.cooldown.get(name, 0) > self.clock():
@@ -197,9 +220,13 @@ class Router:
                 hits = provider(name, query)
                 if hits is None:
                     continue
-                results = normalize(hits, name)
+                # Filter *after* normalization (which unwraps Bing redirects),
+                # but inspect more candidates for site-scoped searches so a
+                # valid result is not hidden behind eight unrelated matches.
+                normalized = normalize(hits, name, limit=40 if sites else 8)
+                results = [hit for hit in normalized if matches_site(hit['url'], sites)][:8] if sites else normalized
                 if not results:
-                    failures.append({'provider': name, 'status': 'empty'})
+                    failures.append({'provider': name, 'status': 'site_mismatch' if sites and normalized else 'empty'})
                     continue
                 payload = {'query': query, 'provider': name, 'results': results, 'failed_providers': failures, 'cached': False}
                 with self.lock:
