@@ -139,6 +139,14 @@ hook prevents its own recursive invocation in the /build sandbox;
 the outer flake check still executes all offline contracts and hook checks.
 Do not disable hooks to work around a failure.
 
+The hook also clears inherited GNU Make flags and injected makefiles
+(including MAKEFLAGS=-n) before invoking make test. The offline Nix
+check git-hook-make-test-contract verifies that a fake make process
+actually runs and propagates its failure. As with every local Git hook,
+git commit --no-verify or bypassing Git hooks entirely is possible;
+protecting a shared branch against deliberate bypass requires a required
+CI check and branch protection, not just client-side hooks.
+
 The OpenCode configuration JSON is also modified by the runtime model policy
 (when switching local/GPT modes). Its incidental JSON whitespace is excluded
 from the Prettier formatter check; the separate MCP and model-policy Nix checks

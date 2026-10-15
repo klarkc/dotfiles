@@ -288,6 +288,25 @@
           checks = {
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
+            # Offline contract for the actual pre-commit gate. It tests
+            # inherited GNU Make dry-run flags and verifies that failed
+            # make commands stop Git commits rather than passing silently.
+            git-hook-make-test-contract =
+              pkgs.runCommand "git-hook-make-test-contract"
+                {
+                  nativeBuildInputs = [
+                    pkgs.python3
+                    pkgs.git
+                    pkgs.bash
+                    pkgs.gnumake
+                  ];
+                  hook = ./.local/bin/git-hook-make-test;
+                  checker = ./.local/bin/git-hook-make-test-selftest;
+                }
+                ''
+                  python3 "$checker" "$hook"
+                  touch $out
+                '';
             archive-pack-test =
               pkgs.runCommand "archive-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
                 ''
