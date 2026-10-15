@@ -1,0 +1,12 @@
+[Unit]
+Description=Scan Bash history changes into private OptMem evidence aggregates
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=15s
+Persistent=yes
+Unit=optmem-bash-capture.service
+
+[Install]
+WantedBy=timers.target

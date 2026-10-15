@@ -1,0 +1,26 @@
+[Unit]
+Description=OptMem Bash evidence capture (inactive until approved)
+Documentation=file:%h/.local/lib/optmem-bash/README.md
+ConditionPathExists=%h/.bash_history
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=%h/.local/lib/optmem-bash
+ExecStart=/usr/bin/python3 -B %h/.local/lib/optmem-bash/bash_optmem_agent.py capture --history %h/.bash_history --state %h/.local/state/optmem-bash
+TimeoutStartSec=45s
+Nice=10
+CPUQuota=30%
+MemoryMax=256M
+NoNewPrivileges=yes
+StateDirectory=optmem-bash
+StateDirectoryMode=0700
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/optmem-bash
+InaccessiblePaths=%h/.ssh %h/.gnupg
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=yes
+RestrictSUIDSGID=yes

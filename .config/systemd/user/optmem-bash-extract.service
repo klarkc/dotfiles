@@ -1,0 +1,29 @@
+[Unit]
+Description=OptMem Bash local semantic extraction (private outbox only)
+Documentation=file:%h/.local/lib/optmem-bash/README.md
+ConditionPathExists=%h/.optmem/memory/LOG.txt
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+PassEnvironment=VLLM_API_KEY
+WorkingDirectory=%h/.local/lib/optmem-bash
+ExecStart=/usr/bin/python3 -B %h/.local/lib/optmem-bash/bash_optmem_agent.py extract --state %h/.local/state/optmem-bash --memory-dir %h/.optmem/memory --memo %h/.local/state/optmem-prototype-2026-10-08/memo
+TimeoutStartSec=100s
+Nice=12
+CPUQuota=35%
+MemoryMax=512M
+NoNewPrivileges=yes
+StateDirectory=optmem-bash
+StateDirectoryMode=0700
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/optmem-bash
+InaccessiblePaths=%h/.ssh %h/.gnupg
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+LockPersonality=yes
+RestrictSUIDSGID=yes
