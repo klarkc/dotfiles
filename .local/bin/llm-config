@@ -189,6 +189,7 @@ transition="$HOME/.local/bin/opencode-session-transition"
 transition_plan=""
 transition_target=""
 transition_display=""
+server_offline_recovery=no
 
 cleanup_transition() {
   if [ -n "$transition_plan" ]; then
@@ -200,6 +201,36 @@ trap cleanup_transition EXIT
 active_local_model() {
   enabled_model
 }
+# The per-agent confirmation controls only TUI migrations, not recovering a
+# server that has ALREADY stopped. Recovery cannot interrupt in-flight vLLM
+# requests if no vLLM unit is running/starting and no listener is present.
+# While a server might still be serving/starting, keep the original gate.
+vllm_server_is_unavailable() {
+  local key="$1" unit state port
+  for unit in vllm.service "vllm@qwen3.6-27B.service" "vllm@qwen3.6-35B-a3b.service"; do
+    state="$(systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true)"
+    case "$state" in
+      active|activating|reloading|deactivating)
+        return 1
+        ;;
+      inactive|failed)
+        ;;
+      *)
+        # Unknown state is not proof of an unavailable server.
+        return 1
+        ;;
+    esac
+  done
+
+  port="$(sed -n 's/^PORT=//p' "$HOME/.config/vllm/$key.env" | head -1)"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  command -v ss >/dev/null 2>&1 || return 1
+  if ss -H -ltn "( sport = :$port )" 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
 prepare_transition() {
   local mode="$1" key="$2" changing_vllm="${3:-no}"
   local envfile="$HOME/.config/vllm/$key.env" local_id local_name
@@ -223,6 +254,13 @@ prepare_transition() {
   chmod 600 "$transition_plan"
   if [ "$changing_vllm" = yes ]; then
     opts+=(--changing-vllm)
+    if vllm_server_is_unavailable "$key"; then
+      server_offline_recovery=yes
+      opts+=(--server-unavailable)
+      printf 'vLLM is already offline; TUI approvals will not block server recovery.\n'
+    else
+      server_offline_recovery=no
+    fi
   fi
   "$transition" prepare --target "$transition_target" --display "$transition_display" --plan "$transition_plan" \
     --confirm-timeout "${LLM_CONFIG_CONFIRM_TIMEOUT:-12}" "${opts[@]}"
@@ -292,6 +330,10 @@ if [ "$(active_local_model)" = "$pick" ] && systemctl --user is-active --quiet "
 fi
 
 prepare_transition local "$pick" yes
+if [ "$server_offline_recovery" = yes ] && ! vllm_server_is_unavailable "$pick"; then
+  printf 'vLLM state changed during session approval. Refusing to replace a now-active server.\n' >&2
+  exit 1
+fi
 import_systemd_environment "$pick"
 
 selected_target="vllm-${pick}.target"
@@ -316,6 +358,12 @@ unit_state() {
 }
 
 since="$(date --iso-8601=seconds)"
+# A server can start asynchronously during the model confirmation or the
+# environment import. Do not replace one unless the ordinary approval gate ran.
+if [ "$server_offline_recovery" = yes ] && ! vllm_server_is_unavailable "$pick"; then
+  printf 'vLLM became active during recovery preparation; refusing to interrupt it.\n' >&2
+  exit 1
+fi
 printf 'Stopping vLLM units through systemd...\n'
 systemctl --user stop "$legacy_service" "${all_targets[@]}" "${all_services[@]}" 2>/dev/null || true
 
