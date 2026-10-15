@@ -87,7 +87,10 @@ auto_approve = [
   "weather",
 ]
 block_high_risk_commands = true
-excluded_tools = []
+# git_operations approvals are tool-wide and its path resolver rejects
+# allowed read-only Sources roots. Use the already safe, risk-classified
+# shell Git operations instead; never auto-approve mutating Git operations.
+excluded_tools = ["git_operations"]
 firejail_args = []
 forbidden_paths = [
   "/etc",
@@ -120,12 +123,12 @@ sandbox_enabled = true
 compact_context = true
 context_aware_tools = false
 keep_tool_context_turns = 2
-max_actions_per_hour = 20
+max_actions_per_hour = 48
 max_context_tokens = 49152
 max_cost_per_day_cents = 4294967295
 max_history_messages = 50
 max_system_prompt_chars = 0
-max_tool_iterations = 10
+max_tool_iterations = 24
 max_tool_result_chars = 50000
 parallel_tools = false
 shell_timeout_secs = 60
