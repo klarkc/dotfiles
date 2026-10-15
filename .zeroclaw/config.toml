@@ -468,8 +468,9 @@ timeout_secs = 30
 [web_search]
 enabled = true
 max_results = 5
-timeout_secs = 15
-search_provider = "duckduckgo"
+timeout_secs = 30
+search_provider = "searxng"
+searxng_instance_url = "http://127.0.0.1:8979"
 
 [project_intel]
 enabled = false

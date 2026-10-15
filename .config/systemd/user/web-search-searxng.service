@@ -1,0 +1,24 @@
+[Unit]
+Description=Local SearXNG engine (last search fallback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/lib/web-search-router/run_searxng.py
+Restart=on-failure
+RestartSec=7
+NoNewPrivileges=yes
+CacheDirectory=web-search-searxng
+Environment=XDG_CACHE_HOME=%h/.cache/web-search-searxng
+Environment=TMPDIR=%h/.cache/web-search-searxng
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=768M
+
+[Install]
+WantedBy=default.target

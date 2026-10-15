@@ -1,0 +1,23 @@
+[Unit]
+Description=Local web search router for OpenCode and ZeroClaw
+Wants=network-online.target web-search-searxng.service
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+PassEnvironment=SEARCH_ROUTER_SEARXNG_URL SEARCH_ROUTER_PROVIDERS
+ExecStart=/usr/bin/python3 %h/.local/lib/web-search-router/router.py serve
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=192M
+
+[Install]
+WantedBy=default.target
