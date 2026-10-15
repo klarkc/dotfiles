@@ -228,8 +228,15 @@
             programs.shfmt.enable = true;
             programs.taplo.enable = true;
 
+            # This tracked JSON is intentionally updated by llm-config and
+            # opencode-model-policy at runtime. JSON serialization can differ
+            # from Prettier while remaining semantically valid, so do not
+            # gate commits on incidental runtime formatting drift. Dedicated
+            # opencode-mcp-atlassian-config and vllm-opencode-contract checks
+            # continue to validate its structure and effective model policy.
             settings.formatter.prettier.excludes = [
               ".github/workflows/dependency-monitor.yml"
+              ".config/opencode/opencode.json"
             ];
 
             settings.formatter.shfmt.includes = [
