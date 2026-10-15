@@ -15,6 +15,11 @@ All configured providers are keyless; commercial APIs are not implemented.
 but local SearXNG is appended last regardless of this variable's value.
 `SEARCH_ROUTER_SEARXNG_URL` only accepts a distinct localhost HTTP port.
 
+For site:example.org queries, the router also checks each returned URL's
+hostname (including subdomains) across all public and local fallback engines.
+Providers that ignore the domain filter are skipped; unrelated results are
+never returned as valid matches.
+
 Local calls have no artificial daily/monthly quota or payment requirement.
 However, every public web search -- including those performed by local SearXNG --
 uses external engines, which may independently return 403, CAPTCHA or 429.
