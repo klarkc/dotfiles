@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Apply the OpenCode model policy selected by llm-config.
 
-Primary: GPT-6.1 Sol or the currently served vLLM model.
-Subagents: always the currently served vLLM model.
-The systemd vLLM patcher calls this with --mode keep on every restart.
+Modes:
+  local: primary agents and subagents use the currently served vLLM model.
+  gpt:  GPT-6.1 Sol for primary agents, vLLM for subagents.
+  full-gpt: GPT-6.1 Sol for primary agents, GPT-6 Luna for subagents.
+The systemd vLLM patcher calls --mode keep on every restart to preserve the
+selected mode (including full-gpt). Compaction inherits the TUI's own model.
 """
 import argparse
 import fcntl
@@ -14,6 +17,20 @@ import stat
 import tempfile
 
 GPT_MODEL = "openai/gpt-6.1-sol"
+GPT_ECONOMY_MODEL = "openai/gpt-6-luna"
+# High-capability primary agents still use normal/medium reasoning in order
+# to preserve users' existing Business quota; small agents use Luna.
+FULL_GPT_VARIANTS = {
+    "build": "medium",
+    "plan": "medium",
+    "design": "medium",
+    "learn": "medium",
+    "general": "low",
+    "explore": "none",
+    "scout": "none",
+    "summary": "low",
+    "title": "none",
+}
 PRIMARY_AGENTS = ("build", "plan", "design", "learn")
 LOCAL_SUBAGENTS = ("general", "explore", "scout")
 LOCAL_HELPERS = ("title", "summary")
@@ -46,7 +63,7 @@ def read_env(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("gpt", "local", "keep"), default="keep")
+    parser.add_argument("--mode", choices=("gpt", "full-gpt", "local", "keep"), default="keep")
     parser.add_argument("--local-key", required=True)
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--config-path", type=Path, default=Path.home() / ".config/opencode/opencode.json")
@@ -73,27 +90,50 @@ def main():
         if not isinstance(data, dict):
             raise SystemExit("OpenCode config root must be a JSON object")
         saved_mode = mode_path.read_text(encoding="utf-8").strip() if mode_path.is_file() else None
-        if saved_mode not in ("gpt", "local"):
-            saved_mode = "gpt" if str(data.get("model", "")).startswith("openai/") else "local"
+        if saved_mode not in ("gpt", "full-gpt", "local"):
+            if str(data.get("model", "")).startswith("openai/"):
+                saved_mode = ("full-gpt" if data.get("small_model") == GPT_ECONOMY_MODEL
+                              else "gpt")
+            else:
+                saved_mode = "local"
         selected_mode = saved_mode if args.mode == "keep" else args.mode
-        primary = GPT_MODEL if selected_mode == "gpt" else local_model
+        primary = GPT_MODEL if selected_mode in ("gpt", "full-gpt") else local_model
+        subagents = GPT_ECONOMY_MODEL if selected_mode == "full-gpt" else local_model
 
         if args.status:
             agents = data.get("agent", {})
-            print(f"primary-model={data.get('model')} backend={'GPT' if saved_mode == 'gpt' else 'vLLM'}")
+            backend = "Full GPT" if saved_mode == "full-gpt" else (
+                "GPT + local subagents" if saved_mode == "gpt" else "vLLM")
+            print(f"primary-model={data.get('model')} backend={backend} mode={saved_mode}")
+            print(f"subagent-model={agents.get('general', {}).get('model', '(inherited)')}")
+            print(f"small-model={data.get('small_model')}")
             print(f"vllm-current={local_model} vllm-context={context} vllm-output={output}")
-            for agent in PRIMARY_AGENTS + LOCAL_SUBAGENTS + ("compaction",):
-                print(f"agent.{agent}={agents.get(agent, {}).get('model', '(inherited)')}")
+            for agent in PRIMARY_AGENTS + LOCAL_SUBAGENTS + LOCAL_HELPERS + ("compaction",):
+                config = agents.get(agent, {})
+                extra = f" variant={config['variant']}" if config.get("variant") else ""
+                print(f"agent.{agent}={config.get('model', '(inherited)')}{extra}")
             return
 
         old_compactor_pinned = "model" in data.get("agent", {}).get("compaction", {})
         data["model"] = primary
-        data["small_model"] = local_model
+        # OpenCode's implicit small-model consumers should ALSO use Luna in
+        # full-gpt; leaving this pointed at vLLM would break the all-GPT promise.
+        data["small_model"] = subagents
         agents = data.setdefault("agent", {})
         for name in PRIMARY_AGENTS:
-            agents.setdefault(name, {})["model"] = primary
+            agent = agents.setdefault(name, {})
+            agent["model"] = primary
+            if selected_mode == "full-gpt":
+                agent["variant"] = FULL_GPT_VARIANTS[name]
+            else:
+                agent.pop("variant", None)
         for name in LOCAL_SUBAGENTS + LOCAL_HELPERS:
-            agents.setdefault(name, {})["model"] = local_model
+            agent = agents.setdefault(name, {})
+            agent["model"] = subagents
+            if selected_mode == "full-gpt":
+                agent["variant"] = FULL_GPT_VARIANTS[name]
+            else:
+                agent.pop("variant", None)
         # Do NOT pin compaction to the globally selected model: this would
         # switch GPT-origin sessions to the small vLLM compactor prematurely.
         # OpenCode 1.18.31 uses the session's selected model when this
@@ -120,7 +160,7 @@ def main():
             atomic_write(inherit_marker, str(time.time()) + "\n", 0o600)
         if args.mode != "keep" or not mode_path.is_file():
             atomic_write(mode_path, selected_mode + "\n", 0o600)
-        print(f"OpenCode primary={primary}; subagents={local_model}; local-context={context}; mode={selected_mode}")
+        print(f"OpenCode primary={primary}; subagents={subagents}; local-context={context}; mode={selected_mode}")
 
 if __name__ == "__main__":
     main()

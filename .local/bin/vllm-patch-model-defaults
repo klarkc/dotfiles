@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# vLLM systemd ExecStartPre. Preserve the GPT/local primary mode, and refresh
-# the OpenCode vLLM provider and subagent routing at model startup.
+# vLLM systemd ExecStartPre. Preserve the gpt/full-gpt/local mode and refresh
+# the OpenCode model metadata without changing cloud/local agent routing.
 key="${VLLM_INSTANCE:-}"
 if [ -z "$key" ]; then
   : "${SERVED_MODEL_NAME:?SERVED_MODEL_NAME or VLLM_INSTANCE is required}"
