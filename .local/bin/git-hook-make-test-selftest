@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Offline regression test for the mandatory Git pre-commit make-test hook.
+
+Execute a tiny, isolated Makefile to verify tests really run. This rejects
+dry-runs such as MAKEFLAGS=-n and verifies failure propagation without
+accessing the internet, invoking project tests, or touching the user's home.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def fail(message: str) -> None:
+    raise SystemExit(f"git-hook-make-test-selftest: FAIL {message}")
+
+
+def run_case(hook: Path, *, expected_code: int, adversarial: bool) -> None:
+    with tempfile.TemporaryDirectory(prefix="hook-make-test-contract-") as temp:
+        root = Path(temp)
+        repo = root / "repo"
+        repo.mkdir()
+        init = subprocess.run(
+            ["git", "init", "--quiet", str(repo)],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        if init.returncode:
+            fail(f"cannot initialize fixture git repository ({init.returncode})")
+
+        marker = root / "make-executed"
+        verifier = repo / "verify.py"
+        verifier.write_text(
+            """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+Path(os.environ["HOOK_TEST_MARKER"]).write_text("make invoked\\n", encoding="utf-8")
+if os.environ.get("SMOKE_TESTS_ENABLED") != "true":
+    sys.exit(72)
+if os.environ.get("SKIP_SMOKE"):
+    sys.exit(73)
+for key in ("MAKEFILES", "GNUMAKEFLAGS", "MAKEOVERRIDES"):
+    if os.environ.get(key):
+        sys.exit(74)
+if int(os.environ.get("MAKELEVEL", "0")) != 1:
+    sys.exit(75)
+sys.exit(int(os.environ.get("STUB_EXIT", "0")))
+""",
+            encoding="utf-8",
+        )
+        (repo / "Makefile").write_text(
+            ".PHONY: test\ntest:\n\t@python3 verify.py\n", encoding="utf-8"
+        )
+
+        env = os.environ.copy()
+        env["HOOK_TEST_MARKER"] = str(marker)
+        env["STUB_EXIT"] = str(expected_code)
+        # Do not allow the Nix derivation's recursion guard to short-circuit.
+        env.pop("NIX_BUILD_TOP", None)
+        if adversarial:
+            env.update({
+                "MAKEFLAGS": "-n",
+                "MFLAGS": "-n",
+                "GNUMAKEFLAGS": "-n",
+                "MAKEFILES": str(root / "fake-injected.mk"),
+                "MAKEOVERRIDES": "SMOKE_TESTS_ENABLED=false",
+                "MAKELEVEL": "13",
+                "SKIP_SMOKE": "1",
+                "SMOKE_TESTS_ENABLED": "false",
+            })
+        else:
+            for name in (
+                "MAKEFLAGS", "MFLAGS", "GNUMAKEFLAGS", "MAKEFILES",
+                "MAKEOVERRIDES", "MAKELEVEL", "SKIP_SMOKE",
+            ):
+                env.pop(name, None)
+            env["SMOKE_TESTS_ENABLED"] = "true"
+
+        command = subprocess.run(
+            ["bash", str(hook)],
+            cwd=repo,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if not marker.is_file():
+            fail(
+                "make was not actually executed; "
+                f"status={command.returncode} "
+                f"stdout={command.stdout[-250:]!r} "
+                f"stderr={command.stderr[-250:]!r}"
+            )
+        # GNU Make converts a failed recipe (e.g. exit 37) into its own
+        # nonzero status (normally 2). The hook must propagate that failure.
+        expected_hook_status = 0 if expected_code == 0 else 2
+        if command.returncode != expected_hook_status:
+            fail(
+                f"expected make status {expected_hook_status}, received "
+                f"{command.returncode}, stderr={command.stderr[-250:]!r}"
+            )
+        if marker.read_text(encoding="utf-8") != "make invoked\n":
+            fail("test target marker is missing or invalid")
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        fail("usage: git-hook-make-test-selftest /path/to/git-hook-make-test")
+    hook = Path(sys.argv[1]).resolve()
+    if not hook.is_file():
+        fail("hook file does not exist")
+    run_case(hook, expected_code=0, adversarial=False)
+    run_case(hook, expected_code=0, adversarial=True)
+    run_case(hook, expected_code=37, adversarial=True)
+    print("git-hook-make-test-selftest: PASS actual tests and fail-closed status")
+
+
+if __name__ == "__main__":
+    main()

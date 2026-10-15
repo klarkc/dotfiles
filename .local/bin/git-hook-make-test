@@ -12,5 +12,17 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 echo "make-test: mandatory complete make test before commit"
-# Ignore caller-provided flags intended to bypass live smoke checks.
-exec env -u SKIP_SMOKE SMOKE_TESTS_ENABLED=true make test
+# Ignore inherited GNU Make settings and injected makefiles, all of which
+# can change the meaning of make test. For example MAKEFLAGS=-n previously
+# made this hook exit 0 while printing commands without running tests.
+# A local Git hook is not a security boundary; CI/branch protection are
+# required if enforcement against an intentionally bypassing user matters.
+exec env \
+  -u MAKEFLAGS \
+  -u MFLAGS \
+  -u GNUMAKEFLAGS \
+  -u MAKEFILES \
+  -u MAKEOVERRIDES \
+  -u MAKELEVEL \
+  -u SKIP_SMOKE \
+  SMOKE_TESTS_ENABLED=true make test

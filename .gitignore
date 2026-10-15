@@ -56,6 +56,7 @@
 !/.local/bin/optmem-bash-smoke-test
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/git-hook-make-test
+!/.local/bin/git-hook-make-test-selftest
 !/.local/bin/home-cleanup
 !/.local/bin/home-cleanup-post
 !/.local/bin/pacman-clean
