@@ -31,6 +31,7 @@
 
 # agent skills
 !/.agents
+/.agents/**/__pycache__/
 
 # google takeout backup (source archives, staging, packed archive)
 !/.backup
@@ -56,6 +57,7 @@
 !/.local/bin/optmem-bash-smoke-test
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/desktop-commander-mcp-smoke-test
+!/.local/bin/git-privacy-audit-skill-smoke-test
 !/.local/bin/git-hook-make-test
 !/.local/bin/git-hook-make-test-selftest
 !/.local/bin/home-cleanup
@@ -105,6 +107,7 @@
 /.config/opencode/*
 !/.config/opencode/opencode.json
 !/.config/opencode/opencode.workspace.json
+!/.config/opencode/AGENTS.md
 !/.config/opencode/tools
 !/.config/opencode/tools/*.ts
 

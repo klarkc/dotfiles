@@ -1,0 +1,9 @@
+# Public Git repository privacy
+
+Before the first modification task in each Git repository/session, load the `git-privacy-audit` skill and follow its public-visibility gate. Do not infer visibility from authentication, a remote URL, local refs, or another project's result. The skill refuses private and unverified repositories; do not bypass that refusal or add public-repository instructions to them. This does not prohibit ordinary authorized development in a private repository.
+
+For a verified-public repository, use the skill to check the root and applicable tracked `AGENTS.md` files for an explicit public-repository declaration and a prohibition on exposing credentials and private information. If guidance is missing, propose a small, idempotent section and obtain permission before inserting it. Preserve existing instructions. Never insert deployment endpoints, tenant names, personal identities, internal addresses, or other private examples.
+
+For public-repository changes, review the staged diff before committing and prefer the project's existing pre-commit framework with Gitleaks' native staged scan. Do not invoke a model inside a Git hook, replace existing hooks/tests, configure global Git hooks, or automatically scan full history. If the repository lacks a secret-check hook, offer integration with an existing tool and wait for approval. History audits require an explicit request.
+
+Keep findings and reports private and redacted. Never print, validate remotely, or commit discovered secret values. A scanner result is not proof of privacy compliance; manually review metadata, environment references, fixtures, and false positives. Suspected public credential exposure requires revocation/rotation advice; rewriting history, force-pushing, or deleting unrelated data requires explicit authorization.

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "api-token" && "${1:-}" != "oauth" ]]; then
+  printf 'Usage: %s api-token|oauth\n' "$0" >&2
+  exit 2
+fi
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+python3 -B "$root/.agents/skills/git-privacy-audit/tests/test_audit.py"
+python3 -B "$root/.nix/tests/git-privacy-hooks-contract.py"

@@ -273,12 +273,26 @@
               ".*.toml"
             ];
           };
+          gitleaksDefaultConfig = pkgs.writeText "gitleaks-default.toml" ''
+            [extend]
+            useDefault = true
+          '';
+          gitleaksEmptyIgnore = pkgs.writeText "gitleaks-empty.ignore" "";
           pre-commit-check = inputs.git-hooks.lib.${system}.run {
             src = ./.;
             hooks.flake-follows.enable = true;
             hooks.treefmt = {
               enable = true;
               package = treefmtEval.config.build.wrapper;
+            };
+            hooks.gitleaks = {
+              enable = true;
+              name = "Gitleaks staged secrets";
+              entry = "${pkgs.gitleaks}/bin/gitleaks git --pre-commit --staged --redact=100 --no-banner --log-level=warn --ignore-gitleaks-allow --config ${gitleaksDefaultConfig} --gitleaks-ignore-path ${gitleaksEmptyIgnore}";
+              pass_filenames = false;
+              always_run = true;
+              require_serial = true;
+              before = [ "make-test" ];
             };
             # For human git commits run the FULL make test including live smokes.
             # A nix flake check sandbox deliberately avoids recursive invocation.
@@ -597,6 +611,10 @@
               treefmtEval.config.build.wrapper
               desktopCommanderMcpRuntime
               pkgs.python3
+              # Bump note: Gitleaks follows locked nixpkgs. Review CLI/report-schema
+              # changes against the git-privacy-audit wrapper, run its smoke tests,
+              # and verify a controlled redacted scan after a nixpkgs update.
+              pkgs.gitleaks
             ];
           };
 
@@ -618,6 +636,7 @@
                 flake-edit
                 uv
                 gh
+                gitleaks
                 # Authentication helper only: Codex CLI refreshes ChatGPT OAuth,
                 # which opencode-with-codex-auth imports when newer. Not a coding agent.
                 codex
