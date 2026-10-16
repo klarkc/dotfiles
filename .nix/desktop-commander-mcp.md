@@ -10,6 +10,8 @@ Há um único backend persistente. Conexões HTTP MCP stateless podem reconectar
 
 Desktop Commander recebe o mesmo usuário e `HOME` do serviço local. A configuração lida é `~/.claude-server-commander/config.json`. `allowedDirectories` restringe o comportamento esperado da ferramenta de arquivos, **não** é sandbox do terminal, contenção completa do filesystem nem isolamento contra prompt injection. Não prometa essas propriedades. Logs da ferramenta podem conter argumentos e resultados, tal como no Desktop Commander existente; mantenha arquivos de configuração/credenciais privados e não compartilhe logs ou segredos.
 
+Por decisão do usuário, o ambiente real preserva `allowedDirectories: []` (sem restrição de arquivos), em vez de acrescentar um sandbox novo. Clientes autorizados podem alcançar arquivos privados com as permissões de `klarkc`. As confirmações do ChatGPT não constituem uma aprovação obrigatória imposta pelo servidor para todo comando destrutivo. A saída de processos é combinada: o teste preserva conteúdo de stdout/stderr e código de saída, não dois streams separados.
+
 ## Preparação local após integração autorizada
 
 Depois de integrar a alteração na `main` e atualizar o perfil a partir de `/home/example`:
@@ -46,6 +48,8 @@ desktop-commander-mcp-runtime check
 
 Os valores acima são placeholders, não IDs ou credenciais reais. O túnel configura validação de Access JWT obrigatória para o hostname exato e rejeita hosts não mapeados. Restrinja a política Access à identidade do usuário; MFA pelo IdP é recomendado. Não crie políticas Bypass. Prefira token de acesso curto (15 minutos) e duração de refresh longa, de acordo com as opções suportadas pelo Access.
 
+Na implantação validada, a aplicação permite somente o email pessoal informado em `CLOUDFLARE_ACCESS_EMAIL` e somente o provedor One-time PIN. O PIN é login por email, não MFA independente; proteja a caixa de email com MFA. O cadastro/seleção do provedor é feito em Zero Trust → Integrations → Identity providers e na aplicação Access, separadamente do bootstrap. Configurá-lo pela API requer temporariamente Access Organizations, Identity Providers, and Groups Edit. Não é necessário criar usuário administrador Cloudflare para o email pessoal. Mudar a variável local não altera uma policy já criada: atualize explicitamente a regra Email dessa aplicação, sem liberar Everyone ou um domínio inteiro. O verificador recusa drift em vez de sobrescrever a política silenciosamente.
+
 ## Configuração no ChatGPT
 
 No ChatGPT atual, abra **Plugins → Add custom MCP server** e configure OAuth usando a URL pública:
@@ -63,13 +67,17 @@ O bootstrap permite somente o callback estável e o padrão `https://chatgpt.com
 
 ## Verificação e estado atual
 
-| Verificação                                                           | Resultado                                                                    |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Smoke local do MCP/protocolo, ferramentas e reconexão HTTP            | Aprovado; não exercita OAuth                                                 |
-| Wrapper `api-token` e `oauth`                                         | Ambos executam o mesmo smoke local; nenhum simula OAuth real                 |
-| Probe público                                                         | Aprovado: TLS, rejeição sem/invalid bearer, discovery OAuth e PKCE           |
-| Parada e recuperação dos serviços de validação                        | Aprovado no systemd; serviços finais ainda dependem da integração autorizada |
-| Autorização OAuth, refresh e chamadas reais originadas no ChatGPT Web | Pendente; não afirmar que foram concluídas                                   |
+| Verificação                                                | Resultado                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Smoke local do MCP/protocolo, ferramentas e reconexão HTTP | Aprovado; não exercita OAuth                                               |
+| Wrapper `api-token` e `oauth`                              | Ambos executam o mesmo smoke local; nenhum simula OAuth real               |
+| Probe público                                              | Aprovado: TLS, rejeição sem/invalid bearer, discovery OAuth e PKCE         |
+| Parada e recuperação dos serviços de validação             | Aprovado no systemd; instalação persistente autorizada após os testes      |
+| OAuth e comandos originados no ChatGPT Web                 | Aprovado pelo usuário; respostas 200/202 observadas no túnel dedicado      |
+| Leitura, gravação e releitura pelo ChatGPT                 | Aprovado: proof.txt conferido no host contra nonce não exibido previamente |
+| Processo longo pelo ChatGPT                                | Aprovado: 15,12 s, polling por PID, stdout/stderr presentes e exit code 7  |
+| Allowlist de arquivos                                      | Aprovada no smoke isolado; produção irrestrita por decisão do usuário      |
+| Renovação OAuth após expirar o access token                | Não validada ponta a ponta; reautenticar se refresh falhar                 |
 
 Rode `desktop-commander-mcp-runtime probe` para repetir o teste público. Ele não completa login nem testa uma chamada real do ChatGPT. O probe identifica seu User-Agent: a borda Cloudflare rejeitou o User-Agent genérico de urllib com 403, mas retornou o desafio OAuth correto ao probe identificado. Não foi desabilitado WAF ou outro controle para contornar isso.
 
@@ -78,6 +86,16 @@ Para o teste manual, `desktop-commander-mcp-runtime prepare` cria `~/.profile_ov
 Valide `hostname`, `nix --version`, ferramentas Git/worktree numa pasta de teste nova e um comando que dure 15 segundos, imprima stdout/stderr e termine com código 7. Acompanhe pelo PID, incluindo uma reconexão HTTP. Não use agentes pagos nem altere a worktree do navegador. Reiniciar o servidor encerra processos antigos: inicie-os de novo após o reinício.
 
 Antes da integração na `main`, o endpoint usa unidades transitórias `desktop-commander-mcp-staging.service` e `desktop-commander-mcp-tunnel-staging.service`, com o runtime compilado da worktree. Elas não iniciam no próximo boot e desaparecem quando paradas. Não são substitutos para a instalação definitiva; essa instalação depende de autorização e `nix profile upgrade klarkc` na home.
+
+Em 2026-10-16, o usuário concluiu OAuth e os testes reais do ChatGPT Web e autorizou a integração. A prova foi comparada no host antes da integração. Não há credencial ou nonce de teste versionado neste documento. O antigo conector pode ser confundido com o novo: use a URL acima, confira as ferramentas diretas `read_file`/`start_process` e não o fluxo de dispositivos/ping em `mcp.desktopcommander.app`.
+
+## Custos e alternativas
+
+Não há cobrança por chamada do Desktop Commander Remote, Worker Cloudflare ou API de modelo por trás do runtime. Foram usados o domínio e os serviços Cloudflare existentes, sem compra de certificado ou produto. O plano gratuito e os termos da Cloudflare continuam impondo condições de uso, disponibilidade e limites de infraestrutura; o domínio também tem sua renovação habitual. Isso não é uma promessa de tráfego ilimitado ou de ausência de dependência externa.
+
+As cotas e disponibilidade de modelos/ferramentas do ChatGPT continuam valendo. A conexão é para o Chat normal, sem iniciar Work, Codex ou OpenCode; não foi feita medição da contabilização interna da OpenAI. Raciocínio automático, limites de ferramentas e políticas do workspace podem afetar o uso. Operações longas devem retornar um PID e ser acompanhadas por polling, evitando timeouts HTTP. Grandes arquivos/tráfego de mídia também estão sujeitos aos termos do proxy Cloudflare.
+
+Desktop Commander apenas em stdio não é acessível pelo ChatGPT Web. O Remote do fornecedor tem a cota que motivou a substituição. OVPN sozinho não conecta o serviço Web da OpenAI à VPN. Um gateway FastMCP com OAuth próprio é alternativa se Managed OAuth deixar de atender, mas adiciona manutenção. Work/Codex/Dot não substituem este caminho de uso no Chat normal. Não foi criado servidor de ferramentas próprio.
 
 ## Operação, revogação e recuperação
 
