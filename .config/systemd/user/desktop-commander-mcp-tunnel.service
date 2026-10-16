@@ -1,0 +1,24 @@
+[Unit]
+Description=Authenticated Cloudflare Tunnel for Desktop Commander MCP
+Wants=network-online.target desktop-commander-mcp-runtime.service
+After=network-online.target desktop-commander-mcp-runtime.service
+PartOf=desktop-commander-mcp-runtime.service
+ConditionPathExists=%h/.profile_override.desktop-commander-mcp/config.json
+
+[Service]
+Type=simple
+ExecStart=%h/.nix-profile/bin/desktop-commander-mcp-runtime tunnel
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+RuntimeDirectory=desktop-commander-mcp-tunnel
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

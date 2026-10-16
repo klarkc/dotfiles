@@ -1,6 +1,7 @@
 # Agent Notes
 
 - Read `README.md` first for repo context and usage.
+- Prefer provider API tokens loaded from the Git-ignored `$HOME/.profile_override` (including Cloudflare) over interactive login certificates or new credential stores. Keep tokens out of tracked files, Nix store/build inputs, command-line arguments, logs, and chat. Check presence without printing values; request missing credentials from the user through local configuration, never by pasting them into chat. Generated tunnel credentials must also stay in private, Git-ignored runtime files.
 - **Mandatory dotfiles delivery workflow, for every change (including documentation-only and config-only changes):**
   1. Start from the latest `/home/example` `main` and create an **isolated, persistent Git worktree** (for example under `~/Sources/.worktrees/`, never `/tmp`). Implement and test the entire feature there; **do not develop by editing tracked files directly in `/home/example`**. Permission to update home is permission for the later integration step, not a waiver of isolation.
   2. Validate and commit from the feature worktree **inside `nix develop`**, running Git hooks normally. Never disable or bypass them.

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Makefile invokes smoke tests in api-token and oauth modes. Both run the same
+# local loopback protocol test; neither mode simulates ChatGPT OAuth.
+case "${1:-api-token}" in
+  api-token|oauth) ;;
+  *) printf '%s\n' 'usage: desktop-commander-mcp-smoke-test [api-token|oauth]' >&2; exit 2 ;;
+esac
+
+exec "${DESKTOP_COMMANDER_MCP_RUNTIME:-desktop-commander-mcp-runtime}" smoke

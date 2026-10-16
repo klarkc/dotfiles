@@ -49,6 +49,7 @@ Each machine has specific configurations and enabled features so I'm splitting i
 - [Handlr](https://github.com/Anomalocaridid/handlr-regex) manage default apps
 - AI models with [ollama](https://ollama.com/)
 - AI coding with OpenCode (and optional Lumen); Codex is not an active coding agent
+- Self-hosted Desktop Commander MCP for ChatGPT (setup, OAuth and operational limits: [`.nix/desktop-commander-mcp.md`](.nix/desktop-commander-mcp.md))
 - [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) with Landlock-confined tools and a hardened user service
 
 ## Supported setups

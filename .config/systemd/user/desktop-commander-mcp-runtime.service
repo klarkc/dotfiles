@@ -1,0 +1,23 @@
+[Unit]
+Description=Self-hosted Desktop Commander MCP (loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.nix-profile/bin/desktop-commander-mcp-runtime serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+RuntimeDirectory=desktop-commander-mcp
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=default.target

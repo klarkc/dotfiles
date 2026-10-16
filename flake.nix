@@ -223,6 +223,9 @@
           desktopCommanderRuntime = pkgs.callPackage ./.nix/desktop-commander-runtime.nix {
             desktop-commander-src = inputs.desktop-commander-src;
           };
+          desktopCommanderMcpRuntime = pkgs.callPackage ./.nix/desktop-commander-mcp-runtime.nix {
+            inherit desktopCommanderRuntime;
+          };
           enpassMcpRuntime = pkgs.callPackage ./.nix/enpass-mcp-runtime.nix {
             enpass-mcp-src = inputs.enpass-mcp-src;
           };
@@ -298,6 +301,13 @@
           checks = {
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
+            desktop-commander-mcp-contract =
+              pkgs.runCommand "desktop-commander-mcp-contract" { nativeBuildInputs = [ pkgs.python3 ]; }
+                ''
+                  python3 ${./.nix/tests/desktop-commander-mcp-contract.py} ${./.nix/desktop-commander-mcp.py} ${./.}
+                  python3 ${./.nix/tests/desktop-commander-mcp-cloudflare-contract.py} ${./.}/.nix/desktop-commander-mcp-cloudflare.py
+                  touch $out
+                '';
             # Enpass MCP: no write tools, approval-gated sensitive reads, and
             # manual-only write skill. Pure check runs without Enpass credentials.
             enpass-mcp-readonly-contract =
@@ -585,6 +595,8 @@
             inherit (pre-commit-check) shellHook;
             buildInputs = pre-commit-check.enabledPackages ++ [
               treefmtEval.config.build.wrapper
+              desktopCommanderMcpRuntime
+              pkgs.python3
             ];
           };
 
@@ -620,6 +632,7 @@
                 mcpRemoteRuntime
                 enpassMcpRuntime
                 desktopCommanderRuntime
+                desktopCommanderMcpRuntime
                 zeroclawWithLandlock
               ];
           };
@@ -632,6 +645,7 @@
           packages.mcp-remote-runtime = mcpRemoteRuntime;
           packages.enpass-mcp-runtime = enpassMcpRuntime;
           packages.desktop-commander-runtime = desktopCommanderRuntime;
+          packages.desktop-commander-mcp-runtime = desktopCommanderMcpRuntime;
           packages.zeroclaw = zeroclawWithLandlock;
         }
       );
