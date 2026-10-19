@@ -89,7 +89,11 @@ nix.Profile:
 # require `SMOKE_TESTS_ENABLED=true make test` to prevent an unrelated
 # network service from blocking every Git commit.
 .PHONY: test
-test: flake.check smoke
+test: flake.check bashrc.test smoke
+
+.PHONY: bashrc.test
+bashrc.test:
+	bash .local/bin/herdr-tmux-autostart-test
 
 .PHONY: flake.check
 flake.check:

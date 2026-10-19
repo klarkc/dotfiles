@@ -89,7 +89,10 @@ eval "$(direnv hook bash)"
 
 # Tmux
 export TMUX_PLUGIN_MANAGER_PATH=$HOME/.tmux/plugins/tpm
-if command -v tmux &>/dev/null && [ -n "$PS1" ] && [[ ! $TERM =~ screen ]] && [[ ! $TERM =~ tmux ]] && [ -z "$TMUX" ] && [[ $AGENT != "1" ]]; then
+# Herdr owns its panes. Starting tmux here hides agents from Herdr detection.
+if [[ ${HERDR_ENV:-} != 1 ]] &&
+  command -v tmux &>/dev/null &&
+  [[ -n $PS1 && ! $TERM =~ screen && ! $TERM =~ tmux && -z $TMUX && ${AGENT:-} != 1 ]]; then
   exec tmux
 fi
 

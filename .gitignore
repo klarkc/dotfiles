@@ -58,6 +58,7 @@
 !/.local/bin/coding-agents-smoke-test
 !/.local/bin/desktop-commander-mcp-smoke-test
 !/.local/bin/git-privacy-audit-skill-smoke-test
+!/.local/bin/herdr-tmux-autostart-test
 !/.local/bin/git-hook-make-test
 !/.local/bin/git-hook-make-test-selftest
 !/.local/bin/home-cleanup

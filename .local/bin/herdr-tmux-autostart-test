@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "$tmp"' EXIT
+mkdir -p "$tmp/home"
+
+# Replace tmux with a harmless marker, so the test never creates sessions.
+cat > "$tmp/tmux" <<'SH'
+#!/bin/sh
+printf '%s\n' '__MOCK_TMUX_EXECUTED__'
+SH
+chmod +x "$tmp/tmux"
+
+run_case() {
+  local label="$1" expected="$2"
+  shift 2
+  local output
+  output="$(
+    env -u HERDR_ENV -u HERDR_PANE_ID -u TMUX -u AGENT \
+      HOME="$tmp/home" TERM=xterm-256color PATH="$tmp:$PATH" "$@" \
+      bash --noprofile --rcfile "$repo_root/.bashrc" -ic \
+      'printf "__NATIVE_SHELL__\n"' 2>/dev/null
+  )"
+  if [[ "$output" != "$expected" ]]; then
+    printf 'FAIL %s: expected %q, got %q\n' "$label" "$expected" "$output" >&2
+    return 1
+  fi
+  printf 'PASS %s\n' "$label"
+}
+
+run_case 'Herdr owns the terminal' '__NATIVE_SHELL__' HERDR_ENV=1
+run_case 'ordinary interactive shell' '__MOCK_TMUX_EXECUTED__'
+run_case 'explicitly disabled Herdr context' '__MOCK_TMUX_EXECUTED__' HERDR_ENV=0
+run_case 'already in tmux' '__NATIVE_SHELL__' TMUX=/test/socket,1,0
+run_case 'existing AGENT exclusion' '__NATIVE_SHELL__' AGENT=1
+run_case 'tmux TERM exclusion' '__NATIVE_SHELL__' TERM=tmux-256color
