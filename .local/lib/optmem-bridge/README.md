@@ -191,3 +191,74 @@ A complete migration of multiline/oversized/sensitive ZeroClaw notes requires
 its own verified lossless mapping or securely retained-archive contract before
 production go-live. This strict initial gate intentionally does not invent
 semantic equality for paraphrased or truncated legacy notes.
+
+## Canonical production cutover on solo098
+
+All preproduction work remains quarantined until the real, read-only
+production_preflight reports READY. The release scripts refuse a live legacy
+writer and preserve the original canonical directory. Neither model authority
+nor arbitrary MCP arguments may select the canonical path: the Python writer
+accepts only the explicit, operator-activated canonical pair. Every call
+checks the fixed SHA-256 of the approved 26-record historical prefix.
+
+Production commands are private operator operations, not agent tools:
+
+- python3 -B .local/lib/optmem-bridge/test_production_cutover.py
+  rehearses 26+88 records, mixed-size core/daily/conversation categories,
+  exact SQLite archive, shared-writer import, sealed snapshot, independent
+  restored proof, and rollback under a disposable HOME. It never stops a real
+  service or touches the real canonical LOG.
+- production_operator.py prepare-stage prepares only the original approved
+  26 records in a new paired private stage. No synthetic smoke record is
+  admitted. Production activation requires an additional quiescent archive.
+- Stop zeroclaw.service before production_operator.py native-archive
+  --archive ~/.local/state/optmem-production/legacy-retained.
+- production_activate.py install atomically swaps the previously empty
+  canonical directory while retaining the original for rollback; it writes
+  ACTIVE.json last. It refuses overwrite, missing archive, stale provenance,
+  unexpected owners, conflicting paths or running ZeroClaw.
+- native_migrate.py admits eligible short original core/daily facts through
+  the same key/digest writer, with no second relevance model or human gate.
+  Every native row, field, full content and ID remains in a private, restorable
+  SQLite archive. Oversized/multiline, conversation and sensitive records are
+  deliberately **retained**, never truncated or falsely declared imported.
+  All 88/88 rows must have cryptographic source receipts; even retained rows
+  are compared to the complete original and archived SQLite tuples.
+- production_snapshot.py seal --snapshot <new-private-snapshot-path> takes a
+  coherent LOG+TREE+config+both SQLite sidecar backup with the live writer lock,
+  then independently restores and verifies content, identities and requests.
+- test_zeroclaw_store_e2e.py --production and test_opencode_api_e2e.py
+  --production use actual released binaries, their real MCP protocol and a
+  local deterministic mock provider: both reuse one legitimate integration
+  fact, and the second harness produces no duplicate memory. No browser,
+  Enpass or external model API is needed by these acceptance tests.
+- production_release.py verifies real proof files, shared durable receipts,
+  native reconciliation, live service and the restorable snapshot before
+  writing canonical-acceptance.json. production_preflight.py must report
+  seven READY checks, not merely accept a manually written boolean receipt.
+
+The OpenCode MCP config lives in a narrow opencode.jsonc overlay, because the
+main opencode.json is independently managed and can be concurrently edited.
+It must never be replaced or force-merged during the OptMem cutover.
+
+The ZeroClaw runtime config is still rendered by the existing
+zeroclaw-private-config.service; the production template uses a HOME
+placeholder that is expanded by the renderer only at runtime. The native
+ZeroClaw semantic memory backend is disabled **after** final lossless
+checkpoint/reconciliation. Its original SQLite file remains untouched and
+recoverable; the private archive is offline retention, not a second active
+agent store.
+
+Rollback: stop zeroclaw.service; invoke production_activate.py rollback to
+restore the original canonical path without deleting the deployed copy or
+its sidecar; restore the prior ZeroClaw/OpenCode configuration from Git and
+rerender the private runtime config; restart the original service. If new
+canonical memories have been committed, retain the rolled-back production
+snapshot and export receipts before attempting a future cutover. Do not
+silently throw away new memories.
+
+A local snapshot is not an authenticated off-host backup. No remote transfer
+or credential lookup is performed here. A simple unkeyed SHA-256 manifest
+detects corruption, not an active malicious rewriter. Unimported long legacy
+conversations can be recovered from the private archive but are intentionally
+not promoted to current concise OptMem facts.

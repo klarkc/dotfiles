@@ -1,0 +1,14 @@
+{
+  "mcp": {
+    "optmem": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 25000,
+      "command": [
+        "/usr/bin/bash",
+        "-c",
+        "exec \"$HOME/.local/bin/optmem-opencode-mcp\""
+      ]
+    }
+  }
+}

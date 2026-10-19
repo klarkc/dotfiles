@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec /usr/bin/python3 -B "$HOME/.local/lib/optmem-bridge/agent_mcp.py" --production --harness opencode --memory-dir "$HOME/.optmem/memory" --sidecar "$HOME/.local/state/optmem-production/sidecar"

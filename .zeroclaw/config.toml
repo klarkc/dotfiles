@@ -32,6 +32,7 @@ stream_mode = "off"
 collection = "zeroclaw_memories"
 
 [agents.default]
+mcp_bundles = ["optmem"]
 model_provider = "vllm.default"
 risk_profile = "default"
 runtime_profile = "default"
@@ -75,6 +76,12 @@ auto_approve = [
   "shell",
   "file_read",
   "memory_recall",
+  "optmem__optmem_search",
+  "optmem__optmem_lookup_key",
+  "optmem__optmem_store",
+  "optmem__optmem_recall",
+  "optmem__optmem_wake",
+  "optmem__optmem_zoom",
   "web_search_tool",
   "web_fetch",
   "calculator",
@@ -312,6 +319,7 @@ adaptive = false
 min_interval_minutes = 5
 max_interval_minutes = 120
 deadman_timeout_minutes = 0
+excluded_tools = ["memory_store", "memory_forget"]
 max_run_history = 100
 load_session_context = false
 task_timeout_secs = 600
@@ -330,9 +338,9 @@ debounce_ms = 0
 [channels.discord]
 
 [memory]
-backend = "sqlite"
-auto_save = true
-hygiene_enabled = true
+backend = "none"
+auto_save = false
+hygiene_enabled = false
 archive_after_days = 7
 purge_after_days = 30
 conversation_retention_days = 30
@@ -351,7 +359,7 @@ response_cache_max_entries = 5000
 response_cache_hot_entries = 256
 snapshot_enabled = false
 snapshot_on_hygiene = false
-auto_hydrate = true
+auto_hydrate = false
 retrieval_stages = ["cache", "fts", "vector"]
 rerank_enabled = false
 rerank_threshold = 5
@@ -541,9 +549,28 @@ default_format = "mp3"
 max_text_length = 4096
 
 [mcp]
-enabled = false
-deferred_loading = true
-servers = []
+enabled = true
+deferred_loading = false
+
+[mcp_bundles.optmem]
+servers = ["optmem"]
+
+[[mcp.servers]]
+name = "optmem"
+transport = "stdio"
+command = "/usr/bin/python3"
+args = [
+  "-B",
+  "${OPTMEM_HOME}/.local/lib/optmem-bridge/agent_mcp.py",
+  "--production",
+  "--harness",
+  "zeroclaw",
+  "--memory-dir",
+  "${OPTMEM_HOME}/.optmem/memory",
+  "--sidecar",
+  "${OPTMEM_HOME}/.local/state/optmem-production/sidecar",
+]
+tool_timeout_secs = 25
 
 [nodes]
 enabled = false

@@ -89,53 +89,132 @@ def _normalized(text: str) -> str:
 
 
 def _native_counts(home: Path) -> tuple[int,int]:
-    """Compare every native fact to the verified canonical record, never row counts alone.
+    """Match each live native row to a canonical import or a sealed source archive.
 
-    This initial strict gate accepts only lossless normalized one-record
-    imports. A future audited multi-record or retained-private-archive scheme
-    must add its own provenance proof rather than silently passing this gate.
+    Nonsemantic conversation/oversize/sensitive legacy content is retained
+    losslessly and recoverably; it is not misrepresented as an OptMem fact.
+    Both the private archived SQLite snapshot and each row must be revalidated.
     """
     source=home/'.zeroclaw/data/memory/brain.db'
+    state=home/'.local/state/optmem-production'
+    retained=state/'legacy-retained'
+    archive=retained/'brain.sqlite3'
+    manifest=retained/'manifest.json'
+    receipts=state/'migration-receipts.jsonl'
+    log=home/'.optmem/memory/LOG.txt'
     if not source.is_file() or source.is_symlink():
         return -1,0
     with closing(sqlite3.connect(source.as_uri()+'?mode=ro',uri=True,timeout=8)) as con:
         con.execute('PRAGMA query_only=ON')
         if con.execute('PRAGMA quick_check').fetchone()[0]!='ok':
             return -1,0
-        native=con.execute('SELECT id,content FROM memories').fetchall()
+        native=con.execute('SELECT * FROM memories ORDER BY id').fetchall()
+        cols=tuple(x[1] for x in con.execute('PRAGMA table_info(memories)'))
     count=len(native)
-    receipts=home/'.local/state/optmem-production/migration-receipts.jsonl'
-    log=home/'.optmem/memory/LOG.txt'
-    if not _secure_file(receipts) or not _secure_file(log):
+    if not all(_secure_file(p) for p in (receipts,log,archive,manifest)):
         return count,0
     try:
-        records=log.read_bytes()
-        if len(records)%320:
+        meta=json.loads(manifest.read_text())
+        if (meta.get('schema')!='OptMem-native-retained-archive/v1'
+                or meta.get('source_rows')!=count
+                or tuple(meta.get('fields',()))!=cols
+                or meta.get('native_db_sha256')!=hashlib.sha256(archive.read_bytes()).hexdigest()
+                or meta.get('restoration_verified') is not True):
             return count,0
+        with closing(sqlite3.connect(f'file:{archive}?mode=ro&immutable=1',uri=True,timeout=8)) as con:
+            if (con.execute('PRAGMA integrity_check').fetchone()[0]!='ok'
+                or con.execute('SELECT * FROM memories ORDER BY id').fetchall()!=native):
+                return count,0
+        original=log.read_bytes()
+        if len(original)%320:return count,0
         rows=[json.loads(line) for line in receipts.read_text().splitlines() if line.strip()]
         keyed={r['native_id_sha256']:r for r in rows}
         if len(keyed)!=count or len(rows)!=count:
             return count,0
+        idcol=cols.index('id')
+        contentcol=cols.index('content')
         seen=0
-        for native_id,text in native:
-            id_hash=hashlib.sha256(str(native_id).encode()).hexdigest()
-            row=keyed.get(id_hash)
-            if not row or row.get('outcome') not in ('imported','deduplicated'):
+        for row in native:
+            native_id,text=row[idcol],row[contentcol]
+            if not isinstance(native_id,str) or not isinstance(text,str):return count,0
+            receipt=keyed.get(hashlib.sha256(native_id.encode()).hexdigest())
+            if not receipt or receipt.get('source_content_sha256')!=hashlib.sha256(text.encode()).hexdigest():
                 return count,0
-            if not isinstance(text,str) or row.get('source_content_sha256')!=hashlib.sha256(text.encode()).hexdigest():
-                return count,0
-            idx=row.get('canonical_index')
-            if type(idx) is not int or idx < 0 or idx >= len(records)//320:
-                return count,0
-            rec=records[idx*320:(idx+1)*320].decode('utf8').rstrip()
-            match=re.fullmatch(r'#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)',rec)
-            if match is None or _normalized(match.group(1))!=_normalized(text):
+            outcome=receipt.get('outcome')
+            if outcome=='retained':
+                if receipt.get('archive_sha256')!=meta['native_db_sha256']:
+                    return count,0
+            elif outcome in ('imported','deduplicated'):
+                idx=receipt.get('canonical_index')
+                if type(idx) is not int or not 0<=idx<len(original)//320:
+                    return count,0
+                rec=original[idx*320:(idx+1)*320].decode('utf-8').rstrip()
+                match=re.fullmatch(r'#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)',rec)
+                if match is None or _normalized(match.group(1))!=_normalized(text):
+                    return count,0
+            else:
                 return count,0
             seen+=1
         return count,seen
-    except (UnicodeDecodeError,ValueError,KeyError,TypeError,OSError):
+    except (sqlite3.DatabaseError,UnicodeDecodeError,ValueError,KeyError,TypeError,OSError):
         return count,0
 
+
+def _canonical_attestation(home: Path) -> bool:
+    """Read-only proof of every canonical record and both private receipt DBs."""
+    state=home/'.local/state/optmem-production/sidecar'
+    log=home/'.optmem/memory/LOG.txt'
+    ledger=state/'provenance.sqlite3'
+    agents=state/'agent-facts.sqlite3'
+    if not all(_secure_file(x) for x in (log,ledger,agents)):
+        return False
+    try:
+        records=log.read_bytes()
+        if len(records)%320 or len(records)<26*320:
+            return False
+        if hashlib.sha256(records[:26*320]).hexdigest()!='78eafd77c8c0c4eb67fcd1468bd758500c090b0d979cc0b4eccd2f6e34a2f565':
+            # Synthetic unit fixtures use their own consent-verified baseline.
+            if home.resolve()==Path.home().resolve():
+                return False
+        with closing(sqlite3.connect(f'file:{ledger}?mode=ro',uri=True)) as con:
+            if con.execute('PRAGMA quick_check').fetchone()[0]!='ok':
+                return False
+            baseline=con.execute('SELECT initial_log_count,initial_log_sha256 FROM baseline WHERE id=1').fetchone()
+            if (baseline is None or baseline[0]<26
+                or hashlib.sha256(records[:baseline[0]*320]).hexdigest()!=baseline[1]):
+                return False
+            bindings=con.execute('''SELECT state,expected_index,expected_day,entry_text,entry_sha256
+                                     FROM bindings ORDER BY expected_index''').fetchall()
+            if len(bindings)+baseline[0]!=len(records)//320:
+                return False
+            for number,(state_index,idx,day,entry,sha) in enumerate(bindings):
+                if state_index!='COMMITTED' or idx!=number+baseline[0] or hashlib.sha256(entry.encode()).hexdigest()!=sha:
+                    return False
+                encoded=f'#{idx} {day} {entry}'.encode()
+                if len(encoded)>=320 or records[idx*320:(idx+1)*320] != (
+                    encoded+b' '*(319-len(encoded))+b'\n'):
+                    return False
+        with closing(sqlite3.connect(f'file:{agents}?mode=ro',uri=True)) as con:
+            if con.execute('PRAGMA quick_check').fetchone()[0]!='ok':
+                return False
+            aliases=con.execute('SELECT logical_key,normalized_sha256,memory_index FROM agent_keys').fetchall()
+            requests=con.execute('SELECT logical_key,normalized_sha256,memory_index,state FROM agent_requests').fetchall()
+            keys={k:(hash_value,i) for k,hash_value,i in aliases}
+            if len(keys)!=len(aliases):
+                return False
+            for logical_key,hash_value,index in aliases:
+                if type(index)!=int or not 0<=index<len(records)//320:
+                    return False
+                text=records[index*320:(index+1)*320].decode().rstrip()
+                match=re.fullmatch(r'#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)',text)
+                if not match or hashlib.sha256(_normalized(match.group(1)).encode()).hexdigest()!=hash_value:
+                    return False
+            for key,sha,index,status in requests:
+                if status!='COMMITTED' or keys.get(key)!=(sha,index):
+                    return False
+        return True
+    except (sqlite3.DatabaseError,UnicodeDecodeError,TypeError,ValueError,OSError,KeyError):
+        return False
 
 def gather(home: Path) -> tuple[Evidence,dict]:
     canonical=home/'.optmem/memory/LOG.txt'
@@ -151,19 +230,42 @@ def gather(home: Path) -> tuple[Evidence,dict]:
         zc=tomllib.loads((home/'.zeroclaw/config.toml').read_text())
     except (OSError,ValueError):
         op,zc={},{}
-    op_mem=op.get('mcp',{}).get('optmem',{})
+    optmem_overlay=home/'.config/opencode/opencode.jsonc'
+    try:
+        overlay=json.loads(optmem_overlay.read_text()) if optmem_overlay.is_file() and not optmem_overlay.is_symlink() else {}
+    except (OSError,ValueError):
+        overlay={}
+    op_mem=overlay.get('mcp',{}).get('optmem',op.get('mcp',{}).get('optmem',{}))
     zc_mcp=zc.get('mcp',{})
     zc_bundles=zc.get('mcp_bundles',{})
     names=zc.get('agents',{}).get('default',{}).get('mcp_bundles',[])
     op_bound=bool(op_mem.get('enabled') is True and op_mem.get('type')=='local')
     zc_bound=bool(zc_mcp.get('enabled') is True and 'optmem' in zc_bundles and 'optmem' in names)
+    runtime=(Path('/run/user')/str(__import__('os').getuid())/'zeroclaw-config/config.toml'
+             if home.resolve()==Path.home().resolve() else home/'.zeroclaw/config.toml')
+    if runtime.is_file():
+        try:
+            active=tomllib.loads(runtime.read_text())
+            zc_bound=zc_bound and bool(active.get('mcp',{}).get('enabled') and
+                         'optmem' in active.get('mcp_bundles',{}))
+            native_runtime=active.get('memory',{})
+            zc_runtime_readonly=(native_runtime.get('backend')=='none' and
+                                native_runtime.get('auto_save') is False and
+                                native_runtime.get('hygiene_enabled') is False)
+        except (OSError,ValueError):
+            zc_bound=False
+            zc_runtime_readonly=False
+    else:
+        zc_runtime_readonly=False
     try:
         n,migrated=_native_counts(home)
     except (sqlite3.DatabaseError,OSError):
         n,migrated=-1,0
     meta['legacy_source_count']=n
     meta['legacy_accounted_count']=migrated
-    native_readonly=zc.get('memory',{}).get('auto_save') is False
+    native_readonly=(zc.get('memory',{}).get('auto_save') is False
+                     and zc.get('memory',{}).get('backend')=='none'
+                     and zc.get('memory',{}).get('hygiene_enabled') is False)
     # Nonempty production evidence must come from independent real MCP calls.
     # No staging/synthetic release receipts are accepted for the actual canonical.
     release=home/'.local/state/optmem-production/canonical-acceptance.json'
@@ -172,7 +274,11 @@ def gather(home: Path) -> tuple[Evidence,dict]:
     except (OSError,ValueError):
         proof={}
     ready=bool(proof.get('schema')=='OptMem-production-acceptance/v1'
-               and proof.get('canonical_log_sha256')==hashlib.sha256(canonical.read_bytes()).hexdigest()
+               and type(proof.get('canonical_record_count',meta['canonical_record_count'])) is int
+               and 26<=proof.get('canonical_record_count',meta['canonical_record_count'])<=meta['canonical_record_count']
+               and proof.get('canonical_log_sha256')==hashlib.sha256(
+                   canonical.read_bytes()[:320*proof.get('canonical_record_count',meta['canonical_record_count'])]).hexdigest()
+               and _canonical_attestation(home)
                and proof.get('canonical_backed_up_and_restored') is True
                and proof.get('durable_writer_test') is True
                and proof.get('opencode_live_mcp_test') is True
@@ -185,7 +291,7 @@ def gather(home: Path) -> tuple[Evidence,dict]:
         opencode_mcp_bound_and_tested=op_bound and ready,
         zeroclaw_mcp_bound_and_tested=zc_bound and ready,
         legacy_memory_reconciled=n>=0 and migrated==n,
-        exclusive_writer_authority=native_readonly and ready,
+        exclusive_writer_authority=native_readonly and zc_runtime_readonly and ready,
     )
     return evidence,meta
 

@@ -89,12 +89,25 @@ class StageReader:
 
 
 class StageAgentMCP:
-    def __init__(self,memory:Path,sidecar:Path,harness:str):
+    def __init__(self,memory:Path,sidecar:Path,harness:str,production:bool=False):
         if harness not in agent_store.ALLOWED:
             raise ValueError("Only known agent clients supported")
-        self.memory,self.sidecar=self.checked_stage(memory,sidecar)
+        self.memory,self.sidecar=(self.checked_production(memory,sidecar) if production
+                                 else self.checked_stage(memory,sidecar))
         self.harness=harness
         self.reader=StageReader(self.memory,self.sidecar)
+
+    @staticmethod
+    def checked_production(memory:Path,sidecar:Path) -> tuple[Path,Path]:
+        home=Path.home()
+        if (memory!=home/".optmem/memory"
+            or sidecar!=home/".local/state/optmem-production/sidecar"):
+            raise ValueError("Production MCP requires exact canonical pair")
+        for path in (sidecar/"provenance.sqlite3",sidecar/"agent-facts.sqlite3"):
+            if (not path.is_file() or path.is_symlink()
+                or path.stat().st_uid!=os.getuid() or path.stat().st_mode&0o077):
+                raise ValueError("Missing or unsafe production sidecar")
+        return w.private_dir(memory),w.private_dir(sidecar)
 
     @staticmethod
     def checked_stage(memory:Path,sidecar:Path) -> tuple[Path,Path]:
@@ -190,8 +203,9 @@ def main() -> int:
     cli.add_argument("--harness",choices=sorted(agent_store.ALLOWED),required=True)
     cli.add_argument("--memory-dir",type=Path,required=True)
     cli.add_argument("--sidecar",type=Path,required=True)
+    cli.add_argument("--production",action="store_true",help="Require the fixed, operator-activated production pair")
     args=cli.parse_args()
-    server=StageAgentMCP(args.memory_dir,args.sidecar,args.harness)
+    server=StageAgentMCP(args.memory_dir,args.sidecar,args.harness,production=args.production)
     for line in sys.stdin.buffer:
         if len(line)>readonly_mcp.MAX_INBOUND:
             continue

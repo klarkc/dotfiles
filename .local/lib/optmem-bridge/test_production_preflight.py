@@ -62,7 +62,9 @@ class ProductionPreflightTests(unittest.TestCase):
         private_write(self.home/'.config/opencode/opencode.json',json.dumps({
             'mcp':{'optmem':{'type':'local','enabled':True}}}).encode())
         private_write(self.home/'.zeroclaw/config.toml',b'''[memory]
+backend = "none"
 auto_save = false
+hygiene_enabled = false
 [mcp]
 enabled = true
 [mcp_bundles.optmem]
@@ -70,6 +72,32 @@ servers = ["optmem"]
 [agents.default]
 mcp_bundles = ["optmem"]
 ''')
+        self.archive=self.home/'.local/state/optmem-production/legacy-retained'
+        self.archive.mkdir(mode=0o700,parents=True,exist_ok=True)
+        archived=self.archive/'brain.sqlite3'
+        with closing(sqlite3.connect(self.native)) as src:
+            with closing(sqlite3.connect(archived)) as dst:
+                src.backup(dst)
+            cols=[x[1] for x in src.execute('PRAGMA table_info(memories)')]
+        archived.chmod(0o600)
+        private_write(self.archive/'manifest.json',json.dumps({
+            'schema':'OptMem-native-retained-archive/v1',
+            'source_rows':len(self.notes),'fields':cols,
+            'native_db_sha256':hashlib.sha256(archived.read_bytes()).hexdigest(),
+            'restoration_verified':True}).encode())
+        sidecar=self.home/'.local/state/optmem-production/sidecar'
+        sidecar.mkdir(mode=0o700,parents=True,exist_ok=True)
+        self.sidecar=sidecar
+        with closing(sqlite3.connect(sidecar/'provenance.sqlite3')) as conn:
+            conn.execute('CREATE TABLE baseline (id INTEGER PRIMARY KEY, initial_log_count INTEGER, initial_log_sha256 TEXT)')
+            conn.execute('CREATE TABLE bindings (state TEXT,expected_index INTEGER,expected_day TEXT,entry_text TEXT,entry_sha256 TEXT)')
+            conn.execute('INSERT INTO baseline VALUES (1,26,?)',(hashlib.sha256(self.canonical.read_bytes()).hexdigest(),))
+            conn.commit()
+        with closing(sqlite3.connect(sidecar/'agent-facts.sqlite3')) as conn:
+            conn.execute('CREATE TABLE agent_keys (logical_key TEXT,normalized_sha256 TEXT,memory_index INTEGER)')
+            conn.execute('CREATE TABLE agent_requests (logical_key TEXT,normalized_sha256 TEXT,memory_index INTEGER,state TEXT)')
+            conn.commit()
+        for path in sidecar.iterdir():path.chmod(0o600)
         self.write_receipts()
         self.write_proof()
 
@@ -85,6 +113,7 @@ mcp_bundles = ["optmem"]
 
     def write_proof(self):
         data={'schema':'OptMem-production-acceptance/v1',
+              'canonical_record_count':26,
               'canonical_log_sha256':hashlib.sha256(self.canonical.read_bytes()).hexdigest(),
               'canonical_backed_up_and_restored':True,'durable_writer_test':True,
               'opencode_live_mcp_test':True,'zeroclaw_live_mcp_test':True,
@@ -97,6 +126,30 @@ mcp_bundles = ["optmem"]
         self.assertEqual(counts['canonical_record_count'],26)
         self.assertEqual((counts['legacy_source_count'],counts['legacy_accounted_count']),(2,2))
         self.assertEqual(p.decide(evidence)['status'],'READY')
+
+    def test_retained_row_requires_matching_lossless_archive(self):
+        receipt=[json.loads(line) for line in self.receipts.read_text().splitlines()]
+        receipt[1].pop('canonical_index')
+        receipt[1]['outcome']='retained'
+        receipt[1]['archive_sha256']=json.loads((self.archive/'manifest.json').read_text())['native_db_sha256']
+        self.receipts.write_text(''.join(json.dumps(row)+'\n' for row in receipt))
+        self.assertEqual(p._native_counts(self.home),(2,2))
+        (self.archive/'brain.sqlite3').write_bytes(b'corrupt')
+        self.assertEqual(p._native_counts(self.home),(2,0))
+
+    def test_attested_prefix_allows_later_committed_writer_notes(self):
+        self.canonical.write_bytes(self.canonical.read_bytes()+record(26,'Legitimate post-release memory update'))
+        with closing(sqlite3.connect(self.sidecar/'provenance.sqlite3')) as conn:
+            text='Legitimate post-release memory update'
+            conn.execute('INSERT INTO bindings VALUES (?,?,?,?,?)',
+                ('COMMITTED',26,'2026-10-19',text,hashlib.sha256(text.encode()).hexdigest()))
+            conn.commit()
+        self.assertTrue(p._canonical_attestation(self.home))
+        self.assertTrue(p.gather(self.home)[0].canonical_writer_verified)
+
+    def test_untracked_post_release_append_denied(self):
+        self.canonical.write_bytes(self.canonical.read_bytes()+record(26,'Unauthorized memory injection'))
+        self.assertFalse(p._canonical_attestation(self.home))
 
     def test_unmigrated_native_rows_fail_closed(self):
         self.receipts.unlink()

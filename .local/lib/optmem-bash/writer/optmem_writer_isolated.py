@@ -55,11 +55,46 @@ def fmt(obj) -> str:
     return json.dumps(obj,ensure_ascii=False,sort_keys=True,separators=(",",":"))
 
 def private_dir(path: Path) -> Path:
-    # Never permit an accidental import into ~/.optmem/memory from this prototype.
-    if path.is_symlink() or not path.resolve().is_relative_to(HERE):
-        raise ValueError("Writer only supports isolated private fixtures")
-    path.mkdir(mode=0o700,parents=True,exist_ok=True)
-    if path.stat().st_mode & 0o077:
+    # Production is a *fixed pair* activated by a separate private operator
+    # checkpoint. No environment switch, arbitrary directory, or MCP argument
+    # can authorize a new canonical path. Stage behavior is unchanged.
+    path=Path(path)
+    home=Path.home()
+    prod_root=home/".local/state/optmem-production"
+    canonical=home/".optmem/memory"
+    sidecar=prod_root/"sidecar"
+    is_prod=path in (canonical,sidecar)
+    if is_prod:
+        marker=prod_root/"ACTIVE.json"
+        if (not marker.is_file() or marker.is_symlink()
+            or marker.stat().st_uid!=os.getuid() or marker.stat().st_mode&0o077):
+            raise ValueError("Production writer not activated by private operator checkpoint")
+        try:
+            activation=json.loads(marker.read_text())
+        except (ValueError,OSError) as exc:
+            raise ValueError("Unreadable production activation checkpoint") from exc
+        if (activation.get("schema")!="OptMem-production-activation/v1"
+            or activation.get("enabled") is not True
+            or activation.get("canonical_baseline_sha256")!="78eafd77c8c0c4eb67fcd1468bd758500c090b0d979cc0b4eccd2f6e34a2f565"):
+            raise ValueError("Invalid production activation checkpoint")
+        for directory in (prod_root,canonical,sidecar):
+            if (not directory.is_dir() or directory.is_symlink()
+                or directory.stat().st_uid!=os.getuid()
+                or directory.stat().st_mode&0o077):
+                raise ValueError("Unsafe production directory")
+        logfile=canonical/"LOG.txt"
+        if (not logfile.is_file() or logfile.is_symlink()
+            or logfile.stat().st_uid!=os.getuid() or logfile.stat().st_mode&0o077):
+            raise ValueError("Invalid production LOG")
+        with logfile.open("rb") as f:
+            prefix=f.read(26*LOG_REC)
+        if len(prefix)!=26*LOG_REC or checksum(prefix)!=activation["canonical_baseline_sha256"]:
+            raise ValueError("Canonical historical prefix differs from approved source")
+    elif path.is_symlink() or not path.resolve().is_relative_to(HERE):
+        raise ValueError("Writer only supports isolated fixtures or activated canonical pair")
+    if not is_prod:
+        path.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if path.stat().st_uid!=os.getuid() or path.stat().st_mode & 0o077:
         raise ValueError("Writer directory permissions are unsafe")
     return path
 

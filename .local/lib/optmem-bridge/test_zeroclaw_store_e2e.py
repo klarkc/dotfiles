@@ -21,6 +21,9 @@ class AgentMock(BaseHTTPRequestHandler):
     events=[]
     expected_key=secrets.token_urlsafe(24)
     search_first=False
+    memory_key="workflow.remote"
+    memory_text="Prefer isolated local agent staging"
+    search_term="isolated local agent"
     def log_message(self,*args):pass
 
     def do_GET(self):
@@ -54,19 +57,18 @@ class AgentMock(BaseHTTPRequestHandler):
         if AgentMock.search_first and not tool_messages and search:
             message={"role":"assistant","content":None,"tool_calls":[
                 {"id":"call_optmem_stage_search","type":"function",
-                 "function":{"name":search,"arguments":json.dumps({"query":"isolated local agent"})}}]}
+                 "function":{"name":search,"arguments":json.dumps({"query":AgentMock.search_term})}}]}
             reason="tool_calls"
             AgentMock.events.append({"phase":"model_requested_search","name":search})
         elif target and (not tool_messages or
-              (AgentMock.search_first and len(tool_messages)==1 and
-               "NOT_FOUND" in str(tool_messages[-1].get("content","")))):
+              (AgentMock.search_first and len(tool_messages)==1)):
             message={"role":"assistant","content":None,"tool_calls":[
                 {"id":"call_optmem_stage_1","type":"function",
-                 "function":{"name":target,"arguments":json.dumps({"memory_key":"workflow.remote","text":"Prefer isolated local agent staging"})}}]}
+                 "function":{"name":target,"arguments":json.dumps({"memory_key":AgentMock.memory_key,"text":AgentMock.memory_text})}}]}
             reason="tool_calls"
             AgentMock.events.append({"phase":"model_requested_tool","name":target})
         else:
-            matches=any(x.get("role")=="tool" and ("STORED #0" in str(x.get("content","")) or "ALREADY_PRESENT #0" in str(x.get("content","")))
+            matches=any(x.get("role")=="tool" and ("STORED #" in str(x.get("content","")) or "ALREADY_PRESENT #" in str(x.get("content","")))
                         for x in messages)
             AgentMock.events.append({"phase":"tool_result_seen_by_model","matched_STORE":matches})
             message={"role":"assistant","content":"STORE_VERIFIED" if matches else "NOT_FOUND"}
@@ -98,6 +100,7 @@ class AgentMock(BaseHTTPRequestHandler):
 def main():
     cli=argparse.ArgumentParser()
     cli.add_argument("--negative-no-bundle",action="store_true")
+    cli.add_argument("--production",action="store_true")
     cli.add_argument("--search-first",action="store_true")
     cli.add_argument("--zeroclaw",required=True,type=Path)
     cli.add_argument("--server",required=True,type=Path)
@@ -110,6 +113,10 @@ def main():
     args.output.mkdir(mode=0o700)
     AgentMock.events=[]
     AgentMock.search_first=args.search_first
+    if args.production:
+        AgentMock.memory_key="optmem.production.integration"
+        AgentMock.memory_text="OptMem production on solo098 uses one shared canonical writer"
+        AgentMock.search_term="OptMem production"
     server=ThreadingHTTPServer(("127.0.0.1",0),AgentMock)
     thread=threading.Thread(target=server.serve_forever,daemon=True)
     thread.start()
@@ -118,7 +125,8 @@ def main():
         config.mkdir(mode=0o700)
         uri=f"http://127.0.0.1:{server.server_address[1]}/v1"
         command=json.dumps(["-B",str(args.server),"--harness","zeroclaw",
-                             "--memory-dir",str(args.memory),"--sidecar",str(args.sidecar)])
+                             "--memory-dir",str(args.memory),"--sidecar",str(args.sidecar)]
+                             + (["--production"] if args.production else []))
         conf=f'''schema_version=3
 
 [providers.models.vllm.default]
@@ -176,7 +184,7 @@ tool_timeout_secs=15
         env["PYTHONDONTWRITEBYTECODE"]="1"
         p=subprocess.run([str(args.zeroclaw),"--verbose","--log-level","debug","--config-dir",str(config),
              "agent","--agent","default","--message",
-             "Call optmem_stage__optmem_store with memory_key workflow.remote and text Prefer isolated local agent staging. Return STORE_VERIFIED only if stored or already present."],
+             f"Call optmem__optmem_store with memory_key {AgentMock.memory_key} and text {AgentMock.memory_text}. Return STORE_VERIFIED only if stored or already present."],
              cwd=args.output,env=env,capture_output=True,text=True,timeout=35)
     finally:
         server.shutdown()
@@ -197,7 +205,8 @@ tool_timeout_secs=15
             "expected_bearer_sent":all(v.get("expected_bearer_value") for v in events if v["phase"]=="authorization"),
             "events":events,
             "stderr_class": ("none" if p.returncode==0 else "AGENT_ERROR"),
-            "no_production_services_or_native_memories_touched":True}
+             "no_production_services_or_native_memories_touched":not args.production,
+             "production":args.production}
     out=args.output/"result.json"
     out.write_text(json.dumps(output,indent=2)+"\n")
     out.chmod(0o600)

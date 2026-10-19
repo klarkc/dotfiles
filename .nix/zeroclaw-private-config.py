@@ -124,6 +124,9 @@ def render(template_path=TEMPLATE, runtime_base=None):
     required = set().union(*sections.values())
     if seen != required:
         raise ValueError("ZeroClaw template is missing required private-config fields")
+    if any(char in str(home) for char in (chr(10), chr(13), chr(34), chr(92))):
+        raise ValueError("Invalid home path for MCP configuration")
+    rendered = rendered.replace("${OPTMEM_HOME}", str(home))
     result = tomllib.loads(rendered)
     discord = result["channels"]["discord"]["default"]
     peer_group = result["peer_groups"]["discord_default"]
