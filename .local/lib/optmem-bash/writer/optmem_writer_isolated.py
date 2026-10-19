@@ -274,8 +274,10 @@ def upstream_memo_note(memory: Path, entry: str) -> int:
     env=os.environ.copy()
     env["MEMORY_DIR"]=str(memory)
     env["PYTHONDONTWRITEBYTECODE"]="1"
+    # Do not inherit a Nix/interactive shell umask: upstream memo may create
+    # TREE, configuration or lock artifacts. All must remain private.
     result=subprocess.run([sys.executable,"-B",str(MEMO),"note",entry],env=env,
-                          capture_output=True,text=True,timeout=20)
+                          capture_output=True,text=True,timeout=20,umask=0o077)
     if result.returncode:
         raise RuntimeError("Upstream note failed; inspect private staging state")
     match=re.search(r"Saved as #([0-9]+)\.",result.stdout)

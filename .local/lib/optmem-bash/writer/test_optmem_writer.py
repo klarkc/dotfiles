@@ -38,7 +38,7 @@ class TestWriter(unittest.TestCase):
         env=os.environ.copy()
         env["MEMORY_DIR"]=str(self.memory)
         p=subprocess.run([sys.executable,"-B",str(w.MEMO),"init"],env=env,text=True,
-                         capture_output=True,timeout=12)
+                         capture_output=True,timeout=12,umask=0o077)
         self.assertEqual(p.returncode,0,p.stderr)
         # Upstream memo inherits process umask; Nix hook shells may use 0022.
         # Model the intended private writer runtime, not a public test LOG.
@@ -97,6 +97,14 @@ class TestWriter(unittest.TestCase):
             while b"\n" not in response and len(response)<1024:
                 response+=sock.recv(1024)
             return json.loads(response.split(b"\n",1)[0])
+
+    def test_upstream_generated_tree_and_lock_remain_private(self):
+        self.populate()
+        w.commit_ready_bash_observation(self.memory,self.sidecar,self.source,"git status")
+        for path in self.memory.rglob("*"):
+            info=path.lstat()
+            self.assertEqual(info.st_mode & 0o077,0,
+                "Upstream private OptMem artifact permissions must not follow shell umask")
 
     def test_commit_and_duplicate_replay(self):
         feature=self.populate()

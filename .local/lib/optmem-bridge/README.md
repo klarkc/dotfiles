@@ -137,3 +137,32 @@ existing logical-key bindings. Fresh legacy LOG enrollment needs a separate
 explicit, verified migration procedure; this guard does not authorize one.
 Restoration tests use disposable copies of the complete memory + sidecar pair.
 Remote durability and production cutover remain blocked.
+
+## G4N: coherent local snapshot and staged restore (NOT production)
+
+`python3 -B .local/lib/optmem-bridge/snapshot_stage.py create --memory
+<stage>/memory --sidecar <stage>/sidecar --backup <new-stage-snapshot>`
+creates a **local, private, bounded, immutable-by-convention** snapshot of the
+entire staged upstream memory (LOG, config and TREE files) and the two SQLite
+sidecars. The staging and destination paths must be newly named, private paths
+under the ignored `writer/synthetic-cases/` directory. The same script accepts
+`verify --backup ...` and `restore --backup ... --destination <new-stage>`.
+The target restored stage is never an existing one; canonical OptMem, ZeroClaw
+native SQLite and production agent configuration are hard-denied.
+
+The capture holds `agent_lock -> writer_lock` (the real OptMem lock order) and
+uses the SQLite online backup API for each database, including uncheckpointed
+WAL state; it does not copy raw live SQLite database files. All records, keys,
+receipts, ownership, and private modes are verified. Pending PREPARED receipts,
+corruption, incomplete sidecars, unusual files, symlinks or colliding target
+names fail closed. A sealed manifest records counts, sizes and SHA-256 checks;
+restores are published via an atomic local directory rename after validation.
+The test suite injects concurrent writes, WAL pages, partial backups, damaged
+LOG/SQLite and process-crash receipt states.
+
+**Limitations:** an unkeyed SHA-256 manifest detects accidental corruption,
+not a malicious party replacing both the files and the manifest. This is a
+*local stage coherence proof*, not a remote durable backup or an encrypted,
+authenticated restore chain. Noncooperating raw OptMem writes remain prohibited;
+the lock protocol does not protect against malicious bypasses. No remote
+transport, cloud service, snapshot timer or native memory migration is enabled.
