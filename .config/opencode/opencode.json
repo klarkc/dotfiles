@@ -235,7 +235,11 @@
 	"mcp": {
 		"atlassian": {
 			"type": "remote",
-			"url": "https://mcp.atlassian.com/v1/mcp/authv2",
+			"url": "https://mcp.atlassian.com/v2/mcp",
+			"oauth": false,
+			"headers": {
+				"Authorization": "Basic {env:ATLASSIAN_MCP_BASIC_AUTH}"
+			},
 			"enabled": true
 		},
 		"bitbucket_read": {

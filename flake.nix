@@ -361,11 +361,10 @@
                   python3 "$agentProbe" --selftest
                   touch $out
                 '';
-            # Static verification that the opencode MCP integration for
-            # Atlassian Rovo MCP is configured correctly without
-            # committing any secret. The check fails if the MCP entry
-            # is missing, points at the wrong endpoint, or contains an
-            # Authorization header / Bearer / Basic value.
+            # Pure contract for the single Atlassian token-authenticated MCP:
+            # credentials are generated from local profile values at runtime;
+            # tracked config may contain only the exact env reference, never
+            # a literal authorization value or another credential source.
             opencode-mcp-atlassian-config =
               pkgs.runCommand "opencode-mcp-atlassian-config"
                 {
@@ -375,7 +374,6 @@
                 ''
                   python3 - "$src" <<'PY'
                   import json
-                  import re
                   import sys
 
                   path = sys.argv[1]
@@ -383,28 +381,22 @@
                       data = json.load(f)
                   mcp = data.get("mcp") or {}
                   atlassian = mcp.get("atlassian") or {}
-                  if not atlassian:
-                      sys.exit("FAIL: opencode config missing mcp.atlassian entry")
-                  if atlassian.get("type") != "remote":
-                      sys.exit("FAIL: mcp.atlassian.type must be 'remote'")
-                  url = atlassian.get("url") or ""
-                  expected = "https://mcp.atlassian.com/v1/mcp/authv2"
-                  if url != expected:
-                      sys.exit(f"FAIL: mcp.atlassian.url must be {expected}, got {url}")
-                  if not atlassian.get("enabled", False):
-                      sys.exit("FAIL: mcp.atlassian.enabled must be true")
-                  # Scan only the mcp.atlassian subtree so that
-                  # legitimate provider fields elsewhere in the config
-                  # (e.g. openai/vllm apiKey) don't trip the check.
-                  forbidden = re.compile(r"(?i)(authorization|basic|bearer|api[_-]?key|token|secret)")
-                  raw = json.dumps(atlassian)
-                  hits = [m.group(0) for m in forbidden.finditer(raw)]
-                  if hits:
-                      sys.exit(f"FAIL: mcp.atlassian subtree contains forbidden secrets: {hits}")
-                  if "headers" in atlassian:
-                      sys.exit("FAIL: mcp.atlassian must not define a headers block (would commit secrets)")
-                  if "oauth" in atlassian and atlassian["oauth"] is False:
-                      sys.exit("FAIL: mcp.atlassian.oauth=false would suppress OAuth auto-detection; remove the field")
+                  expected_atlassian = {
+                      "type": "remote",
+                      "url": "https://mcp.atlassian.com/v2/mcp",
+                      "oauth": False,
+                      "headers": {
+                          "Authorization": "Basic {env:ATLASSIAN_MCP_BASIC_AUTH}"
+                      },
+                      "enabled": True,
+                  }
+                  if atlassian != expected_atlassian:
+                      sys.exit(
+                          "FAIL: mcp.atlassian must use the token-authenticated "
+                          "endpoint with only the fixed environment reference"
+                      )
+                  if "atlassian_token" in mcp:
+                      sys.exit("FAIL: duplicate atlassian_token MCP is not allowed")
                   bb = mcp.get("bitbucket_read") or {}
                   if bb.get("type") != "local" or not bb.get("enabled", False):
                       sys.exit("FAIL: bitbucket_read local MCP must be enabled")
@@ -413,7 +405,7 @@
                       sys.exit("FAIL: bitbucket_read MCP command differs from tracked read-only bridge")
                   if bb.get("environment") or bb.get("headers"):
                       sys.exit("FAIL: bitbucket_read MCP must inherit runtime credentials, not store secrets")
-                  print("opencode-mcp-atlassian-config: OAuth + Bitbucket read-only MCP configured; secrets runtime-only")
+                  print("opencode-mcp-atlassian-config: token via environment + Bitbucket read-only; no inline secrets")
                   PY
                   touch $out
                 '';
