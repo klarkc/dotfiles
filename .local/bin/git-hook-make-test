@@ -4,7 +4,7 @@ set -euo pipefail
 # nix flake check executes pre-commit in an isolated /build derivation.
 # Calling make test again there would recurse indefinitely, without network.
 # Only the derivation skips this hook; real commits still require the
-# deterministic full local suite. Live external smokes are opt-in.
+# full local test suite, including live smoke tests, without a bypass.
 if [[ -n "${NIX_BUILD_TOP:-}" && "$PWD" == /build/* ]]; then
   echo "make-test: nested flake-check sandbox; recursion prevented"
   exit 0
@@ -12,7 +12,7 @@ fi
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-echo "make-test: mandatory deterministic make test before commit"
+echo "make-test: mandatory full make test (including live smokes) before commit"
 # Ignore inherited GNU Make settings and injected makefiles, all of which
 # can change the meaning of make test. For example MAKEFLAGS=-n previously
 # made this hook exit 0 while printing commands without running tests.
@@ -26,4 +26,4 @@ exec env \
   -u MAKEOVERRIDES \
   -u MAKELEVEL \
   -u SKIP_SMOKE \
-  SMOKE_TESTS_ENABLED=false make test
+  SMOKE_TESTS_ENABLED=true make test
