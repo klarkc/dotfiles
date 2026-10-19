@@ -17,10 +17,22 @@ profile="$state/profile"
 auth="$state/xauthority"
 mkdir -p "$state" "$profile"
 chmod 700 "$state" "$profile"
-exec 9>"$state/profile.lock"
-flock -n 9 || { echo "Virtual browser profile in use; close that session" >&2; exit 73; }
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+# A human-initiated pairing temporarily pauses any shared MCP clients.
+mcp_was_running=0
+if systemctl --user -q is-active opencode-browser-mcp.service; then
+  mcp_was_running=1
+  systemctl --user stop opencode-browser-mcp.service
+fi
+restore_mcp() {
+  if (( mcp_was_running )); then
+    systemctl --user start opencode-browser-mcp.service || true
+  fi
+}
+trap restore_mcp EXIT
+exec 9>"$state/profile.lock"
+flock -n 9 || { echo "Virtual browser profile still held by an OpenCode session" >&2; exit 73; }
 if [[ ! -s "$auth" ]]; then systemctl --user start opencode-browser-display.service; fi
 [[ -s "$auth" ]] || { echo "Xauthority not ready" >&2; exit 69; }
 ext="$(python3 - <<'PY'
@@ -50,6 +62,9 @@ cleanup() {
   kill "$xp" 2>/dev/null || true
   wait "$xp" 2>/dev/null || true
   systemctl --user start opencode-browser-display.service || true
+  # Release the pairing lock BEFORE restarting the shared MCP daemon.
+  exec 9>&-
+  restore_mcp
 }
 trap cleanup EXIT
 ready=0

@@ -230,7 +230,8 @@
 		"playwright_browser_evaluate": "deny",
 		"playwright_browser_run_code": "deny",
 		"playwright_browser_file_upload": "ask",
-		"playwright_browser_take_screenshot": "ask"
+		"playwright_browser_take_screenshot": "ask",
+		"playwright_browser_snapshot": "ask"
 	},
 	"mcp": {
 		"atlassian": {
@@ -253,12 +254,8 @@
 			"timeout": 30000
 		},
 		"playwright": {
-			"type": "local",
-			"command": [
-				"sh",
-				"-c",
-				"exec \"$HOME/.local/bin/opencode-browser-mcp\""
-			],
+			"type": "remote",
+			"url": "http://localhost:18927/mcp",
 			"enabled": true,
 			"timeout": 60000
 		}

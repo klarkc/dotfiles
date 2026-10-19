@@ -139,7 +139,30 @@ def selftest() -> None:
     tool["part"]["state"]["status"] = "error"
     if inspect_events(encode(tool, text))[0] is not None:
         fail("selftest accepted errored MCP tool evidence")
+    fixture = {
+        "mcp": {
+            "playwright": {"type": "remote", "enabled": True},
+            "atlassian": {"type": "remote", "enabled": True},
+            "bitbucket_read": {"type": "local", "enabled": True},
+        }
+    }
+    for mode in ("api-token", "full"):
+        filtered = smoke_mcp_config(fixture, mode)
+        assert filtered["playwright"]["enabled"] is False
+        assert filtered["bitbucket_read"]["enabled"] is True
+        assert filtered["atlassian"]["enabled"] is (mode == "full")
     print("coding-agents-smoke-test: offline selftest PASS")
+
+
+def smoke_mcp_config(config: dict, mode: str) -> dict:
+    """Prevent unrelated MCPs from breaking the isolated Bitbucket E2E test."""
+    enabled = {"bitbucket_read"}
+    if mode == "full":
+        enabled.add("atlassian")
+    return {
+        name: {**server, "enabled": name in enabled}
+        for name, server in config.get("mcp", {}).items()
+    }
 
 
 def main() -> None:
@@ -171,11 +194,9 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="bitbucket-agent-e2e-") as tmp:
         test_config = dict(config)
-        mcp = dict(config.get("mcp", {}))
-        # Rovo and Atlassian products are verified separately; a single
-        # Bitbucket MCP isolates this proof from remote OAuth delays.
-        if "atlassian" in mcp:
-            mcp["atlassian"] = {**mcp["atlassian"], "enabled": mode == "full"}
+        # Rovo and Atlassian have separate checks; no unrelated MCP (such
+        # as Playwright) may influence this isolated Bitbucket proof.
+        mcp = smoke_mcp_config(config, mode)
         mcp["bitbucket_read"] = {
             "type": "local",
             "command": [sys.executable, str(ROOT / ".local/bin/bitbucket-read-mcp")],

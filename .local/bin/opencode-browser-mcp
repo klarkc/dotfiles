@@ -75,4 +75,9 @@ config = state / "playwright-config.json"
 config.write_text(json.dumps(opts, indent=2) + "\n")
 config.chmod(0o600)
 PY
-exec "${OPENCODE_PLAYWRIGHT_MCP_BIN:-$HOME/.nix-profile/bin/playwright-mcp}" --config "$state/playwright-config.json" --image-responses=omit
+# A single systemd-managed HTTP server owns the profile across OpenCode clients.
+# Loopback-only: do not expose this port to any external network interface.
+exec "${OPENCODE_PLAYWRIGHT_MCP_BIN:-$HOME/.nix-profile/bin/playwright-mcp}" \
+  --config "$state/playwright-config.json" \
+  --host 127.0.0.1 --port 18927 --shared-browser-context \
+  --snapshot-mode none --image-responses=omit

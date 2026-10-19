@@ -1,0 +1,24 @@
+[Unit]
+Description=Shared local Playwright MCP for OpenCode background Brave
+Documentation=https://playwright.dev/mcp/configuration/options
+Requires=opencode-browser-display.service
+After=opencode-browser-display.service
+
+[Service]
+Type=simple
+Environment=HOME=%h
+ExecStart=%h/.local/bin/opencode-browser-mcp
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# No PrivateNetwork: the local browser must reach websites and Enpass.
+# Local loopback MCP has no HTTP-level authentication.
+
+[Install]
+WantedBy=default.target

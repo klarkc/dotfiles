@@ -1,11 +1,17 @@
 # OpenCode background browser (Brave + Playwright MCP)
 
-OpenCode communicates with Playwright MCP over stdio. The MCP controls a
-second Brave process, isolated from the user's Brave, on a dedicated Xvfb
-display :92. It has its own persistent profile under
+OpenCode connects to one shared Playwright MCP server through Streamable HTTP
+on http://localhost:18927/mcp. Its systemd service binds only 127.0.0.1
+and uses --shared-browser-context so multiple OpenCode clients use the same
+browser process and session instead of fighting for a locked profile.
+
+The daemon controls a second Brave, isolated from the user's personal Brave,
+on a dedicated Xvfb display :92. It has its own persistent profile under
 ~/.local/state/opencode-browser/profile (mode 0700), independent cookies,
 extension state, and browser history.
 
+The user services opencode-browser-display.service (virtual X11 display) and
+opencode-browser-mcp.service (HTTP transport) are separate and persistent.
 The launcher at ~/.local/bin/opencode-browser-mcp verifies the already
 installed Enpass Chrome Web Store extension manifest at
 ~/.config/BraveSoftware/Brave-Browser/Default/Extensions/
@@ -22,8 +28,9 @@ Playwright MCP is supplied by pinned Nixpkgs; do not use npm at runtime.
 
 Install:
 systemctl --user daemon-reload
+nix profile upgrade klarkc # only when flake Nix inputs/definitions change
 systemctl --user enable --now opencode-browser-display.service
-nix profile upgrade klarkc
+systemctl --user enable --now opencode-browser-mcp.service
 opencode mcp list
 
 If starting from SSH, set the user runtime environment first:
@@ -32,26 +39,56 @@ export XDG_RUNTIME_DIR=/run/user/$(id -u)
 
 For initial Enpass pairing, run from a graphical terminal:
 ~/.local/bin/opencode-browser-pair
-This briefly replaces Xvfb with a temporary Xephyr window showing the
-separate Brave. Click the Enpass icon and authorize inside Enpass Desktop,
+The helper temporarily stops the shared MCP service and opens a visible
+Xephyr window with the same isolated Brave profile. Active OpenCode browser
+clients are disconnected during pairing; finish browser operations first.
+Click the Enpass icon and authorize inside Enpass Desktop,
 using PIN only inside Enpass if asked. Close temporary Brave to return
-to Xvfb. The personal Brave is not touched. Human-supervised pairing
-remains unverified; extension loading alone is not evidence of pairing.
+to Xvfb; the helper resumes the shared service, releasing the exclusive
+profile lock before restart. The personal Brave is not touched.
+The Enpass Desktop pairing prompt was observed, but synthetic credential
+autofill has not yet been verified. Loading the extension alone is not
+evidence of successful login autofill.
 
 For secure uploads to MEGA/Icedrive, have the user perform login manually
 via the Enpass official extension; the agent can then use the resulting
 session and only upload pre-encrypted backup files after approval.
 
-The model is not allowed to use browser_evaluate or browser_run_code in the
-OpenCode permission policy. This reduces casual DOM secret reads, but cannot
-guarantee isolation of all credentials once typed in a webpage. Playwright's
-secrets redaction and allowed-origins are NOT security boundaries. Browser
-sessions contain cookies and must remain private (0700). The isolated
-browser starts on demand, one OpenCode MCP process at a time per profile.
+The OpenCode permission policy denies browser_evaluate/browser_run_code and
+asks approval for explicit snapshots and screenshots. The server uses
+--snapshot-mode none and --image-responses omit to avoid sending automatic
+sensitive snapshots. This is defense in depth, NOT an isolation guarantee;
+other MCP tools or local processes may still access browser data.
+
+The Playwright MCP endpoint does not provide local HTTP authentication.
+Binding to 127.0.0.1 limits network exposure but any local process able to
+connect to localhost can potentially use the browser and its logged-in
+sessions. Never port-forward, tunnel, or expose port 18927 to the LAN.
+Cookies and extension pairing state are stored privately (0700) in the
+browser profile; never copy the profile to other hosts.
+
+All OpenCode agents connected to this MCP share tabs and session state.
+Coordinate concurrent navigation/uploads; one agent can see or change another
+agent's page. Session sharing is intentional; it is not tenant isolation.
+Playwright's allowed-origins filter is not a security boundary.
 
 For diagnostics:
 systemctl --user status opencode-browser-display
+systemctl --user status opencode-browser-mcp
 opencode mcp list
+
+# A 400 or 405 response without MCP headers can still mean a listening port.
+
+curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:18927/mcp
+
+Multi-client live regression uses a disposable non-Enpass profile/server,
+NEVER the production paired port 18927:
+python3 .nix/tests/opencode-browser-shared-smoke.py --selftest
+python3 .nix/tests/opencode-browser-shared-smoke.py --url http://localhost:18928/mcp
+
+To stop all browser MCP access:
+systemctl --user disable --now opencode-browser-mcp.service
+systemctl --user disable --now opencode-browser-display.service
 
 Bump note: pkgs.playwright-mcp follows the locked Nixpkgs input. Review
 upstream MCP browser config/extension behavior and rerun:

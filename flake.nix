@@ -319,7 +319,8 @@
             opencode-browser-contract =
               pkgs.runCommand "opencode-browser-contract" { nativeBuildInputs = [ pkgs.python3 ]; }
                 ''
-                  python3 ${./.nix/tests/opencode-browser-contract.py} ${./.config/opencode/opencode.json} ${./.local/bin/opencode-browser-mcp} ${./.local/bin/opencode-browser-display} ${./.config/systemd/user/opencode-browser-display.service} ${./.local/bin/opencode-browser-pair}
+                  python3 ${./.nix/tests/opencode-browser-contract.py} ${./.config/opencode/opencode.json} ${./.local/bin/opencode-browser-mcp} ${./.local/bin/opencode-browser-display} ${./.config/systemd/user/opencode-browser-display.service} ${./.local/bin/opencode-browser-pair} ${./.config/systemd/user/opencode-browser-mcp.service}
+                  python3 ${./.nix/tests/opencode-browser-shared-smoke.py} --selftest
                   touch $out
                 '';
             # Offline contract for the actual pre-commit gate. It tests
