@@ -263,6 +263,80 @@ def lookup_key(memory: Path, sidecar: Path, logical_key: str) -> dict:
                     "index": index, "text": match.group(1)}
 
 
+
+MAX_SEARCH_ROWS = 8192
+MAX_SEARCH_RECORDS = 65536
+MAX_SEARCH_RESULTS = 8
+SEARCH_RE = re.compile(r"[\w ./-]{2,64}", re.UNICODE)
+
+
+def search_memories(memory: Path, sidecar: Path, query: str) -> dict:
+    """Bounded global discovery backed exclusively by the audited upstream LOG.
+
+    Agent memories expose stable keys; preexisting Bash/imported memories have
+    no key until an agent binds identical text via the existing shared writer.
+    Discovery is lexical and advisory, not an LLM approval or dedup assertion.
+    """
+    if (not isinstance(query, str) or not SEARCH_RE.fullmatch(query)
+            or len(query.encode("utf-8")) > 128):
+        raise ValueError("Invalid memory search term")
+    normalized = writer.normalized_memory_text(query)
+    words = re.findall(r"\w+", normalized, re.UNICODE)
+    if not words:
+        raise ValueError("A nonempty literal search term is required")
+    memory = writer.private_dir(memory)
+    sidecar = writer.private_dir(sidecar)
+    with agent_lock(sidecar):
+        writer.verify(memory, sidecar)
+        count = writer.log_count(memory)
+        if count > MAX_SEARCH_RECORDS:
+            raise RuntimeError("Too many upstream entries for bounded search")
+        with closing(agent_connection(sidecar)) as con:
+            rows = con.execute(
+                "SELECT logical_key,normalized_sha256,memory_index "
+                "FROM agent_keys ORDER BY logical_key LIMIT ?",
+                (MAX_SEARCH_ROWS + 1,),
+            ).fetchall()
+            if len(rows) > MAX_SEARCH_ROWS:
+                raise RuntimeError("Too many logical aliases for bounded search")
+            by_index: dict[int, list[str]] = {}
+            for row in rows:
+                index = row["memory_index"]
+                verified_index(memory, index, row["normalized_sha256"])
+                by_index.setdefault(index, []).append(row["logical_key"])
+        candidates = []
+        for index in range(count):
+            raw = writer.record_at(memory, index).decode("utf-8").rstrip()
+            match = re.fullmatch(r"#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)", raw)
+            if match is None:
+                raise RuntimeError("Invalid upstream memory record")
+            text = match.group(1)
+            aliases = by_index.get(index, [])
+            key_terms = " ".join(key.replace("/", " ").replace(".", " ")
+                                 .replace("-", " ").replace("_", " ")
+                                 for key in aliases)
+            haystack = writer.normalized_memory_text(text + " " + key_terms)
+            if not all(word in haystack for word in words):
+                continue
+            phrase = " ".join(words)
+            key_hits = sum(word in key_terms for word in words)
+            score = 10 * (phrase in haystack) + 4 * key_hits + len(words)
+            candidates.append((score, index, {
+                "index": index, "text": text,
+                "memory_key": aliases[0] if aliases else None,
+                "alias_count": len(aliases),
+                "aliases": aliases[:8],
+            }))
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        results = [item[2] for item in candidates[:MAX_SEARCH_RESULTS]]
+        # Fail closed if a foreign note or drift appeared while scanning; Bash
+        # and agent writers serialize separately through the writer ledger.
+        writer.verify(memory, sidecar)
+        return {"status": "FOUND" if results else "NOT_FOUND",
+                "results": results,
+                "truncated": len(candidates) > MAX_SEARCH_RESULTS}
+
+
 def stable_request_id(harness: str, logical_key: str, text: str) -> str:
     """Tool adapter derives replay identity; caller need not invent one."""
     digest=normalized_digest(text)

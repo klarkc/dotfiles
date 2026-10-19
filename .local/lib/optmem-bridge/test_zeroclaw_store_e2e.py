@@ -20,6 +20,7 @@ HASH="78eafd77c8c0c4eb67fcd1468bd758500c090b0d979cc0b4eccd2f6e34a2f565"
 class AgentMock(BaseHTTPRequestHandler):
     events=[]
     expected_key=secrets.token_urlsafe(24)
+    search_first=False
     def log_message(self,*args):pass
 
     def do_GET(self):
@@ -48,8 +49,17 @@ class AgentMock(BaseHTTPRequestHandler):
         AgentMock.events.append({"phase":"provider_request","path":self.path,
               "tool_names":tools,"message_roles":[x.get("role") for x in messages]})
         target=next((t for t in tools if t and "optmem" in t and "store" in t),None)
-        already=any(x.get("role")=="tool" for x in messages)
-        if not already and target:
+        search=next((t for t in tools if t and "optmem" in t and "search" in t),None)
+        tool_messages=[x for x in messages if x.get("role")=="tool"]
+        if AgentMock.search_first and not tool_messages and search:
+            message={"role":"assistant","content":None,"tool_calls":[
+                {"id":"call_optmem_stage_search","type":"function",
+                 "function":{"name":search,"arguments":json.dumps({"query":"isolated local agent"})}}]}
+            reason="tool_calls"
+            AgentMock.events.append({"phase":"model_requested_search","name":search})
+        elif target and (not tool_messages or
+              (AgentMock.search_first and len(tool_messages)==1 and
+               "NOT_FOUND" in str(tool_messages[-1].get("content","")))):
             message={"role":"assistant","content":None,"tool_calls":[
                 {"id":"call_optmem_stage_1","type":"function",
                  "function":{"name":target,"arguments":json.dumps({"memory_key":"workflow.remote","text":"Prefer isolated local agent staging"})}}]}
@@ -88,6 +98,7 @@ class AgentMock(BaseHTTPRequestHandler):
 def main():
     cli=argparse.ArgumentParser()
     cli.add_argument("--negative-no-bundle",action="store_true")
+    cli.add_argument("--search-first",action="store_true")
     cli.add_argument("--zeroclaw",required=True,type=Path)
     cli.add_argument("--server",required=True,type=Path)
     cli.add_argument("--memory",required=True,type=Path)
@@ -98,6 +109,7 @@ def main():
         raise FileExistsError("Never overwrite previous harness evidence")
     args.output.mkdir(mode=0o700)
     AgentMock.events=[]
+    AgentMock.search_first=args.search_first
     server=ThreadingHTTPServer(("127.0.0.1",0),AgentMock)
     thread=threading.Thread(target=server.serve_forever,daemon=True)
     thread.start()
@@ -128,11 +140,11 @@ servers=["optmem_stage"]
 
 [risk_profiles.default]
 allowed_commands=[]
-auto_approve=["optmem_stage__optmem_wake","optmem_stage__optmem_recall", "optmem_stage__optmem_zoom","optmem_stage__optmem_store"]
+auto_approve=["optmem_stage__optmem_wake","optmem_stage__optmem_recall", "optmem_stage__optmem_zoom","optmem_stage__optmem_store","optmem_stage__optmem_search"]
 excluded_tools=["shell","file_write","file_edit"]
 
 [runtime_profiles.default]
-max_tool_iterations=3
+max_tool_iterations=5
 max_context_tokens=8192
 
 [memory]
@@ -172,6 +184,8 @@ tool_timeout_secs=15
         thread.join(timeout=4)
     events=AgentMock.events
     output={"zero_claw_exit":p.returncode,
+            "search_first":args.search_first,
+            "model_requested_search":any(x["phase"]=="model_requested_search" for x in events),
             "saw_provider_request":any(x["phase"]=="provider_request" for x in events),
             "provider_tool_schema_seen":any(any("optmem" in str(n) for n in x.get("tool_names",[]))
                  for x in events if x["phase"]=="provider_request"),
@@ -193,7 +207,8 @@ tool_timeout_secs=15
     else:
         success=all((output["zero_claw_exit"]==0,output["provider_tool_schema_seen"],
                      output["model_requested_tool"],output["actual_tool_result_returned"],
-                     output["last_stdout_contains_found"],output["expected_bearer_sent"]))
+                     output["last_stdout_contains_found"],output["expected_bearer_sent"],
+                     not args.search_first or output["model_requested_search"]))
     if not success:
         raise AssertionError("Real ZeroClaw MCP integration not yet proved")
 

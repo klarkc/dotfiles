@@ -46,7 +46,7 @@ class AgentMCPTests(unittest.TestCase):
         a=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
         b=m.StageAgentMCP(self.memory,self.sidecar,"zeroclaw")
         self.assertEqual(len(a.dispatch({"jsonrpc":"2.0","id":1,
-                       "method":"tools/list"})["result"]["tools"]),5)
+                       "method":"tools/list"})["result"]["tools"]),6)
         one=self.store(a)
         self.assertFalse(one["result"]["isError"])
         self.assertIn("STORED #0",one["result"]["content"][0]["text"])
@@ -58,6 +58,22 @@ class AgentMCPTests(unittest.TestCase):
         wake=a.dispatch(rpc("optmem_wake",{"part":1}))
         self.assertFalse(wake["result"]["isError"])
         self.assertIn("You are awake.",wake["result"]["content"][0]["text"])
+
+    def test_cross_agent_search_uses_shared_log(self):
+        first=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
+        second=m.StageAgentMCP(self.memory,self.sidecar,"zeroclaw")
+        missing=second.dispatch(rpc("optmem_search",{"query":"git worktree"}))
+        self.assertIn("NOT_FOUND",missing["result"]["content"][0]["text"])
+        self.assertEqual(w.log_count(self.memory),0)
+        one=self.store(first,key="project.git.worktrees",text="Use Git worktrees for isolated changes")
+        self.assertFalse(one["result"]["isError"])
+        result=second.dispatch(rpc("optmem_search",{"query":"git worktree"}))
+        self.assertFalse(result["result"]["isError"])
+        content=json.loads(result["result"]["content"][0]["text"])
+        self.assertEqual(content["results"][0]["memory_key"],"project.git.worktrees")
+        bad=second.dispatch(rpc("optmem_search",{"query":"git worktree","path":"/etc/passwd"}))
+        self.assertTrue(bad["result"]["isError"])
+        self.assertEqual(w.log_count(self.memory),1)
 
     def test_standard_mcp_request_metadata_is_not_writer_authority(self):
         a=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
@@ -159,8 +175,37 @@ class AgentMCPTests(unittest.TestCase):
         # harness has to discover and replay the existing semantic identity.
         found=invoke("zeroclaw","optmem_lookup_key",{"memory_key":key})
         self.assertIn(original,found)
+        discovered=invoke("zeroclaw","optmem_search",{"query":"upstream memory"})
+        self.assertIn(key,discovered)
         self.assertIn("ALREADY_PRESENT",invoke("zeroclaw","optmem_store",{"memory_key":key,"text":original}))
         self.assertEqual(w.log_count(self.memory),1)
+
+    def test_full_pair_restore_keeps_keys_and_incomplete_restore_is_denied(self):
+        source=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
+        self.assertFalse(self.store(source)["result"]["isError"])
+        restored=self.root.parent/("g4k-agent-restored-"+uuid.uuid4().hex[:12])
+        restored.mkdir(mode=0o700)
+        try:
+            new_memory=restored/"memory"
+            new_sidecar=restored/"sidecar"
+            shutil.copytree(self.memory,new_memory)
+            shutil.copytree(self.sidecar,new_sidecar)
+            client=m.StageAgentMCP(new_memory,new_sidecar,"zeroclaw")
+            lookup=client.dispatch(rpc("optmem_search",{"query":"dedicated worktree"}))
+            self.assertFalse(lookup["result"]["isError"])
+            self.assertIn("workflow.worktree",lookup["result"]["content"][0]["text"])
+            self.assertIn("ALREADY_PRESENT",self.store(client)["result"]["content"][0]["text"])
+            self.assertEqual(w.log_count(new_memory),1)
+            for missing in ("agent-facts.sqlite3","provenance.sqlite3"):
+                file=new_sidecar/missing
+                backup=file.with_suffix(".offline")
+                file.rename(backup)
+                with self.assertRaisesRegex(ValueError,"both sealed writer and agent indices"):
+                    m.StageAgentMCP(new_memory,new_sidecar,"opencode")
+                backup.rename(file)
+            self.assertEqual(w.log_count(self.memory),1)
+        finally:
+            shutil.rmtree(restored)
 
     def test_only_staging_paths(self):
         with self.assertRaises(ValueError):

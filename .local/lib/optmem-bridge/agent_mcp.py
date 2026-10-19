@@ -21,9 +21,10 @@ w=agent_store.writer
 STORE_SCHEMA={
     "name":"optmem_store",
     "description":(
-        "Remember one durable fact automatically. Use the SAME stable memory_key "
-        "for the same fact across sessions and agents. The writer refuses conflicting "
-        "updates and deduplicates normalized content globally. No human review."
+        "Remember one durable fact automatically. First use optmem_search "
+        "to discover existing memory facts and keys, then reuse an existing "
+        "stable memory_key when semantically equivalent. The writer refuses "
+        "conflicting updates and deduplicates normalized content globally."
     ),
     "inputSchema":{
         "type":"object",
@@ -47,6 +48,22 @@ LOOKUP_SCHEMA={
         "properties":{"memory_key":{"type":"string","minLength":3,"maxLength":90,
                     "pattern":"^[a-z0-9][a-z0-9._/-]{2,89}$"}},
         "required":["memory_key"],"additionalProperties":False,
+    },
+}
+
+
+SEARCH_SCHEMA={
+    "name":"optmem_search",
+    "description":(
+        "Before choosing a NEW memory_key, search existing global OptMem facts "
+        "and aliases using short literal terms. Results are suggestions: compare "
+        "meaning and reuse the key when appropriate. Unkeyed baseline entries "
+        "can be bound using the same original text. No search creates a memory."
+    ),
+    "inputSchema":{
+        "type":"object",
+        "properties":{"query":{"type":"string","minLength":2,"maxLength":64}},
+        "required":["query"],"additionalProperties":False,
     },
 }
 
@@ -90,6 +107,17 @@ class StageAgentMCP:
             not memory.parent.name.startswith("g4k-agent-")
             or memory.parent.resolve().parent!=root.resolve()):
             raise ValueError("Only paired synthetic G4K stage roots allowed")
+        # A nonempty LOG without either sidecar DB is NOT a fresh stage: it may
+        # be an incomplete restore. Do not silently enroll controlled records
+        # as unaudited historical baseline or lose aliases/request receipts.
+        log=memory/"LOG.txt"
+        if log.is_file() and log.stat().st_size:
+            for name in ("provenance.sqlite3","agent-facts.sqlite3"):
+                file=sidecar/name
+                if (file.is_symlink() or not file.is_file()
+                    or file.stat().st_uid!=os.getuid()
+                    or file.stat().st_mode&0o077):
+                    raise ValueError("Nonempty stage requires both sealed writer and agent indices")
         return w.private_dir(memory),w.private_dir(sidecar)
 
     def dispatch(self,request:object) -> dict|None:
@@ -111,7 +139,7 @@ class StageAgentMCP:
             return {"jsonrpc":"2.0","id":ident,"result":{}}
         if method=="tools/list":
             return {"jsonrpc":"2.0","id":ident,
-                    "result":{"tools":[*readonly_mcp.SCHEMAS,LOOKUP_SCHEMA,STORE_SCHEMA]}}
+                    "result":{"tools":[*readonly_mcp.SCHEMAS,SEARCH_SCHEMA,LOOKUP_SCHEMA,STORE_SCHEMA]}}
         if method=="tools/call":
             params=request.get("params")
             try:
@@ -126,7 +154,12 @@ class StageAgentMCP:
                 args=params["arguments"]
                 if not isinstance(args,dict):
                     raise ValueError("Invalid tool arguments")
-                if name=="optmem_lookup_key":
+                if name=="optmem_search":
+                    if set(args)!={"query"}:
+                        raise ValueError("Only bounded literal memory search permitted")
+                    outcome=agent_store.search_memories(self.memory,self.sidecar,args["query"])
+                    content=json.dumps(outcome,sort_keys=True,ensure_ascii=False)
+                elif name=="optmem_lookup_key":
                     if set(args)!={"memory_key"}:
                         raise ValueError("Only fixed memory_key lookup permitted")
                     outcome=agent_store.lookup_key(self.memory,self.sidecar,args["memory_key"])

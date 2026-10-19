@@ -108,6 +108,47 @@ def ledger_connection(sidecar: Path):
     os.chmod(db,0o600)
     return con
 
+
+def enroll_historical_baseline(memory: Path, sidecar: Path,
+                               expected_sha256: str, expected_count: int) -> dict:
+    """Operator-only, explicit staging enrollment of an existing legacy LOG.
+
+    This is intentionally not exposed through MCP or the writer IPC. The hash
+    and count must come from a separately audited historical source manifest.
+    It does not grant authority to activate the production memory directory.
+    """
+    if not isinstance(expected_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}",expected_sha256):
+        raise ValueError("An audited legacy LOG digest is required")
+    if type(expected_count) is not int or expected_count < 1:
+        raise ValueError("An explicit positive record count is required")
+    memory=private_dir(memory)
+    sidecar=private_dir(sidecar)
+    with writer_lock(sidecar):
+        logfile=log_path(memory)
+        if logfile.stat().st_uid != os.getuid() or logfile.stat().st_mode&0o077:
+            raise ValueError("Unsafe legacy OptMem LOG ownership or permissions")
+        data=logfile.read_bytes()
+        if (len(data) != expected_count * LOG_REC
+                or checksum(data) != expected_sha256):
+            raise RuntimeError("Historical baseline hash/count differs from approved manifest")
+        for index in range(expected_count):
+            raw=data[index*LOG_REC:(index+1)*LOG_REC].decode("utf-8").rstrip()
+            if re.fullmatch(rf"#{index} 20[0-9]{{2}}-[0-9]{{2}}-[0-9]{{2}} .+",raw) is None:
+                raise RuntimeError("Malformed legacy OptMem baseline record")
+        con=ledger_connection(sidecar)
+        try:
+            if (con.execute("SELECT 1 FROM baseline LIMIT 1").fetchone()
+                or con.execute("SELECT 1 FROM bindings LIMIT 1").fetchone()):
+                raise RuntimeError("Baseline already registered or writer provenance exists")
+            with con:
+                con.execute("INSERT INTO baseline VALUES (1,?,?,?)",
+                    (expected_count,expected_sha256,datetime.now(timezone.utc).isoformat()))
+            verify_bindings(memory,con)
+        finally:
+            con.close()
+        return {"baseline_records":expected_count,"baseline_sha256":expected_sha256}
+
+
 def log_path(memory: Path) -> Path:
     p=memory/"LOG.txt"
     if p.is_symlink() or not p.is_file():
@@ -138,7 +179,12 @@ def verify_bindings(memory: Path, con: sqlite3.Connection) -> int:
     if base is None:
         if con.execute("SELECT COUNT(*) FROM bindings").fetchone()[0]:
             raise RuntimeError("Missing baseline on nonempty provenance ledger")
-        # Record the isolated snapshot *before* the first controlled writer append.
+        if n:
+            # An absent sidecar after restore must NOT silently turn controlled
+            # records into an unaudited imported baseline. Nonempty legacy
+            # enrollment requires an explicit, hash-pinned operator procedure.
+            raise RuntimeError("Nonempty OptMem LOG requires explicit baseline enrollment")
+        # Empty newly initialized fixtures can be enrolled automatically.
         blob=log_path(memory).read_bytes()
         if len(blob)!=n*LOG_REC:
             raise RuntimeError("Unable to record consistent initial baseline")

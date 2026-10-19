@@ -35,6 +35,8 @@ class AgentStoreTests(unittest.TestCase):
         p=subprocess.run([sys.executable,"-B",str(w.MEMO),"init"],
                          capture_output=True,text=True,env=env,timeout=15)
         self.assertEqual(p.returncode,0,p.stderr)
+        # Keep the synthetic initial LOG private regardless of shell umask.
+        (self.memory/"LOG.txt").chmod(0o600)
 
     def tearDown(self):
         shutil.rmtree(self.base)
@@ -45,6 +47,67 @@ class AgentStoreTests(unittest.TestCase):
     def store(self,harness="opencode",key="tools.git.policy",text="Git worktrees are required for changes",
               rid="request-00000001",failpoint=None):
         return a.request_store(self.memory,self.sidecar,harness,key,text,rid,failpoint=failpoint)
+
+    def test_search_shared_agent_key_without_mutating_log(self):
+        self.store(key="tools.git.policy",text="Git worktrees are required for changes")
+        before=self.count()
+        result=a.search_memories(self.memory,self.sidecar,"GIT worktree")
+        self.assertEqual(result["status"],"FOUND")
+        self.assertEqual(result["results"][0]["memory_key"],"tools.git.policy")
+        self.assertEqual(result["results"][0]["index"],0)
+        self.assertFalse(result["truncated"])
+        self.assertEqual(a.search_memories(self.memory,self.sidecar,"no such fact")["status"],"NOT_FOUND")
+        self.assertEqual(self.count(),before)
+
+    def test_search_alias_group_only_once(self):
+        self.store()
+        self.store(harness="zeroclaw",key="team.worktrees",rid="request-00000002")
+        found=a.search_memories(self.memory,self.sidecar,"worktree")
+        self.assertEqual(len(found["results"]),1)
+        self.assertEqual(found["results"][0]["alias_count"],2)
+        self.assertEqual(set(found["results"][0]["aliases"]),{"tools.git.policy","team.worktrees"})
+        self.assertEqual(self.count(),1)
+
+    def test_search_unkeyed_upstream_baseline(self):
+        env={**os.environ,"MEMORY_DIR":str(self.memory),"PYTHONDONTWRITEBYTECODE":"1"}
+        p=subprocess.run([sys.executable,"-B",str(w.MEMO),"note",
+                 "Semantic context belongs to the canonical memory"],env=env,text=True,
+                 capture_output=True,timeout=15)
+        self.assertEqual(p.returncode,0,p.stderr)
+        content=(self.memory/"LOG.txt").read_bytes()
+        w.enroll_historical_baseline(self.memory,self.sidecar,w.checksum(content),1)
+        found=a.search_memories(self.memory,self.sidecar,"canonical memory")
+        self.assertEqual(found["status"],"FOUND")
+        self.assertIsNone(found["results"][0]["memory_key"])
+        self.assertEqual(found["results"][0]["index"],0)
+        self.assertEqual(self.count(),1)
+
+    def test_search_rejects_unbounded_and_control_queries(self):
+        for query in ("*", ".*", "../", "hi\nthere", "x"*65, " "):
+            with self.subTest(query=query):
+                with self.assertRaises(ValueError):
+                    a.search_memories(self.memory,self.sidecar,query)
+        self.assertEqual(self.count(),0)
+
+    def test_search_is_bounded_and_reports_truncation(self):
+        for i in range(10):
+            result=self.store(key=f"tools.shared.{i:02d}",
+                      text=f"Shared worktree rule for case {i:02d} is durable",
+                      rid=f"request-{i + 100:08d}")
+            self.assertEqual(result["status"],"STORED")
+        found=a.search_memories(self.memory,self.sidecar,"worktree rule")
+        self.assertEqual(found["status"],"FOUND")
+        self.assertEqual(len(found["results"]),a.MAX_SEARCH_RESULTS)
+        self.assertTrue(found["truncated"])
+        self.assertEqual(self.count(),10)
+
+    def test_search_refuses_out_of_band_corruption(self):
+        self.store()
+        with (self.memory/"LOG.txt").open("r+b") as file:
+            file.seek(8)
+            file.write(b"!")
+        with self.assertRaises(RuntimeError):
+            a.search_memories(self.memory,self.sidecar,"worktree")
 
     def test_lookup_shared_key_and_missing_key_without_appending(self):
         self.assertEqual(a.lookup_key(self.memory,self.sidecar,"tools.git.policy")["status"],"NOT_FOUND")
@@ -95,6 +158,8 @@ class AgentStoreTests(unittest.TestCase):
                          capture_output=True,timeout=15)
         self.assertEqual(p.returncode,0,p.stderr)
         self.assertEqual(self.count(),1)
+        w.enroll_historical_baseline(self.memory,self.sidecar,
+                w.checksum((self.memory/"LOG.txt").read_bytes()),1)
         result=self.store()
         self.assertEqual(result["status"],"ALREADY_PRESENT")
         self.assertEqual(result["index"],0)

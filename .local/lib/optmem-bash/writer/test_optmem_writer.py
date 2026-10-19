@@ -40,6 +40,9 @@ class TestWriter(unittest.TestCase):
         p=subprocess.run([sys.executable,"-B",str(w.MEMO),"init"],env=env,text=True,
                          capture_output=True,timeout=12)
         self.assertEqual(p.returncode,0,p.stderr)
+        # Upstream memo inherits process umask; Nix hook shells may use 0022.
+        # Model the intended private writer runtime, not a public test LOG.
+        (self.memory/"LOG.txt").chmod(0o600)
         self.assertEqual((self.memory/"LOG.txt").stat().st_size,0)
     def populate(self,feature="git status"):
         self.history.write_bytes((feature+"\n").encode()*8)
@@ -156,6 +159,11 @@ class TestWriter(unittest.TestCase):
         p=subprocess.run([sys.executable,"-B",str(w.MEMO),"note","Already imported historical memory"],
                         env=env,capture_output=True,text=True,timeout=12)
         self.assertEqual(p.returncode,0,p.stderr)
+        digest=hashlib.sha256((self.memory/"LOG.txt").read_bytes()).hexdigest()
+        with self.assertRaisesRegex(RuntimeError,"explicit baseline enrollment"):
+            w.verify(self.memory,self.sidecar)
+        receipt=w.enroll_historical_baseline(self.memory,self.sidecar,digest,1)
+        self.assertEqual(receipt["baseline_records"],1)
         feature=self.populate()
         out=w.commit_ready_bash_observation(self.memory,self.sidecar,self.source,feature)
         self.assertEqual(out["index"],1)
@@ -172,6 +180,35 @@ class TestWriter(unittest.TestCase):
             f.write(b"X")
         with self.assertRaises(RuntimeError):
             w.verify(self.memory,self.sidecar)
+
+    def test_baseline_enrollment_denies_world_readable_log(self):
+        env={**os.environ,"MEMORY_DIR":str(self.memory)}
+        p=subprocess.run([sys.executable,"-B",str(w.MEMO),"note",
+                         "Synthetic legacy provenance requires privacy"],
+                         env=env,capture_output=True,text=True,timeout=12)
+        self.assertEqual(p.returncode,0,p.stderr)
+        log=self.memory/"LOG.txt"
+        digest=hashlib.sha256(log.read_bytes()).hexdigest()
+        log.chmod(0o644)
+        with self.assertRaisesRegex(ValueError,"ownership or permissions"):
+            w.enroll_historical_baseline(self.memory,self.sidecar,digest,1)
+        log.chmod(0o600)
+        self.assertEqual(w.enroll_historical_baseline(self.memory,self.sidecar,digest,1)["baseline_records"],1)
+
+    def test_nonempty_restore_cannot_reenroll_without_manifest(self):
+        feature=self.populate()
+        w.commit_ready_bash_observation(self.memory,self.sidecar,self.source,feature)
+        duplicate=self.path/"memory-only-copy"
+        shutil.copytree(self.memory,duplicate)
+        incomplete=self.path/"unverified-sidecar"
+        with self.assertRaisesRegex(RuntimeError,"explicit baseline enrollment"):
+            w.verify(duplicate,incomplete)
+        with self.assertRaisesRegex(RuntimeError,"hash/count differs"):
+            w.enroll_historical_baseline(duplicate,incomplete,"0"*64,1)
+        with self.assertRaisesRegex(RuntimeError,"hash/count differs"):
+            w.enroll_historical_baseline(duplicate,incomplete,
+                    hashlib.sha256((duplicate/"LOG.txt").read_bytes()).hexdigest(),2)
+        self.assertEqual(w.verify(self.memory,self.sidecar)["committed_provenance"],1)
 
     def test_sha_tampering_rejected(self):
         feature=self.populate()

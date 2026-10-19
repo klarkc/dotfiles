@@ -78,3 +78,15 @@ mistake a read-only source resync for permission to push/sync memory.
 Bash `histappend` and inter-shell synchronization are a distinct operational
 change and are **not** implemented or enabled here. Extracting knowledge
 periodically cannot preserve commands overwritten between scans.
+
+## G4M writer baseline enrollment safety
+
+The isolated writer now **refuses silent adoption of a nonempty OptMem LOG**
+when its provenance ledger is missing or uninitialized. This catches an
+incomplete memory-only restore before controlled records lose their history.
+A separately verified initial legacy import must call the trusted
+`enroll_historical_baseline(memory, sidecar, expected_sha256, expected_count)`
+with the exact approved legacy source digest and count. Neither MCP nor IPC
+exposes this operation. Existing initialized empty stages still work normally.
+This is not authorization to import the canonical or production LOG; the
+prototype remains restricted to isolated private synthetic fixture paths.

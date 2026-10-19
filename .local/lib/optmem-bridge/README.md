@@ -112,3 +112,28 @@ model or human review is introduced; production activation is unchanged.
 MCP transport compatibility: `tools/call` accepts protocol-owned `_meta`
 without letting those fields override trusted harness identity, paths, or
 writer authority. Unexpected extra transport parameters remain denied.
+
+## G4M: bounded discovery of existing memories (stage-only)
+
+`optmem_search(query)` scans the single verified upstream LOG while holding
+the shared agent lock. It returns up to eight lexical matches, with an index,
+existing registered logical key (if any), original fact, and bounded aliases.
+Previously imported or Bash-only records appear without a logical key; an
+agent may bind a key by storing identical original text through the shared
+writer, which cannot append a duplicate. No new semantic store is created.
+Queries are bounded literals, and incomplete or corrupted source/index data
+fail closed. Agents should search first and compare the returned facts before
+inventing another key. Lexical discovery helps key reuse but cannot prove
+that distinct paraphrases under different keys mean the same thing.
+No production writer, Bash timer, live browser or agent config is enabled.
+
+### G4M restore safety
+
+A nonempty stage can only be opened by the MCP adapter when both the OptMem
+provenance ledger and agent-key/request SQLite index are present, owned by the
+current user and inaccessible to group/other users. A LOG-only restore must
+not silently re-register controlled notes as an unverified baseline or erase
+existing logical-key bindings. Fresh legacy LOG enrollment needs a separate
+explicit, verified migration procedure; this guard does not authorize one.
+Restoration tests use disposable copies of the complete memory + sidecar pair.
+Remote durability and production cutover remain blocked.
