@@ -262,3 +262,7 @@ or credential lookup is performed here. A simple unkeyed SHA-256 manifest
 detects corruption, not an active malicious rewriter. Unimported long legacy
 conversations can be recovered from the private archive but are intentionally
 not promoted to current concise OptMem facts.
+
+Canonical/staging root mixing is rejected before any writer locks, SQLite
+sidecar initialization or memo append. Production authorization is bound
+to the exact canonical LOG plus its unique provenance sidecar pair.

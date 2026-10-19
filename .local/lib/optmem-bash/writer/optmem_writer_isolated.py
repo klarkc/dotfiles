@@ -98,6 +98,21 @@ def private_dir(path: Path) -> Path:
         raise ValueError("Writer directory permissions are unsafe")
     return path
 
+
+def checked_pair(memory: Path, sidecar: Path) -> tuple[Path, Path]:
+    """Never combine the live canonical LOG with a foreign provenance ledger.
+
+    Production activation authorizes one pair, not either path on its own.
+    Refuse mismatches before touching either tree, creating locks, or
+    auto-enrolling empty ledgers. Synthetic pair naming remains unchanged.
+    """
+    memory, sidecar = Path(memory), Path(sidecar)
+    canonical = Path.home() / ".optmem/memory"
+    canonical_sidecar = Path.home() / ".local/state/optmem-production/sidecar"
+    if (memory == canonical) != (sidecar == canonical_sidecar):
+        raise ValueError("Mixed canonical and staging OptMem roots are prohibited")
+    return private_dir(memory), private_dir(sidecar)
+
 @contextmanager
 def writer_lock(sidecar: Path):
     private_dir(sidecar)
@@ -152,12 +167,14 @@ def enroll_historical_baseline(memory: Path, sidecar: Path,
     and count must come from a separately audited historical source manifest.
     It does not grant authority to activate the production memory directory.
     """
+    if (Path(memory)==Path.home()/".optmem/memory"
+        or Path(sidecar)==Path.home()/".local/state/optmem-production/sidecar"):
+        raise ValueError("Canonical OptMem baseline cannot be enrolled by staging operator")
     if not isinstance(expected_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}",expected_sha256):
         raise ValueError("An audited legacy LOG digest is required")
     if type(expected_count) is not int or expected_count < 1:
         raise ValueError("An explicit positive record count is required")
-    memory=private_dir(memory)
-    sidecar=private_dir(sidecar)
+    memory,sidecar=checked_pair(memory,sidecar)
     with writer_lock(sidecar):
         logfile=log_path(memory)
         if logfile.stat().st_uid != os.getuid() or logfile.stat().st_mode&0o077:
@@ -342,8 +359,7 @@ def pending_resolution(memory: Path, con: sqlite3.Connection):
 def commit(memory: Path, sidecar: Path, source_key: str, entry: str,
            source_context: dict, failpoint: str | None=None) -> dict:
     """One sidecar-prepared note with exact-index reconciliation; sandbox only."""
-    memory=private_dir(memory)
-    sidecar=private_dir(sidecar)
+    memory,sidecar=checked_pair(memory,sidecar)
     safe_input(source_key,entry,source_context)
     if checksum(MEMO.read_bytes())!=MEMO_SHA256:
         raise RuntimeError("Memo upstream source changed")
@@ -401,8 +417,7 @@ def commit(memory: Path, sidecar: Path, source_key: str, entry: str,
             con.close()
 
 def verify(memory: Path, sidecar: Path) -> dict:
-    memory=private_dir(memory)
-    sidecar=private_dir(sidecar)
+    memory,sidecar=checked_pair(memory,sidecar)
     with writer_lock(sidecar):
         con=ledger_connection(sidecar)
         try:
@@ -537,8 +552,7 @@ def _commit_and_acknowledge_locked(memory: Path, sidecar: Path, source_state: Pa
     if failpoint=="after_writer_before_receipt":
         raise InterruptedError("Injected failure after verified writer commit")
     source_key="bash-observation:"+feature
-    memory=private_dir(memory)
-    sidecar=private_dir(sidecar)
+    memory,sidecar=checked_pair(memory,sidecar)
     source_state=private_dir(source_state)
     with writer_lock(sidecar):
         ledger=ledger_connection(sidecar)

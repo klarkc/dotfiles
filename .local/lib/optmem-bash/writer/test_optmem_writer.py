@@ -233,6 +233,19 @@ class TestWriter(unittest.TestCase):
             w.commit(Path.home()/".optmem/memory",self.sidecar,
                "bash-observation:git status","Bash usage observed repeatedly: git status",
                {"source":"bash-sanitized-feature","observations":[]})
+    def test_production_and_staging_root_mix_fails_without_writing(self):
+        canonical=Path.home()/".optmem/memory"
+        production_sidecar=Path.home()/".local/state/optmem-production/sidecar"
+        before=self.log_count()
+        for memory,sidecar in ((canonical,self.sidecar),
+                               (self.memory,production_sidecar)):
+            with self.subTest(memory=memory.name,sidecar=sidecar.name):
+                with self.assertRaisesRegex(ValueError,"Mixed canonical"):
+                    w.checked_pair(memory,sidecar)
+                with self.assertRaisesRegex(ValueError,"Mixed canonical"):
+                    w.verify(memory,sidecar)
+        self.assertEqual(self.log_count(),before)
+
     def test_concurrent_writer_single_committed_index(self):
         feature=self.populate()
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
