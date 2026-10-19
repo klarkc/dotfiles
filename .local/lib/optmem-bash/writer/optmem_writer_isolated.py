@@ -16,6 +16,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import unicodedata
 
 HERE=Path(__file__).resolve().parent
 MEMO=Path.home()/".local/state/optmem-prototype-2026-10-08/memo"
@@ -23,9 +24,32 @@ MEMO_SHA256="3dc120d01be3115ef6267eab4103e7909fc830d6227b549f20991ba999ee9ffb"
 LOG_REC=320
 MAX_ENTRY_BYTES=280
 RISK=re.compile(r"(?i)(password|private.key|access.token|bearer|authorization|secret|api.key|sk-[A-Za-z0-9]{10,})")
+AGENT_RISK=re.compile(r"(?i)\b(?:token|password|secret|bearer|authorization|private.key|api.key)\b")
 
 def checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+def normalized_memory_text(entry: str) -> str:
+    """Deterministic duplicate identity; preserve semantic punctuation."""
+    text=unicodedata.normalize("NFKC",entry).casefold()
+    text=" ".join(text.split())
+    return text.strip(" .,!?:;")
+
+def duplicate_memory_index(memory: Path, entry: str) -> int | None:
+    """Find existing exact-normalized text across baseline, Bash and agents.
+
+    Must be called while writer_lock is held, after verifying provenance.
+    This linear scan is conservative and handles preexisting raw-log records.
+    """
+    identity=normalized_memory_text(entry)
+    for idx in range(log_count(memory)):
+        raw=record_at(memory,idx).decode("utf-8").rstrip()
+        m=re.fullmatch(r"#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)",raw)
+        if m is None:
+            raise RuntimeError("Malformed historical record; refuse duplicate check")
+        if normalized_memory_text(m.group(1))==identity:
+            return idx
+    return None
 
 def fmt(obj) -> str:
     return json.dumps(obj,ensure_ascii=False,sort_keys=True,separators=(",",":"))
@@ -155,6 +179,23 @@ def verify_bindings(memory: Path, con: sqlite3.Connection) -> int:
     return committed
 
 def safe_input(source_key: str, entry: str, source_context: dict):
+    if isinstance(source_context,dict) and source_context.get("source")=="agent-explicit-store":
+        if set(source_context)!={"source","harness","memory_key","normalized_sha256"}:
+            raise ValueError("Unexpected agent provenance fields")
+        key=source_context["memory_key"]
+        if not isinstance(key,str) or not re.fullmatch(r"[a-z0-9][a-z0-9._/-]{2,89}",key):
+            raise ValueError("Invalid stable agent memory key")
+        if source_key!="agent-memory:"+key:
+            raise ValueError("Agent source key differs from stable logical identity")
+        if source_context["harness"] not in ("opencode","zeroclaw"):
+            raise ValueError("Unrecognized authorized agent")
+        if source_context["normalized_sha256"]!=checksum(
+                normalized_memory_text(entry).encode()):
+            raise ValueError("Agent normalized content digest mismatch")
+        if (not isinstance(entry,str) or "\n" in entry or "\r" in entry
+                or RISK.search(entry) or AGENT_RISK.search(entry) or not 12<=len(entry.encode())<=MAX_ENTRY_BYTES):
+            raise ValueError("Invalid or sensitive agent memory")
+        return
     if not re.fullmatch(r"bash-observation:[a-z0-9_-]+(?: [a-z0-9_-]+)?",source_key):
         raise ValueError("Unsupported source key")
     if "\n" in entry or "\r" in entry or RISK.search(entry) or not 10<=len(entry.encode())<=MAX_ENTRY_BYTES:
@@ -247,6 +288,9 @@ def commit(memory: Path, sidecar: Path, source_key: str, entry: str,
             else:
                 if unresolved:
                     raise RuntimeError("Cannot append while another write is unresolved")
+                existing_index=duplicate_memory_index(memory,entry)
+                if existing_index is not None:
+                    return {"outcome":"ALREADY_PRESENT","index":existing_index}
                 idx=log_count(memory)
                 day=date.today().isoformat()
                 with con:

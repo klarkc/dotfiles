@@ -15,5 +15,9 @@ if [[ "$mode" == "oauth" ]]; then
 fi
 PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B "$root/test_bash_optmem_agent.py"
 PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B "$root/writer/test_optmem_writer.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B ".local/lib/optmem-reconcile/test_reconcile.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B ".local/lib/optmem-bridge/test_readonly_mcp_unit.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B ".local/lib/optmem-bridge/test_agent_store.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B ".local/lib/optmem-bridge/test_agent_mcp.py"
 systemd-analyze verify   .config/systemd/user/optmem-bash-capture.service   .config/systemd/user/optmem-bash-capture.timer   .config/systemd/user/optmem-bash-extract.service   .config/systemd/user/optmem-bash-extract.timer
 echo "optmem-bash: all isolated acceptance tests passed"
