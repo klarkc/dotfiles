@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Install the independent pre-push gate AFTER git-hooks.nix has installed hooks.
+# It is native because pre-commit only checks the first ref in multi-ref pushes.
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+hooks=$(git rev-parse --path-format=absolute --git-path hooks)
+source_file="$root/.local/bin/git-hook-fusion-history-pre-push"
+target="$hooks/pre-push"
+
+if [[ "$hooks" != "$common/hooks" ]]; then
+  echo "history pre-push install: refusing unexpected hooksPath" >&2
+  exit 1
+fi
+if [[ ! -f "$source_file" ]]; then
+  echo "history pre-push install: tracked hook is missing" >&2
+  exit 1
+fi
+mkdir -p "$hooks"
+if [[ -e "$target" ]] && ! cmp -s "$target" "$source_file"; then
+  # Never silently replace an unrelated hook installed by another user/tool.
+  if ! grep -q '^"""Native pre-push guard:' "$target"; then
+    echo "history pre-push install: unrelated existing hook; reconcile it first" >&2
+    exit 1
+  fi
+fi
+if [[ -x "$target" ]] && cmp -s "$target" "$source_file"; then
+  exit 0
+fi
+temp=$(mktemp "$hooks/.fusion-history-pre-push.XXXXXXXX")
+trap 'rm -f "$temp"' EXIT
+install -m 755 "$source_file" "$temp"
+mv -f "$temp" "$target"
+trap - EXIT
+echo "history pre-push: installed Git regression gate for all worktrees" >&2

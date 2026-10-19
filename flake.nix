@@ -361,6 +361,23 @@
                   python3 "$checker" "$hook"
                   touch $out
                 '';
+            # Offline contract for the native multi-ref pre-push safety gate.
+            git-hook-fusion-history-contract =
+              pkgs.runCommand "git-hook-fusion-history-contract"
+                {
+                  nativeBuildInputs = [
+                    pkgs.python3
+                    pkgs.git
+                    pkgs.bash
+                  ];
+                  hook = ./.local/bin/git-hook-fusion-history-pre-push;
+                  installer = ./.local/bin/git-hook-fusion-history-install;
+                  checker = ./.local/bin/git-hook-fusion-history-pre-push-selftest;
+                }
+                ''
+                  python3 "$checker" "$hook" "$installer"
+                  touch $out
+                '';
             archive-pack-test =
               pkgs.runCommand "archive-pack-test" { nativeBuildInputs = [ backupTools.testScript ]; }
                 ''
@@ -596,7 +613,12 @@
           };
 
           devShells.default = pkgs.mkShell {
-            inherit (pre-commit-check) shellHook;
+            # git-hooks.nix installs pre-commit. The native pre-push gate must
+            # be installed afterwards, because pre-commit scans only one pushed ref.
+            shellHook = ''
+              ${pre-commit-check.shellHook}
+              bash .local/bin/git-hook-fusion-history-install
+            '';
             buildInputs = pre-commit-check.enabledPackages ++ [
               treefmtEval.config.build.wrapper
               desktopCommanderMcpRuntime

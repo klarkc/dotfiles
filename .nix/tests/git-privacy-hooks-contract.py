@@ -37,6 +37,9 @@ class PrivacyIntegration(unittest.TestCase):
         self.assertIn("--gitleaks-ignore-path ${gitleaksEmptyIgnore}", flake)
         self.assertIn("hooks.make-test =", flake)
         self.assertIn('entry = "bash .local/bin/git-hook-make-test"', flake)
+        self.assertIn("git-hook-fusion-history-contract =", flake)
+        self.assertIn("git-hook-fusion-history-install", flake)
+        self.assertIn("git-hook-fusion-history-pre-push-selftest", flake)
         self.assertIn("pkgs.gitleaks", flake)
 
     def test_native_gitleaks_checks_the_index_not_the_working_file(self):

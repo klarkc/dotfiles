@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""Offline end-to-end tests for the multi-ref history pre-push gate."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+HOOK = Path(sys.argv[1]).resolve() if len(sys.argv) >= 2 else None
+INSTALL = Path(sys.argv[2]).resolve() if len(sys.argv) >= 3 else None
+ZERO = "0" * 40
+
+
+class GitPushRegression(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="fusion-push-gate-")
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name) / "repo"
+        self.remote = Path(self.temp.name) / "remote.git"
+        self.repo.mkdir()
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env["GIT_CONFIG_NOSYSTEM"] = "1"
+        self.env["GIT_CONFIG_GLOBAL"] = os.devnull
+        self.command("init", "-q")
+        self.command("config", "user.name", "Synthetic Agent")
+        self.command("config", "user.email", "test@example.invalid")
+        (self.repo / "baseline.txt").write_text("good\n")
+        self.command("add", ".")
+        self.command("commit", "-qm", "initial safe commit")
+        self.root = self.rev("HEAD")
+        self.command("switch", "-qc", "old")
+        (self.repo / "retired.txt").write_text("synthetic retired blob\n")
+        self.command("add", "retired.txt")
+        self.command("commit", "-qm", "synthetic old commit")
+        self.old = self.rev("HEAD")
+        self.bad_blob = self.rev("HEAD:retired.txt")
+        self.command("switch", "-qc", "clean", self.root)
+        (self.repo / "new.txt").write_text("safe\n")
+        self.command("add", "new.txt")
+        self.command("commit", "-qm", "new clean commit")
+        self.clean = self.rev("HEAD")
+        source = HOOK.read_text(encoding="utf-8")
+        source = source.replace(
+            'RETIRED_COMMIT = "9a0920ca69ef6cdd4e2162d15c2dc7b9cbfb6bf7"',
+            f'RETIRED_COMMIT = "{self.old}"',
+        ).replace(
+            'RETIRED_BLOB = "c3d55cbbede8ae9da2eba3c5560470d7f148da6f"',
+            f'RETIRED_BLOB = "{self.bad_blob}"',
+        )
+        self.fixture_hook = self.repo / "fixture-hook"
+        self.fixture_hook.write_text(source, encoding="utf-8")
+
+    def command(self, *args: str) -> str:
+        r = subprocess.run(
+            ["git", "-C", str(self.repo), *args], env=self.env,
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode:
+            self.fail(f"git failed: {args[0]}, status={r.returncode}")
+        return r.stdout.strip()
+
+    def rev(self, ref: str) -> str:
+        return self.command("rev-parse", ref)
+
+    def push_line(self, sha: str, *, remote: str = "refs/heads/new", base: str = ZERO) -> str:
+        return f"refs/heads/local {sha} {remote} {base}\n"
+
+    def gate(self, updates: str, *, env: dict[str, str] | None = None):
+        return subprocess.run(
+            [sys.executable, str(self.fixture_hook)], input=updates, text=True,
+            capture_output=True, cwd=self.repo, env=env or self.env, timeout=15,
+        )
+
+    def assert_blocked(self, lines: str):
+        result = self.gate(lines)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("BLOCKED", result.stderr)
+        self.assertIn("Agent recovery procedure", result.stderr)
+
+    def test_safe_push_and_deletion_allowed(self):
+        self.assertEqual(self.gate(self.push_line(self.clean)).returncode, 0)
+        self.assertEqual(self.gate(self.push_line(ZERO)).returncode, 0)
+        self.assertEqual(self.gate("").returncode, 0)
+
+    def test_legacy_branch_and_force_push_blocked(self):
+        self.assert_blocked(self.push_line(self.old))
+        self.assert_blocked(self.push_line(self.old, base=self.clean))
+
+    def test_all_refs_checked_not_just_first(self):
+        updates = self.push_line(self.clean) + self.push_line(self.old, remote="refs/heads/legacy")
+        self.assert_blocked(updates)
+        self.assertIn("refs/heads/legacy", self.gate(updates).stderr)
+
+    def test_merge_reintroduces_old_commit(self):
+        self.command("merge", "--no-ff", "-qm", "untrusted merge", "old")
+        self.assert_blocked(self.push_line(self.rev("HEAD")))
+
+    def test_annotated_tag_to_old_commit_blocked(self):
+        self.command("tag", "-am", "unsafe annotation", "bad-tag", self.old)
+        self.assert_blocked(self.push_line(self.rev("refs/tags/bad-tag"), remote="refs/tags/bad-tag"))
+
+    def test_blob_reuse_without_old_parent_blocked(self):
+        blob = self.command("show", "old:retired.txt")
+        (self.repo / "reused.txt").write_text(blob + "\n")
+        self.command("add", ".")
+        self.command("commit", "-qm", "reuse old blob with safe parent")
+        self.assertEqual(self.rev("HEAD:reused.txt"), self.bad_blob)
+        self.assert_blocked(self.push_line(self.rev("HEAD")))
+
+    def test_tag_pointing_directly_to_forbidden_blob_blocked(self):
+        self.command("update-ref", "refs/tags/blob-tag", self.bad_blob)
+        self.assert_blocked(self.push_line(self.bad_blob, remote="refs/tags/blob-tag"))
+
+    def test_malformed_or_unavailable_update_fails_closed(self):
+        self.assertEqual(self.gate("not an update\n").returncode, 1)
+        self.assertEqual(self.gate(self.push_line("f" * 40)).returncode, 1)
+        self.assertEqual(self.gate(self.push_line(self.clean, base="no-sha")).returncode, 1)
+
+    def test_replace_ref_cannot_hide_retired_commit(self):
+        self.command("replace", self.old, self.root)
+        self.assert_blocked(self.push_line(self.old))
+
+    def test_grafts_cannot_hide_history(self):
+        grafts = self.repo / ".git" / "info" / "grafts"
+        grafts.write_text(f"{self.clean} {self.root}\n")
+        self.assertEqual(self.gate(self.push_line(self.clean)).returncode, 1)
+
+    def test_installed_hook_blocks_real_local_push(self):
+        hooks = self.repo / ".git" / "hooks"
+        self.command("config", "core.hooksPath", str(hooks))
+        folder = self.repo / ".local" / "bin"
+        folder.mkdir(parents=True)
+        dst = folder / "git-hook-fusion-history-pre-push"
+        # The Nix build sandbox has no /usr/bin/env; use its Python for the fixture.
+        dst.write_bytes(self.fixture_hook.read_bytes().replace(
+            b"#!/usr/bin/env python3", f"#!{sys.executable}".encode(), 1,
+        ))
+        dst.chmod(0o755)
+        installer = subprocess.run(
+            ["bash", str(INSTALL)], cwd=self.repo, env=self.env,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(installer.returncode, 0, installer.stderr)
+        self.assertTrue((hooks / "pre-push").is_file())
+        again = subprocess.run(["bash", str(INSTALL)], cwd=self.repo, env=self.env,
+                               capture_output=True, timeout=10)
+        self.assertEqual(again.returncode, 0)
+        subprocess.run(["git", "init", "--bare", "-q", str(self.remote)], check=True, env=self.env)
+        self.command("remote", "add", "fixture", str(self.remote))
+        good = subprocess.run(["git", "push", "-q", "fixture", "clean:refs/heads/clean"],
+                              cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(good.returncode, 0, good.stderr)
+        bad = subprocess.run(["git", "push", "-q", "fixture", "old:refs/heads/old"],
+                             cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("Agent recovery procedure", bad.stderr)
+
+
+if __name__ == "__main__":
+    if HOOK is None or INSTALL is None:
+        raise SystemExit("usage: selftest /path/pre-push /path/install")
+    unittest.main(argv=[sys.argv[0]], verbosity=2)
