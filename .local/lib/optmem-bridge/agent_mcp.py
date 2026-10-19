@@ -39,6 +39,17 @@ STORE_SCHEMA={
     },
 }
 
+LOOKUP_SCHEMA={
+    "name":"optmem_lookup_key",
+    "description":"Find a globally shared stable memory_key before storing. A match returns the existing upstream OptMem text and index; NOT_FOUND never creates a memory.",
+    "inputSchema":{
+        "type":"object",
+        "properties":{"memory_key":{"type":"string","minLength":3,"maxLength":90,
+                    "pattern":"^[a-z0-9][a-z0-9._/-]{2,89}$"}},
+        "required":["memory_key"],"additionalProperties":False,
+    },
+}
+
 class StageReader:
     read=readonly_mcp.MCPReader.read
 
@@ -100,17 +111,27 @@ class StageAgentMCP:
             return {"jsonrpc":"2.0","id":ident,"result":{}}
         if method=="tools/list":
             return {"jsonrpc":"2.0","id":ident,
-                    "result":{"tools":[*readonly_mcp.SCHEMAS,STORE_SCHEMA]}}
+                    "result":{"tools":[*readonly_mcp.SCHEMAS,LOOKUP_SCHEMA,STORE_SCHEMA]}}
         if method=="tools/call":
             params=request.get("params")
             try:
-                if not isinstance(params,dict) or set(params)!={"name","arguments"}:
+                # MCP clients may attach protocol-owned _meta to tools/call.
+                # It is never forwarded to the writer or treated as authority.
+                if (not isinstance(params,dict)
+                    or not {"name","arguments"}<=set(params)
+                    or set(params)-{"name","arguments","_meta"}
+                    or ("_meta" in params and not isinstance(params["_meta"],dict))):
                     raise ValueError("Invalid MCP tool call")
                 name=params["name"]
                 args=params["arguments"]
                 if not isinstance(args,dict):
                     raise ValueError("Invalid tool arguments")
-                if name=="optmem_store":
+                if name=="optmem_lookup_key":
+                    if set(args)!={"memory_key"}:
+                        raise ValueError("Only fixed memory_key lookup permitted")
+                    outcome=agent_store.lookup_key(self.memory,self.sidecar,args["memory_key"])
+                    content=json.dumps(outcome,sort_keys=True,ensure_ascii=False)
+                elif name=="optmem_store":
                     if set(args)!={"memory_key","text"}:
                         raise ValueError("Only fixed memory_key and text permitted")
                     key=args["memory_key"]

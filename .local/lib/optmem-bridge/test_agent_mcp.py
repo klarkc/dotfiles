@@ -46,7 +46,7 @@ class AgentMCPTests(unittest.TestCase):
         a=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
         b=m.StageAgentMCP(self.memory,self.sidecar,"zeroclaw")
         self.assertEqual(len(a.dispatch({"jsonrpc":"2.0","id":1,
-                       "method":"tools/list"})["result"]["tools"]),4)
+                       "method":"tools/list"})["result"]["tools"]),5)
         one=self.store(a)
         self.assertFalse(one["result"]["isError"])
         self.assertIn("STORED #0",one["result"]["content"][0]["text"])
@@ -58,6 +58,34 @@ class AgentMCPTests(unittest.TestCase):
         wake=a.dispatch(rpc("optmem_wake",{"part":1}))
         self.assertFalse(wake["result"]["isError"])
         self.assertIn("You are awake.",wake["result"]["content"][0]["text"])
+
+    def test_standard_mcp_request_metadata_is_not_writer_authority(self):
+        a=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
+        request=rpc("optmem_lookup_key",{"memory_key":"workflow.worktree"})
+        request["params"]["_meta"]={"progressToken":"synthetic-progress"}
+        allowed=a.dispatch(request)
+        self.assertFalse(allowed["result"]["isError"])
+        self.assertIn("NOT_FOUND",allowed["result"]["content"][0]["text"])
+        request["params"]["_meta"]={"source":"zeroclaw","harness":"gptweb"}
+        # Ignore transport metadata: it must not confer harness identity.
+        self.assertFalse(a.dispatch(request)["result"]["isError"])
+        request["params"]["unapproved"]="value"
+        self.assertTrue(a.dispatch(request)["result"]["isError"])
+        self.assertEqual(w.log_count(self.memory),0)
+
+    def test_lookup_key_across_clients_and_read_only_absence(self):
+        first=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
+        other=m.StageAgentMCP(self.memory,self.sidecar,"zeroclaw")
+        absent=other.dispatch(rpc("optmem_lookup_key",{"memory_key":"workflow.worktree"}))
+        self.assertIn("NOT_FOUND",absent["result"]["content"][0]["text"])
+        self.assertEqual(w.log_count(self.memory),0)
+        self.store(first)
+        found=other.dispatch(rpc("optmem_lookup_key",{"memory_key":"workflow.worktree"}))
+        self.assertIn("FOUND",found["result"]["content"][0]["text"])
+        self.assertIn("dedicated worktree",found["result"]["content"][0]["text"])
+        rejected=other.dispatch(rpc("optmem_lookup_key",{"memory_key":"workflow.worktree","path":"/etc/passwd"}))
+        self.assertTrue(rejected["result"]["isError"])
+        self.assertEqual(w.log_count(self.memory),1)
 
     def test_reused_key_contradiction_refused(self):
         a=m.StageAgentMCP(self.memory,self.sidecar,"opencode")
@@ -109,6 +137,29 @@ class AgentMCPTests(unittest.TestCase):
             results=list(pool.map(runner,("opencode","zeroclaw")))
         self.assertEqual(sum(x.startswith("STORED") for x in results),1)
         self.assertEqual(sum(x.startswith("ALREADY_PRESENT") for x in results),1)
+        self.assertEqual(w.log_count(self.memory),1)
+
+    def test_cross_process_restart_reuses_key_and_log(self):
+        cmd=[sys.executable,"-B",str(Path(m.__file__)),
+             "--memory-dir",str(self.memory),"--sidecar",str(self.sidecar)]
+        env={**os.environ,"PYTHONDONTWRITEBYTECODE":"1"}
+        def invoke(harness,tool,args):
+            input_line=json.dumps(rpc(tool,args,identifier=10))+"\n"
+            proc=subprocess.run(cmd+["--harness",harness],input=input_line,
+                                text=True,capture_output=True,timeout=25,env=env)
+            self.assertEqual(proc.returncode,0,proc.stderr)
+            response=json.loads(proc.stdout)
+            self.assertFalse(response["result"]["isError"])
+            return response["result"]["content"][0]["text"]
+        key="workflow.restartable"
+        original="Separate agents share a durable upstream memory"
+        self.assertEqual(w.log_count(self.memory),0)
+        self.assertIn("STORED",invoke("opencode","optmem_store",{"memory_key":key,"text":original}))
+        # The first stdio process is now closed. A new session on the OTHER
+        # harness has to discover and replay the existing semantic identity.
+        found=invoke("zeroclaw","optmem_lookup_key",{"memory_key":key})
+        self.assertIn(original,found)
+        self.assertIn("ALREADY_PRESENT",invoke("zeroclaw","optmem_store",{"memory_key":key,"text":original}))
         self.assertEqual(w.log_count(self.memory),1)
 
     def test_only_staging_paths(self):

@@ -46,6 +46,17 @@ class AgentStoreTests(unittest.TestCase):
               rid="request-00000001",failpoint=None):
         return a.request_store(self.memory,self.sidecar,harness,key,text,rid,failpoint=failpoint)
 
+    def test_lookup_shared_key_and_missing_key_without_appending(self):
+        self.assertEqual(a.lookup_key(self.memory,self.sidecar,"tools.git.policy")["status"],"NOT_FOUND")
+        self.assertEqual(self.count(),0)
+        self.store()
+        found=a.lookup_key(self.memory,self.sidecar,"tools.git.policy")
+        self.assertEqual((found["status"],found["index"]),("FOUND",0))
+        self.assertEqual(found["text"],"Git worktrees are required for changes")
+        with self.assertRaises(ValueError):
+            a.lookup_key(self.memory,self.sidecar,"../other")
+        self.assertEqual(self.count(),1)
+
     def test_one_normalized_log_entry_across_harnesses_and_keys(self):
         first=self.store()
         self.assertEqual(first,{"status":"STORED","index":0})

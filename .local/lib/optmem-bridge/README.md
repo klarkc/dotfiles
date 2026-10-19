@@ -97,3 +97,18 @@ from independent OpenCode/ZeroClaw stage-harness processes.
 G4J's quarantine-only proposal inbox was retired from the deliverable: an
 explicit agent memory no longer needs a separate semantic approval pipeline.
 Bash's local inference/observation proof gate remains unchanged.
+
+## G4L: lookup before deliberate storage (stage-only)
+
+`optmem_lookup_key(memory_key)` reads the shared logical-key index, verifies
+its referenced upstream LOG record and returns `FOUND` with index and original
+text, or `NOT_FOUND`. It does not append, infer semantic similarity, accept
+source paths, or expose an alternate memory store. Both harnesses see the same
+key namespace. Agents should call this for an existing stable key and use
+`optmem_recall` to inspect related text before allocating a new key.
+A reused key with contradictory text remains rejected. No second relevance
+model or human review is introduced; production activation is unchanged.
+
+MCP transport compatibility: `tools/call` accepts protocol-owned `_meta`
+without letting those fields override trusted harness identity, paths, or
+writer authority. Unexpected extra transport parameters remain denied.

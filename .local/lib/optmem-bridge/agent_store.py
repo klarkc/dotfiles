@@ -234,6 +234,35 @@ def request_store(memory: Path, sidecar: Path, harness: str,
         return {"status":status,"index":index}
 
 
+def lookup_key(memory: Path, sidecar: Path, logical_key: str) -> dict:
+    """Lookup a shared logical identity, verifying its upstream record first.
+
+    Return only key, index, and the actual memorized text. Never infer an
+    absent key from similar phrases; callers can recall before choosing one.
+    """
+    if not isinstance(logical_key, str) or not KEY_RE.fullmatch(logical_key):
+        raise ValueError("Invalid memory key")
+    memory = writer.private_dir(memory)
+    sidecar = writer.private_dir(sidecar)
+    with agent_lock(sidecar):
+        writer.verify(memory, sidecar)
+        with closing(agent_connection(sidecar)) as con:
+            row = con.execute(
+                "SELECT normalized_sha256,memory_index FROM agent_keys WHERE logical_key=?",
+                (logical_key,),
+            ).fetchone()
+            if row is None:
+                return {"status": "NOT_FOUND", "memory_key": logical_key}
+            index = row["memory_index"]
+            verified_index(memory, index, row["normalized_sha256"])
+            raw = writer.record_at(memory, index).decode("utf-8").rstrip()
+            match = re.fullmatch(r"#[0-9]+ 20[0-9]{2}-[0-9]{2}-[0-9]{2} (.+)", raw)
+            if match is None:
+                raise RuntimeError("Invalid referenced upstream record")
+            return {"status": "FOUND", "memory_key": logical_key,
+                    "index": index, "text": match.group(1)}
+
+
 def stable_request_id(harness: str, logical_key: str, text: str) -> str:
     """Tool adapter derives replay identity; caller need not invent one."""
     digest=normalized_digest(text)
