@@ -55,13 +55,6 @@
       url = "github:punkpeye/mcp-remote/77bbcfcd7892d339c27b5a14818b63cb5c4d3293";
       flake = false;
     };
-    # Bump note: Enpass MCP is fixed to a reviewed revision of 0.2.0.
-    # Bump together with .nix/enpass-mcp-runtime.nix version/npmDepsHash,
-    # rerun nix build .#enpass-mcp-runtime and read-only MCP smoke tests.
-    enpass-mcp-src = {
-      url = "github:bitterdev/enpass-mcp/fe805b729de1f0e4196b2e9cdd5df18a8747db26";
-      flake = false;
-    };
     # Desktop Commander Remote is pinned because it is a long-lived local
     # service, not an ephemeral npx invocation. Keep this rev aligned with the
     # package version in .nix/desktop-commander-runtime.nix.
@@ -226,9 +219,6 @@
           desktopCommanderMcpRuntime = pkgs.callPackage ./.nix/desktop-commander-mcp-runtime.nix {
             inherit desktopCommanderRuntime;
           };
-          enpassMcpRuntime = pkgs.callPackage ./.nix/enpass-mcp-runtime.nix {
-            enpass-mcp-src = inputs.enpass-mcp-src;
-          };
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
@@ -322,26 +312,11 @@
                   python3 ${./.nix/tests/desktop-commander-mcp-cloudflare-contract.py} ${./.}/.nix/desktop-commander-mcp-cloudflare.py
                   touch $out
                 '';
-            # Enpass MCP: no write tools, approval-gated sensitive reads, and
-            # manual-only write skill. Pure check runs without Enpass credentials.
-            enpass-mcp-readonly-contract =
-              pkgs.runCommand "enpass-mcp-readonly-contract"
-                {
-                  nativeBuildInputs = [ pkgs.python3 ];
-                }
+            # Offline contract for isolated browser settings and MCP safety.
+            opencode-browser-contract =
+              pkgs.runCommand "opencode-browser-contract" { nativeBuildInputs = [ pkgs.python3 ]; }
                 ''
-                  python3 ${./.nix/tests/enpass-mcp-contract.py} ${./.config/opencode/opencode.json} ${./.nix/enpass-mcp-runtime.nix} ${./.agents/skills/enpass-write-human-guidance/SKILL.md} ${./flake.nix}
-                  touch $out
-                '';
-            # End-to-end MCP wire protocol check, without registering a real
-            # Enpass vault, reading credentials, or touching the user's home.
-            enpass-mcp-readonly-protocol =
-              pkgs.runCommand "enpass-mcp-readonly-protocol"
-                {
-                  nativeBuildInputs = [ pkgs.python3 ];
-                }
-                ''
-                  python3 ${./.nix/tests/enpass-mcp-readonly-smoke.py} ${enpassMcpRuntime}/bin/enpass-mcp-readonly
+                  python3 ${./.nix/tests/opencode-browser-contract.py} ${./.config/opencode/opencode.json} ${./.local/bin/opencode-browser-mcp} ${./.local/bin/opencode-browser-display} ${./.config/systemd/user/opencode-browser-display.service} ${./.local/bin/opencode-browser-pair}
                   touch $out
                 '';
             # Offline contract for the actual pre-commit gate. It tests
@@ -649,7 +624,7 @@
                 ledgeurRuntime
                 vllmRuntime
                 mcpRemoteRuntime
-                enpassMcpRuntime
+                playwright-mcp
                 desktopCommanderRuntime
                 desktopCommanderMcpRuntime
                 zeroclawWithLandlock
@@ -662,7 +637,6 @@
           packages.ledgeur-runtime = ledgeurRuntime;
           packages.vllm-runtime = vllmRuntime;
           packages.mcp-remote-runtime = mcpRemoteRuntime;
-          packages.enpass-mcp-runtime = enpassMcpRuntime;
           packages.desktop-commander-runtime = desktopCommanderRuntime;
           packages.desktop-commander-mcp-runtime = desktopCommanderMcpRuntime;
           packages.zeroclaw = zeroclawWithLandlock;

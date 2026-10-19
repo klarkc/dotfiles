@@ -1,0 +1,21 @@
+[Unit]
+Description=Isolated X11 display for OpenCode Playwright MCP
+Documentation=https://playwright.dev/mcp/configuration/options
+After=basic.target
+
+[Service]
+Type=simple
+Environment=HOME=%h
+ExecStart=%h/.local/bin/opencode-browser-display
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# Keep the display shared with local MCP clients; Linux X11 also uses abstract sockets.
+
+[Install]
+WantedBy=default.target

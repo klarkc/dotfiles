@@ -34,23 +34,6 @@
         "type": "github"
       }
     },
-    "enpass-mcp-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1785184379,
-        "narHash": "sha256-Y7q0AandBdvDMFBt4AsQhaPBbNpAC2kp++smkCaGLsQ=",
-        "owner": "bitterdev",
-        "repo": "enpass-mcp",
-        "rev": "fe805b729de1f0e4196b2e9cdd5df18a8747db26",
-        "type": "github"
-      },
-      "original": {
-        "owner": "bitterdev",
-        "repo": "enpass-mcp",
-        "rev": "fe805b729de1f0e4196b2e9cdd5df18a8747db26",
-        "type": "github"
-      }
-    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -300,7 +283,6 @@
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
         "desktop-commander-src": "desktop-commander-src",
-        "enpass-mcp-src": "enpass-mcp-src",
         "git-hooks": "git-hooks",
         "herdr": "herdr",
         "kolu": "kolu",

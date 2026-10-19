@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+state="$HOME/.local/state/opencode-browser"
+mkdir -p "$state/profile" "$state/outputs"
+chmod 700 "$state" "$state/profile" "$state/outputs"
+# Chromium profile state cannot be shared by simultaneous MCP processes.
+exec 9>"$state/profile.lock"
+if ! flock -n 9; then
+  echo "opencode-browser-mcp: browser profile in use by another OpenCode MCP; close that browser session first" >&2
+  exit 73
+fi
+export DISPLAY=:92
+# Nixpkgs playwright-mcp wrapper forces isolated=1 unless this is set.
+export PLAYWRIGHT_MCP_USER_DATA_DIR="$state/profile"
+export XAUTHORITY="$state/xauthority"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+if ! /usr/bin/xset -display :92 q >/dev/null 2>&1; then
+  systemctl --user start opencode-browser-display.service
+fi
+ready=0
+for i in $(seq 1 50); do
+  if [[ -s "$XAUTHORITY" ]] && /usr/bin/xset -display :92 q >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 0.1
+done
+if (( ! ready )); then
+  echo "opencode-browser-mcp: isolated Xvfb service is not ready" >&2
+  exit 69
+fi
+# Read only the installed official extension's manifest/code; never reuse the
+# personal Brave profile, its cookies, extension state, or live browser process.
+python3 - "$state" <<'PY'
+import json
+import pathlib
+import sys
+state = pathlib.Path(sys.argv[1])
+id = "kmcfomidfpdkfieipokbalgegidffkal"
+root = pathlib.Path.home() / ".config/BraveSoftware/Brave-Browser/Default/Extensions" / id
+choices = sorted(
+    (p for p in root.iterdir() if (p / "manifest.json").is_file()),
+    key=lambda p: p.name,
+) if root.is_dir() else []
+if not choices:
+    raise SystemExit("Enpass official browser extension not found; no personal profile will be copied")
+ext = choices[-1]
+meta = json.loads((ext / "manifest.json").read_text())
+if meta.get("name") != "Enpass Password Manager" or meta.get("update_url") != "https://clients2.google.com/service/update2/crx" or not meta.get("key"):
+    raise SystemExit("unexpected Enpass extension manifest; refusing to launch")
+profile = state / "profile"
+opts = {
+    "browser": {
+        "browserName": "chromium",
+        "isolated": False,
+        "userDataDir": str(profile),
+        "launchOptions": {
+            "headless": False,
+            "executablePath": "/usr/bin/brave",
+            "args": [
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-extensions-except=" + str(ext),
+                "--load-extension=" + str(ext),
+            ],
+            "ignoreDefaultArgs": ["--disable-extensions"],
+        },
+    },
+    "outputDir": str(state / "outputs"),
+    "saveSession": False,
+}
+config = state / "playwright-config.json"
+config.write_text(json.dumps(opts, indent=2) + "\n")
+config.chmod(0o600)
+PY
+exec "${OPENCODE_PLAYWRIGHT_MCP_BIN:-$HOME/.nix-profile/bin/playwright-mcp}" --config "$state/playwright-config.json" --image-responses=omit

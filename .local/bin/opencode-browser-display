@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+state="$HOME/.local/state/opencode-browser"
+auth="$state/xauthority"
+mkdir -p "$state"
+chmod 700 "$state"
+if [[ ! -s "$auth" ]]; then
+  touch "$auth"
+  chmod 600 "$auth"
+  cookie="$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]')"
+  /usr/bin/xauth -f "$auth" add :92 MIT-MAGIC-COOKIE-1 "$cookie"
+fi
+exec /usr/bin/Xvfb :92 -screen 0 1366x768x24 -nolisten tcp -auth "$auth" -noreset

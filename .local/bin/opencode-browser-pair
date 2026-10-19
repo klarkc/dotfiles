@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Human-only pairing; never enter a PIN or master password via an agent.
+set -euo pipefail
+umask 077
+if [[ "$#" -gt 0 && ( "$1" = "--help" || "$1" = "-h" ) ]]; then
+  echo "Run from a graphical terminal: opencode-browser-pair"
+  echo "Opens a temporary Xephyr window and independent Brave for Enpass pairing."
+  exit 0
+fi
+desktop_display="$(printenv DISPLAY || true)"
+if [[ -z "$desktop_display" || "$desktop_display" = ":92" ]]; then
+  echo "Must run from a graphical desktop terminal, not SSH" >&2
+  exit 64
+fi
+state="$HOME/.local/state/opencode-browser"
+profile="$state/profile"
+auth="$state/xauthority"
+mkdir -p "$state" "$profile"
+chmod 700 "$state" "$profile"
+exec 9>"$state/profile.lock"
+flock -n 9 || { echo "Virtual browser profile in use; close that session" >&2; exit 73; }
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+if [[ ! -s "$auth" ]]; then systemctl --user start opencode-browser-display.service; fi
+[[ -s "$auth" ]] || { echo "Xauthority not ready" >&2; exit 69; }
+ext="$(python3 - <<'PY'
+import json,pathlib
+root=pathlib.Path.home()/".config/BraveSoftware/Brave-Browser/Default/Extensions/kmcfomidfpdkfieipokbalgegidffkal"
+versions=sorted([p for p in root.iterdir() if (p/"manifest.json").is_file()],key=lambda p:p.name) if root.exists() else []
+if not versions:raise SystemExit("Official Enpass extension missing")
+m=json.loads((versions[-1]/"manifest.json").read_text())
+if m.get("name")!="Enpass Password Manager" or not m.get("key"):
+    raise SystemExit("Unexpected Enpass extension manifest")
+print(versions[-1])
+PY
+)"
+systemctl --user stop opencode-browser-display.service
+for i in $(seq 1 40); do
+  ! DISPLAY=:92 XAUTHORITY="$auth" /usr/bin/xset q >/dev/null 2>&1 && break
+  sleep 0.1
+done
+if DISPLAY=:92 XAUTHORITY="$auth" /usr/bin/xset q >/dev/null 2>&1; then
+  echo "Display :92 still busy; aborting" >&2
+  systemctl --user start opencode-browser-display.service
+  exit 75
+fi
+Xephyr :92 -screen 1366x768 -nolisten tcp -auth "$auth" -br > "$state/xephyr-pair.log" 2>&1 &
+xp=$!
+cleanup() {
+  kill "$xp" 2>/dev/null || true
+  wait "$xp" 2>/dev/null || true
+  systemctl --user start opencode-browser-display.service || true
+}
+trap cleanup EXIT
+ready=0
+for i in $(seq 1 60); do
+  DISPLAY=:92 XAUTHORITY="$auth" /usr/bin/xset q >/dev/null 2>&1 && { ready=1; break; }
+  sleep 0.1
+done
+(( ready )) || { echo "Xephyr failed to start" >&2; exit 69; }
+echo "Temporary Brave window: click Enpass extension, confirm inside Enpass Desktop."
+echo "Type PIN only in Enpass. Close temporary Brave to resume background mode."
+DISPLAY=:92 XAUTHORITY="$auth" /usr/bin/brave \
+  --user-data-dir="$profile" \
+  --no-first-run --no-default-browser-check --disable-background-mode \
+  "--disable-extensions-except=$ext" "--load-extension=$ext" \
+  'https://mega.nz'

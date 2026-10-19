@@ -18,7 +18,9 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": ["reasoning.encrypted_content"],
+				"include": [
+					"reasoning.encrypted_content"
+				],
 				"store": false
 			},
 			"models": {
@@ -29,8 +31,13 @@
 						"output": 128000
 					},
 					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
+						"input": [
+							"text",
+							"image"
+						],
+						"output": [
+							"text"
+						]
 					},
 					"variants": {
 						"none": {
@@ -122,7 +129,9 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": ["reasoning.encrypted_content"],
+				"include": [
+					"reasoning.encrypted_content"
+				],
 				"store": false
 			}
 		},
@@ -178,7 +187,9 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": ["reasoning.encrypted_content"],
+				"include": [
+					"reasoning.encrypted_content"
+				],
 				"store": false
 			}
 		},
@@ -199,7 +210,9 @@
 				"reasoningEffort": "medium",
 				"reasoningSummary": "auto",
 				"textVerbosity": "medium",
-				"include": ["reasoning.encrypted_content"],
+				"include": [
+					"reasoning.encrypted_content"
+				],
 				"store": false
 			}
 		}
@@ -214,17 +227,10 @@
 			"/nix/var/**": "allow",
 			"/nix/store/**": "allow"
 		},
-		"enpass_*": "deny",
-		"enpass_list_vaults": "allow",
-		"enpass_sync_status": "allow",
-		"enpass_lock_vault": "allow",
-		"enpass_unlock_vault": "ask",
-		"enpass_list_items": "ask",
-		"enpass_list_attachments": "ask",
-		"enpass_get_item": "ask",
-		"enpass_get_password": "ask",
-		"enpass_get_otp": "ask",
-		"enpass_export_attachment": "deny"
+		"playwright_browser_evaluate": "deny",
+		"playwright_browser_run_code": "deny",
+		"playwright_browser_file_upload": "ask",
+		"playwright_browser_take_screenshot": "ask"
 	},
 	"mcp": {
 		"atlassian": {
@@ -234,15 +240,23 @@
 		},
 		"bitbucket_read": {
 			"type": "local",
-			"command": ["sh", "-c", "exec \"$HOME/.local/bin/bitbucket-read-mcp\""],
+			"command": [
+				"sh",
+				"-c",
+				"exec \"$HOME/.local/bin/bitbucket-read-mcp\""
+			],
 			"enabled": true,
 			"timeout": 30000
 		},
-		"enpass": {
+		"playwright": {
 			"type": "local",
-			"command": ["sh", "-c", "exec \"$HOME/.nix-profile/bin/enpass-mcp-readonly\""],
+			"command": [
+				"sh",
+				"-c",
+				"exec \"$HOME/.local/bin/opencode-browser-mcp\""
+			],
 			"enabled": true,
-			"timeout": 30000
+			"timeout": 60000
 		}
 	},
 	"small_model": "vllm/qwen3.8-27b"
