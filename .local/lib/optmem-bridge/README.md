@@ -166,3 +166,28 @@ not a malicious party replacing both the files and the manifest. This is a
 authenticated restore chain. Noncooperating raw OptMem writes remain prohibited;
 the lock protocol does not protect against malicious bypasses. No remote
 transport, cloud service, snapshot timer or native memory migration is enabled.
+
+## Production release gate (read-only, fail closed)
+
+`python3 -B .local/lib/optmem-bridge/production_preflight.py`
+
+This intentionally returns exit status **2 / BLOCKED** until all production
+cutover gates are verified. It does not install an MCP, change configuration,
+write memory, stop agents or trigger a remote backup. It tests provenance of
+the approved historical stage, checks the actual canonical LOG state and
+release receipt, validates the two production MCP bindings and the
+ZeroClaw native writer exclusivity setting, and accounts for every native
+SQLite memory with a source-content digest and verified canonical index.
+
+Local synthetic regressions cover failing closed on omitted native rows,
+concurrent growth, tampered records, stale historical evidence, missing MCP
+bindings and two simultaneous native writers. A mocked fully certified state
+can pass the pure gate; the real host cannot pass merely because an existing
+G4N staging smoke was green. The acceptance receipt in private state is
+operator evidence, not a cryptographic signature or substitute for executing
+the two real runtime E2Es. It must only be created after those E2Es pass.
+
+A complete migration of multiline/oversized/sensitive ZeroClaw notes requires
+its own verified lossless mapping or securely retained-archive contract before
+production go-live. This strict initial gate intentionally does not invent
+semantic equality for paraphrased or truncated legacy notes.
