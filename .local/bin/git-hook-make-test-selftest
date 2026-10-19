@@ -42,7 +42,7 @@ import os
 import sys
 from pathlib import Path
 Path(os.environ["HOOK_TEST_MARKER"]).write_text("make invoked\\n", encoding="utf-8")
-if os.environ.get("SMOKE_TESTS_ENABLED") != "true":
+if os.environ.get("SMOKE_TESTS_ENABLED") != "false":
     sys.exit(72)
 if os.environ.get("SKIP_SMOKE"):
     sys.exit(73)
@@ -70,10 +70,10 @@ sys.exit(int(os.environ.get("STUB_EXIT", "0")))
                 "MFLAGS": "-n",
                 "GNUMAKEFLAGS": "-n",
                 "MAKEFILES": str(root / "fake-injected.mk"),
-                "MAKEOVERRIDES": "SMOKE_TESTS_ENABLED=false",
+                "MAKEOVERRIDES": "SMOKE_TESTS_ENABLED=true",
                 "MAKELEVEL": "13",
                 "SKIP_SMOKE": "1",
-                "SMOKE_TESTS_ENABLED": "false",
+                "SMOKE_TESTS_ENABLED": "true",
             })
         else:
             for name in (

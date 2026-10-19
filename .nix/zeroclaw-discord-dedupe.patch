@@ -1,0 +1,140 @@
+diff --git a/crates/zeroclaw-channels/src/discord/mod.rs b/crates/zeroclaw-channels/src/discord/mod.rs
+index 723809d90..86e674224 100644
+--- a/crates/zeroclaw-channels/src/discord/mod.rs
++++ b/crates/zeroclaw-channels/src/discord/mod.rs
+@@ -2,7 +2,7 @@ use async_trait::async_trait;
+ use futures_util::{SinkExt, StreamExt};
+ use parking_lot::Mutex;
+ use serde_json::json;
+-use std::collections::HashMap;
++use std::collections::{HashMap, HashSet, VecDeque};
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+ use std::time::Duration;
+@@ -92,6 +92,8 @@ pub struct DiscordChannel {
+     /// mask override above.
+     reaction_scope: zeroclaw_config::schema::DiscordReactionScope,
+     typing_handles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
++    /// Suppress redelivered Gateway events before invoking the agent.
++    recent_message_ids: Mutex<SeenDiscordMessages>,
+     /// Per-channel proxy URL override.
+     proxy_url: Option<String>,
+     /// Voice transcription config — when set, audio attachments are
+@@ -146,6 +148,92 @@ pub struct DiscordChannel {
+     slash_command_resolver: Option<DiscordSlashCommandResolver>,
+ }
+ 
++/// Bounded, per-channel idempotency boundary for Discord Gateway redeliveries.
++/// An immutable snowflake is used as the key; identical message text is allowed.
++#[derive(Default)]
++struct SeenDiscordMessages {
++    ids: HashSet<String>,
++    order: VecDeque<String>,
++}
++
++impl SeenDiscordMessages {
++    const CAPACITY: usize = 4096;
++
++    fn admit(&mut self, id: &str) -> bool {
++        if id.is_empty() {
++            return true;
++        }
++        if !self.ids.insert(id.to_owned()) {
++            return false;
++        }
++        self.order.push_back(id.to_owned());
++        if self.order.len() > Self::CAPACITY {
++            if let Some(old) = self.order.pop_front() {
++                self.ids.remove(&old);
++            }
++        }
++        true
++    }
++}
++
++#[cfg(test)]
++mod duplicate_delivery_regression {
++    use super::{DiscordChannel, SeenDiscordMessages};
++    use std::sync::Arc;
++
++    #[test]
++    fn gateway_redelivery_triggers_one_turn() {
++        let channel = DiscordChannel::new(
++            "token".to_string(),
++            vec![],
++            "default",
++            Arc::new(Vec::new),
++            false,
++            false,
++        );
++        assert!(channel.recent_message_ids.lock().admit("12345"));
++        assert!(!channel.recent_message_ids.lock().admit("12345"));
++    }
++
++    #[test]
++    fn same_content_sent_as_distinct_events_is_not_lost() {
++        let mut cache = SeenDiscordMessages::default();
++        assert!(cache.admit("12345"));
++        assert!(cache.admit("12346"));
++        assert!(cache.admit(""));
++    }
++
++    #[test]
++    fn bounded_cache_preserves_recent_ids() {
++        let mut cache = SeenDiscordMessages::default();
++        for id in 0..=SeenDiscordMessages::CAPACITY {
++            assert!(cache.admit(&id.to_string()));
++        }
++        assert_eq!(cache.ids.len(), SeenDiscordMessages::CAPACITY);
++        assert!(!cache.admit(&SeenDiscordMessages::CAPACITY.to_string()));
++        assert!(cache.admit("0")); // Oldest ID expired.
++    }
++
++    #[test]
++    fn concurrent_replay_has_a_single_winner() {
++        let cache = Arc::new(parking_lot::Mutex::new(SeenDiscordMessages::default()));
++        let threads: Vec<_> = (0..12)
++            .map(|_| {
++                let cache = Arc::clone(&cache);
++                std::thread::spawn(move || cache.lock().admit("event-42"))
++            })
++            .collect();
++        assert_eq!(
++            threads
++                .into_iter()
++                .map(|t| t.join().unwrap())
++                .filter(|v| *v)
++                .count(),
++            1
++        );
++    }
++}
++
+ #[derive(Clone, Debug, Default)]
+ struct DiscordGatewaySession {
+     session_id: Option<String>,
+@@ -174,6 +262,7 @@ impl DiscordChannel {
+             intents_mask_override: None,
+             reaction_scope: zeroclaw_config::schema::DiscordReactionScope::Off,
+             typing_handles: Mutex::new(HashMap::new()),
++            recent_message_ids: Mutex::new(SeenDiscordMessages::default()),
+             proxy_url: None,
+             transcription: None,
+             transcription_manager: None,
+@@ -3253,6 +3342,16 @@ impl Channel for DiscordChannel {
+                         continue;
+                     };
+ 
++                    // Replayed MESSAGE_CREATE events must never create a second LLM turn.
++                    // Guard before downloads, approval consumption and ACK reactions.
++                    let event_id = d.get("id").and_then(serde_json::Value::as_str).unwrap_or("");
++                    if !self.recent_message_ids.lock().admit(event_id) {
++                        ::zeroclaw_log::record!(DEBUG,
++                            ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note),
++                            "skipping duplicate Discord MESSAGE_CREATE");
++                        continue;
++                    }
++
+                     let client = self.http_client();
+                     let (attachment_text, media_attachments) = process_attachments(
+                         &atts,

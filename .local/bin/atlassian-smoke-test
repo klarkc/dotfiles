@@ -110,6 +110,8 @@ mcp_post() {
     --silent
     --show-error
     --fail-with-body
+    --connect-timeout 10
+    --max-time 45
     --no-buffer
     -i
     -o "$combined_file"

@@ -26,7 +26,7 @@ listen_to_bots = false
 mention_only = false
 multi_message_delay_ms = 800
 stall_timeout_secs = 0
-stream_mode = "multi_message"
+stream_mode = "off"
 
 [storage.qdrant.default]
 collection = "zeroclaw_memories"

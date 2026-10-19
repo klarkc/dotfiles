@@ -184,6 +184,8 @@
               ./.nix/zeroclaw-provider-timeout.patch
               # Keep safe Nix builds automatic, but elevate Nix/Git effects.
               ./.nix/zeroclaw-nix-approvals.patch
+              # At-most-once Discord MESSAGE_CREATE handling across Gateway replays.
+              ./.nix/zeroclaw-discord-dedupe.patch
             ];
             cargoDeps = pkgs.rustPlatform.importCargoLock {
               lockFile = "${inputs.zeroclaw-src}/Cargo.lock";
@@ -284,11 +286,12 @@
               require_serial = true;
               before = [ "make-test" ];
             };
-            # For human git commits run the FULL make test including live smokes.
-            # A nix flake check sandbox deliberately avoids recursive invocation.
+            # Every human commit must run make test (all deterministic checks).
+            # Live network smokes are opt-in and must not stall Git commits.
+            # The nix flake check sandbox avoids recursive invocation.
             hooks.make-test = {
               enable = true;
-              name = "Full make test";
+              name = "Mandatory make test";
               entry = "bash .local/bin/git-hook-make-test";
               pass_filenames = false;
               always_run = true;

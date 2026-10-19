@@ -72,22 +72,22 @@ xmonad.LemursInstall: .local/bin/xmonad-session
 nix.Profile:
 	nix --extra-experimental-features "nix-command flakes" profile install .
 
-# `make test` is the standard verification entrypoint for this repo.
-# It runs `nix flake check` (static config + no-network self-tests)
-# followed by `.local/bin/*-smoke-test` scripts (out-of-band live
-# checks that require network and user secrets). Smoke tests are
-# enabled by default and can be disabled via SMOKE_TESTS_ENABLED=false
-# (or the legacy SKIP_SMOKE=1 alias for backwards compatibility).
+# `make test` is the mandatory Git-hook verification entrypoint.
+# It always runs `nix flake check` (static config + offline self-tests).
+# Network-dependent live smokes are explicitly opt-in because Atlassian
+# and other external services can block commits regardless of local quality.
 #
 # Usage:
-#   make test                          Run flake check + smoke tests (default).
-#   make test SMOKE_TESTS_ENABLED=false Run flake check only (CI default).
-#   SMOKE_TESTS_ENABLED=false make test Equivalent.
-#   make test SKIP_SMOKE=1             Backwards-compatible alias for disabling smoke.
+#   make test                           Deterministic checks (default).
+#   SMOKE_TESTS_ENABLED=true make test  Also run external live smokes.
+#   make test SKIP_SMOKE=1              Legacy alias for offline checks.
 #
 # E2E/integration smoke tests that need live services/secrets/network
 # MUST live as `.local/bin/*-smoke-test` scripts. They are out-of-band
 # and must never be added to `nix flake check`.
+# `make test` always runs the deterministic Nix checks; live smoke tests
+# require `SMOKE_TESTS_ENABLED=true make test` to prevent an unrelated
+# network service from blocking every Git commit.
 .PHONY: test
 test: flake.check smoke
 
@@ -105,7 +105,7 @@ smoke:
 	if [ -n "$$SKIP_SMOKE" ]; then \
 		smoke_enabled=0; \
 	else \
-		case "$${SMOKE_TESTS_ENABLED:-true}" in \
+		case "$${SMOKE_TESTS_ENABLED:-false}" in \
 			1|true|TRUE|yes|YES|on|ON) smoke_enabled=1 ;; \
 			0|false|FALSE|no|NO|off|OFF|"") smoke_enabled=0 ;; \
 			*) echo "smoke: invalid SMOKE_TESTS_ENABLED='$$SMOKE_TESTS_ENABLED'" >&2; exit 2 ;; \
