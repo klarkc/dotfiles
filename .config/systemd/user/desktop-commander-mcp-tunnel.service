@@ -3,7 +3,7 @@ Description=Authenticated Cloudflare Tunnel for Desktop Commander MCP
 Wants=network-online.target desktop-commander-mcp-runtime.service
 After=network-online.target desktop-commander-mcp-runtime.service
 PartOf=desktop-commander-mcp-runtime.service
-ConditionPathExists=%h/.profile_override.desktop-commander-mcp/config.json
+ConditionPathExists=%h/.profile_override
 
 [Service]
 Type=simple

@@ -1,4 +1,5 @@
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,11 @@ import uuid
 
 PORT = 18879
 STATE = ".profile_override.desktop-commander-mcp"
-DEFAULT_HOSTNAME = "host.example.invalid"
+PRIVATE = runpy.run_path(str(Path(__file__).with_name("private-environment.py")))
+RUNTIME_KEYS = (
+    "DESKTOP_COMMANDER_MCP_HOSTNAME", "CLOUDFLARE_TUNNEL_ID", "CLOUDFLARE_ACCESS_TEAM",
+    "CLOUDFLARE_ACCESS_AUDIENCE", "CLOUDFLARE_TUNNEL_SECRET", "CLOUDFLARE_ACCOUNT_ID",
+)
 
 
 def private_file(path):
@@ -67,44 +72,46 @@ def validate(settings):
     }
 
 
-def config_path():
-    return Path.home() / STATE / "config.json"
-
-
-def configure(args):
-    settings = {key: getattr(args, key) for key in (
-        "hostname", "tunnel_id", "team_name", "audience", "credentials_file"
-    )}
-    settings["credentials_file"] = str(Path(args.credentials_file).expanduser().absolute())
-    validate(settings)
-    path = config_path()
-    path.parent.mkdir(mode=0o700, exist_ok=True)
-    if path.parent.is_symlink() or path.parent.stat().st_uid != os.getuid():
-        raise ValueError("Private configuration directory must be owned by this user, not a symlink")
-    path.parent.chmod(0o700)
-    if path.exists() or path.is_symlink():
-        raise ValueError("Configuration already exists; edit the private config explicitly")
-    with path.open("x") as stream:
-        json.dump(settings, stream, indent=2)
-        stream.write("\n")
-    print("Private configuration saved; tunnel has NOT been started")
+@contextmanager
+def runtime_configuration(values):
+    runtime = os.environ.get("RUNTIME_DIRECTORY") or os.environ.get("XDG_RUNTIME_DIR")
+    if runtime and (not Path(runtime).is_absolute() or not Path(runtime).is_dir()):
+        raise ValueError("Invalid private runtime directory")
+    with tempfile.TemporaryDirectory(prefix="desktop-commander-mcp-", dir=runtime) as directory:
+        base = Path(directory)
+        credential = base / "credentials.json"
+        credential.write_text(json.dumps({
+            "AccountTag": values["CLOUDFLARE_ACCOUNT_ID"],
+            "TunnelID": values["CLOUDFLARE_TUNNEL_ID"],
+            "TunnelSecret": values["CLOUDFLARE_TUNNEL_SECRET"],
+        }))
+        credential.chmod(0o600)
+        config = validate({
+            "hostname": values["DESKTOP_COMMANDER_MCP_HOSTNAME"],
+            "tunnel_id": values["CLOUDFLARE_TUNNEL_ID"],
+            "team_name": values["CLOUDFLARE_ACCESS_TEAM"],
+            "audience": values["CLOUDFLARE_ACCESS_AUDIENCE"],
+            "credentials_file": str(credential),
+        })
+        path = base / "tunnel.json"
+        path.write_text(json.dumps(config))
+        path.chmod(0o600)
+        yield path, config
 
 
 def tunnel():
-    settings = json.loads(private_file(config_path()).read_text())
-    config = validate(settings)
-    runtime = Path(os.environ.get("RUNTIME_DIRECTORY") or os.environ.get("XDG_RUNTIME_DIR", ""))
-    if not runtime.is_absolute() or not runtime.is_dir():
+    values = PRIVATE["load_profile"](required=RUNTIME_KEYS)
+    if not os.environ.get("RUNTIME_DIRECTORY") and not os.environ.get("XDG_RUNTIME_DIR"):
         raise ValueError("Run the tunnel through its systemd user service (runtime directory required)")
-    with tempfile.NamedTemporaryFile(mode="w", prefix="desktop-commander-tunnel-", suffix=".json", dir=runtime) as stream:
-        json.dump(config, stream)
-        stream.flush()
+    with runtime_configuration(values) as (path, config):
         import subprocess
 
         result = subprocess.run([
-            "cloudflared", "tunnel", "--config", stream.name,
+            "cloudflared", "tunnel", "--config", str(path),
             "--no-autoupdate", "run", config["tunnel"],
-        ], check=False)
+        ], check=False, env={key: os.environ[key] for key in (
+            "HOME", "PATH", "LANG", "LC_ALL", "XDG_RUNTIME_DIR"
+        ) if key in os.environ})
         return result.returncode
 
 
@@ -161,15 +168,10 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     server = sub.add_parser("serve", help="Loopback-only MCP HTTP bridge")
     server.add_argument("--port", type=int, default=PORT)
-    config = sub.add_parser("configure", help="Save private local tunnel configuration; does not publish DNS")
-    config.add_argument("--hostname", default=DEFAULT_HOSTNAME)
-    for name in ("tunnel-id", "team-name", "audience", "credentials-file"):
-        config.add_argument(f"--{name}", required=True)
     sub.add_parser("tunnel", help="Run cloudflared with mandatory Access JWT validation")
     sub.add_parser("check", help="Validate private configuration without displaying credentials")
     sub.add_parser("smoke", help="Isolated local MCP integration test, not a ChatGPT/OAuth test")
-    public = sub.add_parser("probe", help="Verify public TLS, unauthenticated rejection and OAuth discovery")
-    public.add_argument("--hostname", default=DEFAULT_HOSTNAME)
+    sub.add_parser("probe", help="Verify public TLS, unauthenticated rejection and OAuth discovery")
     sub.add_parser("prepare", help="Create a host nonce fixture for the manual ChatGPT end-to-end test")
     sub.add_parser("verify", help="Verify the proof file written by the manual ChatGPT test")
     args = parser.parse_args()
@@ -177,18 +179,19 @@ def main():
         if not 1024 <= args.port <= 65535:
             parser.error("port must be between 1024 and 65535")
         serve(args)
-    elif args.action == "configure":
-        configure(args)
     elif args.action == "tunnel":
         return tunnel()
     elif args.action == "check":
-        validate(json.loads(private_file(config_path()).read_text()))
+        values = PRIVATE["load_profile"](required=RUNTIME_KEYS)
+        with runtime_configuration(values):
+            pass
         print("Private config valid; exact hostname, Access JWT required, all other hosts denied")
     elif args.action == "smoke":
         sys.argv = ["desktop-commander-mcp-smoke", os.environ["DESKTOP_COMMANDER_MCP_EXECUTABLE"]]
         runpy.run_path("@smoke@", run_name="__main__")
     elif args.action == "probe":
-        sys.argv = ["desktop-commander-mcp-public-probe", args.hostname]
+        values = PRIVATE["load_profile"](required=("DESKTOP_COMMANDER_MCP_HOSTNAME",))
+        sys.argv = ["desktop-commander-mcp-public-probe", values["DESKTOP_COMMANDER_MCP_HOSTNAME"]]
         runpy.run_path("@publicProbe@", run_name="__main__")
     elif args.action in ("prepare", "verify"):
         challenge(args.action)

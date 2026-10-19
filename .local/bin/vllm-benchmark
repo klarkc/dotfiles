@@ -33,7 +33,7 @@ Prefix-switch workload knobs:
   SUFFIX_TOKENS       Per-agent history suffix. Default: 256
   COMPLETION_TOKENS   Generation length. Default: 64
   WARM_REPEATS        Warm reruns per agent. Default: 2
-  INCLUDE_SOLOGIG     Run cross-project (1) or skip (0). Default: 1
+  INCLUDE_SECOND_PROJECT Run cross-project (1) or skip (0). Default: 1
   PASS_RATIO          Warm-vs-cold TTFT pass ratio (warm <= ratio*cold).
                       Default: 0.5
 EOF
@@ -358,12 +358,12 @@ run_prefix_switch() {
 
   echo
   echo "=== Prefix-switch / agent-switch workload ==="
-  echo "served_model=$MODEL base_url=$BASE_URL prefix_tokens=$PREFIX_TOKENS suffix_tokens=$SUFFIX_TOKENS completion_tokens=$COMPLETION_TOKENS warm_repeats=$WARM_REPEATS include_sologig=$INCLUDE_SOLOGIG pass_ratio=$PASS_RATIO"
+  echo "served_model=$MODEL base_url=$BASE_URL prefix_tokens=$PREFIX_TOKENS suffix_tokens=$SUFFIX_TOKENS completion_tokens=$COMPLETION_TOKENS warm_repeats=$WARM_REPEATS include_second_project=$INCLUDE_SECOND_PROJECT pass_ratio=$PASS_RATIO"
 
   set +e
   python3 - "$BASE_URL" "$MODEL" "${VLLM_API_KEY:-}" \
     "$PREFIX_TOKENS" "$SUFFIX_TOKENS" "$COMPLETION_TOKENS" \
-    "$WARM_REPEATS" "$INCLUDE_SOLOGIG" "$PASS_RATIO" \
+    "$WARM_REPEATS" "$INCLUDE_SECOND_PROJECT" "$PASS_RATIO" \
     "$json_file" "$csv_file" "$summary_file" \
     "$artifact_dir" "$slug" \
     <<'PY' 2>&1 | tee "$log_file"
@@ -378,7 +378,7 @@ import urllib.error
 import urllib.request
 
 (base_url, model, api_key, prefix_tokens, suffix_tokens, completion_tokens,
- warm_repeats, include_sologig, pass_ratio,
+ warm_repeats, include_second_project, pass_ratio,
  json_path, csv_path, summary_path,
  artifact_dir, slug) = sys.argv[1:]
 
@@ -386,7 +386,7 @@ prefix_tokens = int(prefix_tokens)
 suffix_tokens = int(suffix_tokens)
 completion_tokens = int(completion_tokens)
 warm_repeats = int(warm_repeats)
-include_sologig = int(include_sologig)
+include_second_project = int(include_second_project)
 pass_ratio = float(pass_ratio)
 
 CHARS_PER_TOKEN = 4
@@ -718,11 +718,11 @@ for agent, seed, label in agents:
     for r in range(1, warm_repeats + 1):
         run_request(agent, r, 'warm', prefix_chars, suffix_chars, label, seed)
 
-# SoloSIG-shaped cross-project variant
-if include_sologig == 1:
-    run_request('SoloSIG', 0, 'cold', prefix_chars, suffix_chars, 'solosig', 99)
+# Synthetic cross-project variant
+if include_second_project == 1:
+    run_request('ProjectB', 0, 'cold', prefix_chars, suffix_chars, 'project-b', 99)
     for r in range(1, warm_repeats + 1):
-        run_request('SoloSIG', r, 'warm', prefix_chars, suffix_chars, 'solosig', 99)
+        run_request('ProjectB', r, 'warm', prefix_chars, suffix_chars, 'project-b', 99)
 
 
 # Write CSV
@@ -777,9 +777,9 @@ for agent, seed, _label in agents:
         'verdict': verdict,
     })
 
-if include_sologig == 1:
-    cold = best_ttft(by_kind('SoloSIG', 'cold'))
-    warm1 = best_ttft(by_kind('SoloSIG', 'warm'))
+if include_second_project == 1:
+    cold = best_ttft(by_kind('ProjectB', 'cold'))
+    warm1 = best_ttft(by_kind('ProjectB', 'warm'))
     if cold is None or warm1 is None:
         verdict = 'no-data'
     else:
@@ -787,12 +787,12 @@ if include_sologig == 1:
         verdict = 'pass' if ratio <= pass_ratio else 'fail'
         verdicts.append(verdict)
     summary_rows.append({
-        'agent': 'SoloSIG',
+        'agent': 'ProjectB',
         'cold_ttft_s': cold,
         'warm1_ttft_s': warm1,
-        'warm2_ttft_s': best_ttft([r for r in by_kind('SoloSIG', 'warm') if r['index'] >= 2]),
-        'warm_avg_ttft_s': avg_ttft(by_kind('SoloSIG', 'warm')),
-        'cold_prompt_tokens': (by_kind('SoloSIG', 'cold')[0].get('prompt_tokens') if by_kind('SoloSIG', 'cold') else None),
+        'warm2_ttft_s': best_ttft([r for r in by_kind('ProjectB', 'warm') if r['index'] >= 2]),
+        'warm_avg_ttft_s': avg_ttft(by_kind('ProjectB', 'warm')),
+        'cold_prompt_tokens': (by_kind('ProjectB', 'cold')[0].get('prompt_tokens') if by_kind('ProjectB', 'cold') else None),
         'verdict': verdict,
     })
 
@@ -824,7 +824,7 @@ with open(json_path, 'w', encoding='utf-8') as f:
         'suffix_tokens': suffix_tokens,
         'completion_tokens': completion_tokens,
         'warm_repeats': warm_repeats,
-        'include_sologig': include_sologig,
+        'include_second_project': include_second_project,
         'pass_ratio': pass_ratio,
         'rows': rows,
         'summary': summary_rows,
@@ -842,7 +842,7 @@ with open(summary_path, 'w', encoding='utf-8') as f:
     f.write(f"suffix_tokens={suffix_tokens}\n")
     f.write(f"completion_tokens={completion_tokens}\n")
     f.write(f"warm_repeats={warm_repeats}\n")
-    f.write(f"include_sologig={include_sologig}\n")
+    f.write(f"include_second_project={include_second_project}\n")
     f.write(f"pass_ratio={pass_ratio}\n")
     f.write(f"requested_prefix_tokens={requested_prefix_tokens}\n")
     f.write(f"estimated_actual_prefix_tokens={prefix_tokens}\n")
@@ -976,7 +976,7 @@ PREFIX_TOKENS="${PREFIX_TOKENS:-32768}"
 SUFFIX_TOKENS="${SUFFIX_TOKENS:-256}"
 COMPLETION_TOKENS="${COMPLETION_TOKENS:-64}"
 WARM_REPEATS="${WARM_REPEATS:-2}"
-INCLUDE_SOLOGIG="${INCLUDE_SOLOGIG:-1}"
+INCLUDE_SECOND_PROJECT="${INCLUDE_SECOND_PROJECT:-1}"
 PASS_RATIO="${PASS_RATIO:-0.5}"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"

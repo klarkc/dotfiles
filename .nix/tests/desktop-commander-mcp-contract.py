@@ -24,7 +24,7 @@ class ConfigContract(unittest.TestCase):
         self.credential.write_text(json.dumps({"TunnelID": self.tunnel, "TunnelSecret": "test-only"}))
         self.credential.chmod(0o600)
         self.settings = {
-            "hostname": "host.example.invalid",
+            "hostname": "mcp.example.com",
             "tunnel_id": self.tunnel,
             "team_name": "test-team",
             "audience": "a" * 64,
@@ -87,6 +87,7 @@ class ConfigContract(unittest.TestCase):
             self.assertNotIn("npx", unit)
         self.assertIn("ProtectHome=read-only", tunnel)
         self.assertIn("PartOf=desktop-commander-mcp-runtime.service", tunnel)
+        self.assertIn("ConditionPathExists=%h/.profile_override\n", tunnel)
         text = source.read_text()
         self.assertIn('"--host", "127.0.0.1"', text)
         self.assertIn('"--stateless"', text)
@@ -95,6 +96,50 @@ class ConfigContract(unittest.TestCase):
         self.assertNotIn('"--pass-environment"', text)
         self.assertNotIn('"desktop-commander", "remote"', text)
         self.assertEqual(controller["STATE"], ".profile_override.desktop-commander-mcp")
+
+    def test_profile_is_authoritative_and_append_does_not_overwrite(self):
+        with patch.dict(os.environ, {"HOME": self.temp.name, "PRIVATE_SAMPLE": "inherited-not-authoritative"}):
+            profile = Path(self.temp.name) / ".profile_override"
+            profile.write_text("printf 'PRIVATE_OUTPUT_MUST_NOT_ESCAPE'\nexport PRIVATE_SAMPLE='sample-value'\n")
+            profile.chmod(0o600)
+            helper = controller["PRIVATE"]
+            self.assertEqual(helper["load_profile"](required=("PRIVATE_SAMPLE",))["PRIVATE_SAMPLE"], "sample-value")
+            helper["append_profile"]({"PRIVATE_SECOND": "a value with ' quotes"})
+            self.assertEqual(helper["load_profile"]()["PRIVATE_SECOND"], "a value with ' quotes")
+            before = profile.read_bytes()
+            helper["append_profile"]({"PRIVATE_SECOND": "a value with ' quotes"})
+            self.assertEqual(profile.read_bytes(), before)
+            with self.assertRaises(ValueError):
+                helper["append_profile"]({"PRIVATE_SECOND": "different"})
+            self.assertEqual(profile.read_bytes(), before)
+            profile.chmod(0o644)
+            with self.assertRaises(ValueError):
+                helper["load_profile"]()
+
+    def test_runtime_json_is_generated_temporarily_not_saved_as_configuration(self):
+        values = {
+            "DESKTOP_COMMANDER_MCP_HOSTNAME": "mcp.example.com", "CLOUDFLARE_TUNNEL_ID": self.tunnel,
+            "CLOUDFLARE_ACCESS_TEAM": "team-example", "CLOUDFLARE_ACCESS_AUDIENCE": "a" * 64,
+            "CLOUDFLARE_TUNNEL_SECRET": "synthetic-test-value", "CLOUDFLARE_ACCOUNT_ID": "account-example",
+        }
+        with patch.dict(os.environ, {"RUNTIME_DIRECTORY": self.temp.name}):
+            with controller["runtime_configuration"](values) as (path, config):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+                credential = Path(config["credentials-file"])
+                self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(json.loads(credential.read_text())["TunnelSecret"], "synthetic-test-value")
+                self.assertTrue(config["ingress"][0]["originRequest"]["access"]["required"])
+            self.assertFalse(path.exists())
+            self.assertFalse(credential.exists())
+
+    def test_inherited_private_setting_is_not_a_profile_fallback(self):
+        with patch.dict(os.environ, {"HOME": self.temp.name, "PRIVATE_MISSING": "not-in-profile"}):
+            profile = Path(self.temp.name) / ".profile_override"
+            profile.write_text("export ANOTHER_SETTING='example'\n")
+            profile.chmod(0o600)
+            with self.assertRaises(ValueError):
+                controller["PRIVATE"]["load_profile"](required=("PRIVATE_MISSING",))
 
     def test_manual_proof_requires_unseen_nonce_and_marker(self):
         with patch.dict(os.environ, {"HOME": self.temp.name}):

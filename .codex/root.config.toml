@@ -1,20 +1,20 @@
 model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
-[profiles.solosig]
+[profiles.root]
 personality = "pragmatic"
 
-[profiles.solosig.mcp_servers.devenv]
+[profiles.root.mcp_servers.devenv]
 command = "devenv"
 args = ["mcp"]
 
-[profiles.solosig.sandbox_workspace_write]
+[profiles.root.sandbox_workspace_write]
 network_access = true
 
-[profiles.solosig.features]
+[profiles.root.features]
 js_repl = false
 memories = false
 external_migration = false
 prevent_idle_sleep = false
 
-[profiles.solosig.tui]
+[profiles.root.tui]
 session_picker_view = "dense"

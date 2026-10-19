@@ -84,6 +84,7 @@ import_systemd_environment() {
   local model_key="$1"
   local profile_override="$HOME/.profile_override"
   local model_env="$HOME/.config/vllm/${model_key}.env"
+  local private_config_helper="$HOME/.nix/zeroclaw-private-config.py"
   local uri_host
 
   [ -r "$profile_override" ] || {
@@ -137,7 +138,11 @@ import_systemd_environment() {
   export ZEROCLAW_providers__models__vllm__default__model="$SERVED_MODEL_NAME"
   export ZEROCLAW_providers__models__vllm__default__uri="http://${uri_host}:${PORT}/v1"
 
+  ZEROCLAW_CONFIG_DIR="$(XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}" python3 "$private_config_helper")"
+  export ZEROCLAW_CONFIG_DIR
+
   systemctl --user import-environment \
+    ZEROCLAW_CONFIG_DIR \
     VLLM_API_KEY \
     ZEROCLAW_providers__models__vllm__default__api_key \
     ZEROCLAW_providers__models__vllm__default__model \
@@ -155,6 +160,7 @@ import_systemd_environment() {
   unset ZEROCLAW_providers__models__vllm__default__api_key
   unset ZEROCLAW_providers__models__vllm__default__model
   unset ZEROCLAW_providers__models__vllm__default__uri
+  unset ZEROCLAW_CONFIG_DIR
 
   printf 'Imported private systemd environment for %s (%s)\n' "$model_key" "$SERVED_MODEL_NAME"
 }

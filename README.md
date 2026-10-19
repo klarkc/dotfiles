@@ -31,10 +31,7 @@ git checkout main
 
 ## Machines
 
-Each machine has specific configurations and enabled features so I'm splitting it between different branches.
-
-- `ssdinarch`: my personal laptop
-- `main` (default): work machine
+Machine-specific configurations and enabled features are maintained in host branches; `main` is the default branch.
 
 ### Aliases
 

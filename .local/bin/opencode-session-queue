@@ -95,7 +95,7 @@ def launch(sid, token):
         "--unit=" + unit,
         "--description=OpenCode queued model transition " + sid[:25],
         "--setenv=PATH=" + os.environ.get(
-            "PATH", "/home/example/.local/bin:/home/example/.nix-profile/bin:/usr/bin"
+            "PATH", str(Path.home() / ".local/bin") + ":" + str(Path.home() / ".nix-profile/bin") + ":/usr/bin"
         ),
         str(Path.home() / ".local/bin/opencode-session-queue"),
         "worker", sid, token,

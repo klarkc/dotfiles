@@ -26,7 +26,7 @@
 # Optional environment (api-token mode):
 #   ATLASSIAN_EXPECTED_SITE_URL  Site URL that must appear in
 #                                getAccessibleAtlassianResources.
-#                                Default: https://host.example.invalid.
+#                                No default; set in ~/.profile_override.
 #
 # Required environment (oauth mode):
 #   ATLASSIAN_OAUTH_BRIDGE  Name or path of the OAuth bridge binary
@@ -57,6 +57,14 @@
 
 set -euo pipefail
 
+if [ -f "$HOME/.profile_override" ]; then
+  set +x
+  source "$HOME/.profile_override" >/dev/null 2>&1 || {
+    printf 'atlassian-smoke-test: FAIL could not load .profile_override\n' >&2
+    exit 2
+  }
+fi
+
 readonly ENDPOINT='https://mcp.atlassian.com/v1/mcp/authv2'
 readonly CLIENT_INFO_NAME='dotfiles-atlassian-smoke-test'
 readonly CLIENT_INFO_VERSION='0.1.0'
@@ -74,18 +82,6 @@ require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     fail "required command not found: $1" 2
   fi
-}
-
-# Redact any token-like substring from a string before it is printed.
-redact() {
-  local value="$1"
-  if [ -n "${ATLASSIAN_MCP_TOKEN:-}" ]; then
-    value="${value//${ATLASSIAN_MCP_TOKEN}/[REDACTED]}"
-  fi
-  if [ -n "${ATLASSIAN_USER_EMAIL:-}" ]; then
-    value="${value//${ATLASSIAN_USER_EMAIL}/[EMAIL]}"
-  fi
-  printf '%s' "$value"
 }
 
 # Run curl with all sensitive material passed via headers read from files,
@@ -165,10 +161,11 @@ extract_json() {
 }
 
 mode_api_token() {
-  : "${ATLASSIAN_USER_EMAIL:?ATLASSIAN_USER_EMAIL is required for api-token mode}"
-  : "${ATLASSIAN_MCP_TOKEN:?ATLASSIAN_MCP_TOKEN is required for api-token mode}"
+  for name in ATLASSIAN_USER_EMAIL ATLASSIAN_MCP_TOKEN ATLASSIAN_EXPECTED_SITE_URL; do
+    [ -n "${!name:-}" ] || fail "$name is required for api-token mode" 2
+  done
 
-  local expected_site="${ATLASSIAN_EXPECTED_SITE_URL:-https://host.example.invalid}"
+  local expected_site="$ATLASSIAN_EXPECTED_SITE_URL"
 
   require_cmd curl
   require_cmd python3
@@ -229,10 +226,8 @@ mode_api_token() {
   rm -f "$tools_headers"
 
   if [ "$tools_status" != "200" ]; then
-    local redacted
-    redacted="$(redact "$(head -c 500 "$tools_body" 2>/dev/null || true)")"
     rm -f "$tools_body"
-    fail "tools/list HTTP $tools_status: $redacted" 4
+    fail "tools/list HTTP $tools_status" 4
   fi
 
   local tools_json
@@ -256,8 +251,7 @@ obj = json.loads(sys.argv[1])
 if "error" in obj and obj["error"]:
     err = obj["error"]
     print("error")
-    print(f"code={err.get('code')}")
-    print(f"message={err.get('message')}")
+    print("error_present=true")
     sys.exit(0)
 result = obj.get("result") or {}
 tools = result.get("tools") or []
@@ -269,9 +263,7 @@ required = [
 missing = [n for n in required if n not in names]
 if missing:
     print("missing_tools")
-    print(",".join(sorted(missing)))
-    for n in sorted(names):
-        print(n)
+    print("missing_required_tools=true")
     sys.exit(0)
 print("ok")
 print(f"tool_count={len(names)}")
@@ -283,21 +275,15 @@ PY
   local tools_status_line tools_extra
   tools_status_line="$(printf '%s\n' "$tools_validation" | head -1)"
   if [ "$tools_status_line" = "error" ]; then
-    fail "tools/list returned JSON-RPC error: $(printf '%s\n' "$tools_validation" | tail -n +2 | paste -sd ' ' -)" 4
+    fail "tools/list returned JSON-RPC error" 4
   fi
   if [ "$tools_status_line" = "missing_tools" ]; then
-    local missing required_names
-    missing="$(printf '%s\n' "$tools_validation" | sed -n '2p')"
-    required_names="$(printf '%s\n' "$tools_validation" | sed -n '3p')"
-    fail "tools/list missing required tools: ${missing}; got: ${required_names}" 4
+    fail "tools/list missing required tools" 4
   fi
 
   local count
   count="$(printf '%s\n' "$tools_validation" | sed -n 's/^tool_count=//p' | head -1)"
   log "tools_list http_status=200 tool_count=$count"
-  printf '%s\n' "$tools_validation" | awk 'NR>=3 && $0 != "" { print "tool=" $0 }' | while IFS= read -r line; do
-    [ -n "$line" ] && log "$line"
-  done
 
   local resources_payload='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"getAccessibleAtlassianResources","arguments":{}}}'
   local resources_result resources_status resources_body resources_headers
@@ -308,10 +294,8 @@ PY
   rm -f "$session_header_file" "$resources_headers" "$auth_header_file"
 
   if [ "$resources_status" != "200" ]; then
-    local redacted
-    redacted="$(redact "$(head -c 500 "$resources_body" 2>/dev/null || true)")"
     rm -f "$resources_body"
-    fail "getAccessibleAtlassianResources HTTP $resources_status: $redacted" 5
+    fail "getAccessibleAtlassianResources HTTP $resources_status" 5
   fi
 
   local resources_json
@@ -330,15 +314,14 @@ PY
   # returned resource list (matched against url/name).
   local resources_validation
   resources_validation="$(
-    python3 - "$resources_json" <<PY
+    python3 - "$resources_json" "$expected_site" <<'PY'
 import json, sys, re
-expected_site = "$expected_site"
+expected_site = sys.argv[2]
 obj = json.loads(sys.argv[1])
 if "error" in obj and obj["error"]:
     err = obj["error"]
     print("error")
-    print(f"code={err.get('code')}")
-    print(f"message={err.get('message')}")
+    print("error_present=true")
     sys.exit(0)
 result = obj.get("result") or {}
 content = result.get("content") or []
@@ -352,7 +335,7 @@ m = mcp_err.search(combined)
 if m:
     print("mcp_error")
     print(f"code={m.group(1)}")
-    print(f"message={m.group(2)}")
+    print("error_present=true")
     sys.exit(0)
 parsed = []
 for text in texts:
@@ -366,64 +349,48 @@ for text in texts:
         parsed.append(data)
 if not parsed:
     print("empty")
-    print(combined)
+    print("resource_content_present=true")
     sys.exit(0)
 match_url = any(isinstance(r, dict) and (r.get("url") or "") == expected_site for r in parsed)
 match_name = any(isinstance(r, dict) and (r.get("name") or "") in expected_site for r in parsed)
 if not (match_url or match_name):
     print("missing_site")
-    urls = ",".join(str(r.get("url")) for r in parsed if isinstance(r, dict))
-    print(expected_site)
-    print(urls)
-    print(combined)
+    print("site_match=false")
     sys.exit(0)
 print("ok")
 print(f"resource_count={len(parsed)}")
-print(combined)
+print("resource_content_present=true")
 PY
   )"
 
   local resources_status_line resources_summary
   resources_status_line="$(printf '%s\n' "$resources_validation" | head -1)"
   if [ "$resources_status_line" = "error" ]; then
-    fail "getAccessibleAtlassianResources returned JSON-RPC error: $(printf '%s\n' "$resources_validation" | tail -n +2 | paste -sd ' ' -)" 5
+    fail "getAccessibleAtlassianResources returned JSON-RPC error" 5
   fi
   if [ "$resources_status_line" = "mcp_error" ]; then
-    fail "getAccessibleAtlassianResources returned MCP error: $(printf '%s\n' "$resources_validation" | tail -n +2 | paste -sd ' ' -)" 5
+    fail "getAccessibleAtlassianResources returned MCP error" 5
   fi
   if [ "$resources_status_line" = "empty" ]; then
     fail "getAccessibleAtlassianResources returned no resources" 5
   fi
   if [ "$resources_status_line" = "missing_site" ]; then
-    local expected got_urls summary
-    expected="$(printf '%s\n' "$resources_validation" | sed -n '2p')"
-    got_urls="$(printf '%s\n' "$resources_validation" | sed -n '3p')"
-    summary="$(printf '%s\n' "$resources_validation" | sed -n '4p')"
-    fail "expected site ${expected} not found in resources (got urls: ${got_urls}; raw: ${summary})" 5
+    fail "expected Atlassian site not found in resources" 5
   fi
 
-  resources_summary="$(printf '%s\n' "$resources_validation" | sed -n '3p')"
-  log "accessible_resources http_status=200 expected_site=${expected_site}"
-  if [ -n "$resources_summary" ]; then
-    log "resources_text=$(redact "$resources_summary")"
-  else
-    log "resources_text=<empty>"
-  fi
+  log "accessible_resources http_status=200 site_match=true"
 
   log "PASS api-token smoke test"
 }
 
 mode_oauth() {
   local bridge
-  bridge="$(printenv ATLASSIAN_OAUTH_BRIDGE || true)"
-  if [ -z "$bridge" ]; then
-    bridge="mcp-remote"
-  fi
+  bridge="${ATLASSIAN_OAUTH_BRIDGE:-mcp-remote}"
   if ! command -v "$bridge" >/dev/null 2>&1; then
-    fail "OAuth MCP bridge is not installed: $bridge" 5
+    fail "OAuth MCP bridge is not installed" 5
   fi
 
-  log "checking OAuth bridge connectivity to $ENDPOINT"
+  log "checking OAuth bridge connectivity"
   # mcp-remote is a stdio daemon. Under make/pre-commit, stdin can remain
   # open forever, causing a hang. Supply EOF deliberately and bound runtime.
   # Never echo bridge logs: they can contain sensitive OAuth callback URLs.
@@ -461,9 +428,8 @@ Modes:
 Environment:
   ATLASSIAN_USER_EMAIL         api-token mode.
   ATLASSIAN_MCP_TOKEN          api-token mode.
-  ATLASSIAN_EXPECTED_SITE_URL  api-token mode; default
-                               https://host.example.invalid.
-  ATLASSIAN_OAUTH_BRIDGE       oauth mode; default mcp-remote.
+  ATLASSIAN_EXPECTED_SITE_URL  required in api-token mode; no default.
+  ATLASSIAN_OAUTH_BRIDGE       optional approved executable (default: mcp-remote).
 
 This script lives under .local/bin/ on purpose. It is an out-of-band
 smoke test that requires live network and user secrets, and must not

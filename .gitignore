@@ -23,6 +23,7 @@
 
 # nix files
 !/.nix
+/.nix/**/__pycache__/
 
 # zeroclaw: version only the secret-free declarative config
 !/.zeroclaw
@@ -96,6 +97,7 @@
 # codex
 !/.codex
 /.codex/*
+!/.codex/root.config.toml
 
 # vllm
 !/.config/vllm

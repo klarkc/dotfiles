@@ -19,8 +19,8 @@ model = "whisper-large-v3-turbo"
 
 [channels.discord.default]
 draft_update_interval_ms = 1000
-enabled = true
-guild_ids = ["000000000000000000"]
+enabled = false
+guild_ids = []
 interrupt_on_new_message = false
 listen_to_bots = false
 mention_only = false
@@ -46,7 +46,7 @@ provider = "vllm"
 [peer_groups.discord_default]
 agents = ["default"]
 channel = "discord"
-external_peers = ["000000000000000000"]
+external_peers = []
 
 [risk_profiles.default]
 allowed_commands = [
@@ -63,11 +63,8 @@ allowed_commands = [
   "date",
   "nix",
 ]
-allowed_roots = ["/nix/store", "/home/example/.cache/nix"]
+allowed_roots = ["/nix/store"]
 allowed_roots_read_only = [
-  "/home/example/Sources",
-  "/home/example/.config/git/ignore",
-  "/home/example/.gitconfig",
   "/nix/var/nix/daemon-socket",
   "/etc/nix/sentry-endpoint",
   "/proc/meminfo",

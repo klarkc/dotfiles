@@ -162,7 +162,7 @@
                   echo "  2. Pin nixGL to your current host driver version:"
                   echo "     nix store prefetch-file --hash-type sha256 --json \"https://us.download.nvidia.com/XFree86/Linux-x86_64/$host_version/NVIDIA-Linux-x86_64-$host_version.run\""
                   echo ""
-                  echo "After changing either side, rebuild with: cd /home/example && nix profile upgrade klarkc"
+                  echo "After changing either side, rebuild the dotfiles profile from your home checkout."
                   exit 1
                 fi
               fi
@@ -308,10 +308,29 @@
           checks = {
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
-            desktop-commander-mcp-contract =
-              pkgs.runCommand "desktop-commander-mcp-contract" { nativeBuildInputs = [ pkgs.python3 ]; }
+            private-runtime-config =
+              pkgs.runCommand "private-runtime-config"
+                {
+                  nativeBuildInputs = [
+                    pkgs.python3
+                    pkgs.bash
+                  ];
+                }
                 ''
-                  python3 ${./.nix/tests/desktop-commander-mcp-contract.py} ${./.nix/desktop-commander-mcp.py} ${./.}
+                  python3 -B ${./.}/.nix/tests/zeroclaw-private-config.py
+                  python3 -B ${./.}/.nix/tests/public-config-contract.py
+                  touch $out
+                '';
+            desktop-commander-mcp-contract =
+              pkgs.runCommand "desktop-commander-mcp-contract"
+                {
+                  nativeBuildInputs = [
+                    pkgs.python3
+                    pkgs.bash
+                  ];
+                }
+                ''
+                  python3 ${./.nix/tests/desktop-commander-mcp-contract.py} ${./.}/.nix/desktop-commander-mcp.py ${./.}
                   python3 ${./.nix/tests/desktop-commander-mcp-cloudflare-contract.py} ${./.}/.nix/desktop-commander-mcp-cloudflare.py
                   touch $out
                 '';

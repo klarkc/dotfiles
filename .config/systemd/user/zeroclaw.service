@@ -1,8 +1,8 @@
 [Unit]
 Description=ZeroClaw daemon
 Documentation=https://github.com/zeroclaw-labs/zeroclaw
-Requires=llm-environment.service
-After=network-online.target llm-environment.service
+Requires=llm-environment.service zeroclaw-private-config.service
+After=network-online.target llm-environment.service zeroclaw-private-config.service
 Wants=network-online.target
 
 [Service]
@@ -15,6 +15,7 @@ Environment=PATH=/nix/var/nix/profiles/default/bin:%h/.nix-profile/bin:/usr/bin:
 Environment=GIT_OPTIONAL_LOCKS=0
 PassEnvironment=ZEROCLAW_channels__discord__default__bot_token ZEROCLAW_providers__models__vllm__default__api_key ZEROCLAW_providers__models__vllm__default__model ZEROCLAW_providers__models__vllm__default__uri
 UnsetEnvironment=ZEROCLAW_risk_profiles__default__allowed_roots ZEROCLAW_risk_profiles__default__allowed_roots_read_only
+BindReadOnlyPaths=%t/zeroclaw-config/config.toml:%h/.zeroclaw/config.toml
 ExecStart=%h/.nix-profile/bin/zeroclaw daemon
 Restart=always
 RestartSec=3s

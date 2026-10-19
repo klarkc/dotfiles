@@ -290,7 +290,7 @@ class TestWriter(unittest.TestCase):
               {"operation":"exec","feature":"git status"},
               {"operation":"admit","feature":"git status; rm -rf ."},
               {"operation":"admit","feature":"git status","raw_command":"secret"},
-              {"operation":"admit","feature":"git status","memory_dir":"/home/example/.optmem/memory"}]
+              {"operation":"admit","feature":"git status","memory_dir":"/home/user/.optmem/memory"}]
             for msg in bad:
                 response=self.ipc_request(path,json.dumps(msg).encode()+b"\n")
                 self.assertEqual(response["status"],"REFUSED")

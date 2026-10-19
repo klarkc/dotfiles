@@ -4,4 +4,4 @@ Description=Check for upstream dependency updates
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/deps-check --json --quiet >> %h/.cache/deps-check.log 2>&1
-Environment=PATH=/home/example/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

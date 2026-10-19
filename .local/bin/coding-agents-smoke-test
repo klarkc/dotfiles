@@ -20,6 +20,27 @@ TOOL = "bitbucket_read_bitbucketPullRequest"
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def load_private_config() -> None:
+    if not (Path.home() / ".profile_override").is_file():
+        return
+    try:
+        proc = subprocess.run(
+            ["bash", "-c", 'set +x; source "$HOME/.profile_override" >/dev/null 2>&1; env -0'],
+            capture_output=True, text=False, check=False,
+        )
+    except OSError:
+        fail("could not load .profile_override")
+    if proc.returncode:
+        fail("could not load .profile_override")
+    for item in proc.stdout.split(b"\0"):
+        if b"=" in item:
+            key, value = item.split(b"=", 1)
+            try:
+                os.environ[key.decode()] = value.decode()
+            except UnicodeDecodeError:
+                pass
+
+
 def fail(message: str) -> None:
     raise SystemExit("coding-agents-smoke-test: FAIL: " + message)
 
@@ -43,6 +64,19 @@ def choose_model(config: dict) -> str:
     return config.get("model", "")
 
 
+
+def model_timeout_seconds(model: str, override: str | None = None) -> int:
+    """Allow slower self-hosted LLMs to finish without weakening E2E proof."""
+    if override is not None:
+        try:
+            value = int(override)
+        except ValueError:
+            fail("CODING_AGENTS_TIMEOUT_SECONDS must be a positive integer")
+        if value <= 0:
+            fail("CODING_AGENTS_TIMEOUT_SECONDS must be a positive integer")
+        return value
+    return 1200 if model.startswith(("vllm/", "ollama/")) else 180
+
 def unwrap_prs(data: object, depth: int = 0) -> list[int]:
     if depth > 8:
         return []
@@ -64,7 +98,7 @@ def unwrap_prs(data: object, depth: int = 0) -> list[int]:
     return []
 
 
-def inspect_events(output: str) -> tuple[int | None, bool, list[str]]:
+def inspect_events(output: str, workspace: str = "workspace-example", repo: str = "repo-example") -> tuple[int | None, bool, list[str]]:
     ids: list[int] = []
     texts: list[str] = []
     tools: list[str] = []
@@ -88,8 +122,8 @@ def inspect_events(output: str) -> tuple[int | None, bool, list[str]]:
         arguments = state.get("input") or {}
         if (
             arguments.get("action") != "list"
-            or arguments.get("workspaceId") != "solo_sig"
-            or arguments.get("repoId") != "solosig"
+            or arguments.get("workspaceId") != workspace
+            or arguments.get("repoId") != repo
         ):
             continue
         raw = state.get("output")
@@ -111,7 +145,7 @@ def inspect_events(output: str) -> tuple[int | None, bool, list[str]]:
     # result, not merely that a tool invocation was emitted.
     referenced_id = (
         verified_id is not None
-        and re.search(r"(?<![0-9])" + str(verified_id) + r"(?![0-9])", final_text) is not None
+        and re.search(r"(?<![0-9])" + re.escape(str(verified_id)) + r"(?![0-9])", final_text) is not None
     )
     return verified_id, referenced_id, tools
 
@@ -124,15 +158,15 @@ def selftest() -> None:
             "tool": TOOL,
             "state": {
                 "status": "completed",
-                "input": {"action": "list", "workspaceId": "solo_sig", "repoId": "solosig"},
-                "output": json.dumps({"values": [{"id": 29}], "pagelen": 1}),
+                "input": {"action": "list", "workspaceId": "workspace-example", "repoId": "repo-example"},
+                "output": json.dumps({"values": [{"id": 42}], "pagelen": 1}),
             },
         },
     }
-    text = {"type": "text", "part": {"type": "text", "text": "The first PR is #29."}}
+    text = {"type": "text", "part": {"type": "text", "text": "The first PR is #42."}}
     def encode(*events: dict) -> str:
         return "\n".join(json.dumps(event) for event in events)
-    if inspect_events(encode(tool, text)) != (29, True, [TOOL]):
+    if inspect_events(encode(tool, text)) != (42, True, [TOOL]):
         fail("selftest rejected real successful tool evidence")
     if inspect_events(encode(text))[0] is not None:
         fail("selftest accepted hallucinated textual evidence")
@@ -151,6 +185,14 @@ def selftest() -> None:
         assert filtered["playwright"]["enabled"] is False
         assert filtered["bitbucket_read"]["enabled"] is True
         assert filtered["atlassian"]["enabled"] is (mode == "full")
+    if model_timeout_seconds("openai/gpt-5.6-sol") != 180:
+        fail("selftest: remote model timeout changed")
+    if model_timeout_seconds("vllm/qwen3.8-27b") != 1200:
+        fail("selftest: local model timeout too short")
+    if model_timeout_seconds("ollama/qwen") != 1200:
+        fail("selftest: Ollama timeout too short")
+    if model_timeout_seconds("vllm/qwen3.8-27b", "42") != 42:
+        fail("selftest: explicit timeout was ignored")
     print("coding-agents-smoke-test: offline selftest PASS")
 
 
@@ -175,6 +217,11 @@ def main() -> None:
         return
     if mode not in ("api-token", "full"):
         fail("expected api-token, oauth or full")
+
+    load_private_config()
+    for name in ("BITBUCKET_WORKSPACE", "BITBUCKET_REPOSITORY"):
+        if not os.environ.get(name):
+            fail(f"{name} is required")
 
     cfg = Path(
         os.environ.get("CODING_AGENTS_OPENCODE_CONFIG")
@@ -238,14 +285,14 @@ def main() -> None:
         env.setdefault("BITBUCKET_READ_BACKEND", "rest")
         prompt = (
             "Use the real MCP tool bitbucket_read_bitbucketPullRequest with "
-            "action=list, workspaceId=solo_sig, repoId=solosig, state=OPEN, pagelen=1. "
+            f"action=list, workspaceId={os.environ['BITBUCKET_WORKSPACE']}, repoId={os.environ['BITBUCKET_REPOSITORY']}, state=OPEN, pagelen=1. "
             "If none exist, try state=MERGED. Answer with the exact first PR ID "
             "from the returned values, like PR #123. No other tools. Do not invent."
         )
         if mode == "full":
             prompt += (
                 " Also call atlassian_getVisibleJiraProjects and "
-                "atlassian_getConfluenceSpaces for host.example.invalid. "
+                "atlassian_getConfluenceSpaces. "
                 "Use only these three read-only tools and no writes."
             )
         try:
@@ -259,7 +306,7 @@ def main() -> None:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,  # CRITICAL: Bun.stdin.text must see EOF.
-                timeout=int(os.environ.get("CODING_AGENTS_TIMEOUT_SECONDS", "180")),
+                timeout=model_timeout_seconds(model, os.environ.get("CODING_AGENTS_TIMEOUT_SECONDS")),
                 env=env,
                 check=False,
             )
@@ -268,7 +315,7 @@ def main() -> None:
         if run.returncode != 0:
             fail(f"OpenCode run returned status {run.returncode}")
 
-    pr_id, cited, tools = inspect_events(run.stdout)
+    pr_id, cited, tools = inspect_events(run.stdout, os.environ["BITBUCKET_WORKSPACE"], os.environ["BITBUCKET_REPOSITORY"])
     if not tools or pr_id is None:
         fail("no completed Bitbucket PR MCP tool event with real PR data")
     if not cited:

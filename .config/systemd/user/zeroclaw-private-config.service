@@ -1,0 +1,18 @@
+[Unit]
+Description=Materialize private ZeroClaw runtime TOML
+Requires=llm-environment.service
+After=llm-environment.service
+AssertPathExists=%h/.profile_override
+
+[Service]
+Type=oneshot
+Environment=HOME=%h
+Environment=PATH=/nix/var/nix/profiles/default/bin:%h/.nix-profile/bin:/usr/bin:/bin
+UMask=0077
+ExecStart=/usr/bin/python3 -B %h/.nix/zeroclaw-private-config.py
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes

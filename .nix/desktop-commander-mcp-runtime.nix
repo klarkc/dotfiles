@@ -8,6 +8,16 @@ let
     smoke = ./tests/desktop-commander-mcp-smoke.py;
     publicProbe = ./tests/desktop-commander-mcp-public-probe.py;
   };
+  sources = pkgs.linkFarm "desktop-commander-mcp-sources" [
+    {
+      name = "desktop-commander-mcp.py";
+      path = controller;
+    }
+    {
+      name = "private-environment.py";
+      path = ./private-environment.py;
+    }
+  ];
   runtime = pkgs.writeShellApplication {
     name = "desktop-commander-mcp-runtime";
     runtimeInputs = [
@@ -15,10 +25,11 @@ let
       pkgs.cloudflared
       desktopCommanderRuntime
       pkgs.coreutils
+      pkgs.bash
     ];
     text = ''
       export DESKTOP_COMMANDER_MCP_EXECUTABLE="$0"
-      exec ${python}/bin/python3 ${controller} "$@"
+      exec ${python}/bin/python3 ${sources}/desktop-commander-mcp.py "$@"
     '';
   };
 in

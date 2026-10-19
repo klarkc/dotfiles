@@ -7,26 +7,25 @@ browser process and session instead of fighting for a locked profile.
 
 The daemon controls a second Brave, isolated from the user's personal Brave,
 on a dedicated Xvfb display :92. It has its own persistent profile under
-~/.local/state/opencode-browser/profile (mode 0700), independent cookies,
+`$HOME/.local/state/opencode-browser/profile` (mode 0700), independent cookies,
 extension state, and browser history.
 
 The user services opencode-browser-display.service (virtual X11 display) and
 opencode-browser-mcp.service (HTTP transport) are separate and persistent.
-The launcher at ~/.local/bin/opencode-browser-mcp verifies the already
+The launcher at `$HOME/.local/bin/opencode-browser-mcp` verifies the already
 installed Enpass Chrome Web Store extension manifest at
-~/.config/BraveSoftware/Brave-Browser/Default/Extensions/
-kmcfomidfpdkfieipokbalgegidffkal/<version>/manifest.json and loads its
+`$HOME/.config/BraveSoftware/Brave-Browser/Default/Extensions/<extension-id>/<version>/manifest.json` and loads its
 code only, NOT any user Brave profile. It never reads Enpass's local vault
 nor writes a master password to any app, file or environment variable.
 
 The dedicated X11 server is protected by an Xauthority cookie, has TCP
 disabled, and is kept alive by the user systemd service. Xvfb's socket
-may be served by Linux abstract sockets even without /tmp/.X11-unix/X92.
+may be served by Linux abstract sockets even without a socket pathname under `/tmp`.
 The launcher tests authenticated X11 connectivity (xset), not the socket
 pathname. Do not enable PrivateTmp for this service.
 Playwright MCP is supplied by pinned Nixpkgs; do not use npm at runtime.
 
-Install:
+Install after updating the profile:
 systemctl --user daemon-reload
 nix profile upgrade klarkc # only when flake Nix inputs/definitions change
 systemctl --user enable --now opencode-browser-display.service
@@ -35,10 +34,10 @@ opencode mcp list
 
 If starting from SSH, set the user runtime environment first:
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
-  export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 
 For initial Enpass pairing, run from a graphical terminal:
-~/.local/bin/opencode-browser-pair
+`$HOME/.local/bin/opencode-browser-pair`
 The helper temporarily stops the shared MCP service and opens a visible
 Xephyr window with the same isolated Brave profile. Active OpenCode browser
 clients are disconnected during pairing; finish browser operations first.
@@ -50,9 +49,9 @@ The Enpass Desktop pairing prompt was observed, but synthetic credential
 autofill has not yet been verified. Loading the extension alone is not
 evidence of successful login autofill.
 
-For secure uploads to MEGA/Icedrive, have the user perform login manually
-via the Enpass official extension; the agent can then use the resulting
-session and only upload pre-encrypted backup files after approval.
+For secure uploads, the user performs login manually via the official
+password-manager extension. The agent may use the resulting browser session
+only for explicitly approved tasks and pre-encrypted backup files.
 
 The OpenCode permission policy denies browser_evaluate/browser_run_code and
 asks approval for explicit snapshots and screenshots. The server uses
@@ -96,3 +95,7 @@ nix build .#checks.x86_64-linux.opencode-browser-contract
 make test
 opencode mcp list
 and test the extension in the separate profile after any significant bump.
+
+The browser service uses its dedicated profile and does not modify the user's
+primary browser profile. Extension loading does not prove that pairing has
+completed; pairing remains a human-supervised action in the graphical session.

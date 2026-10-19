@@ -15,6 +15,25 @@ from pathlib import Path
 BRIDGE = Path(__file__).with_name("bitbucket-read-mcp")
 
 
+def load_private_config():
+    path = Path.home() / ".profile_override"
+    if not path.is_file():
+        return
+    proc = subprocess.run(
+        ["bash", "-c", 'set +x; source "$HOME/.profile_override" >/dev/null 2>&1; env -0'],
+        capture_output=True, text=False, check=False,
+    )
+    if proc.returncode:
+        fail("could not load .profile_override")
+    for item in proc.stdout.split(b"\0"):
+        if b"=" in item:
+            key, value = item.split(b"=", 1)
+            try:
+                os.environ[key.decode()] = value.decode()
+            except UnicodeDecodeError:
+                pass
+
+
 def fail(message):
     raise SystemExit("bitbucket-read-mcp-smoke-test: FAIL " + message)
 
@@ -35,6 +54,7 @@ def call(backend, actions):
         [str(BRIDGE)], env=env, capture_output=True, text=True, timeout=135,
         input="\n".join(json.dumps(message) for message in messages) + "\n",
     )
+    # Do not surface raw stderr/stdout: MCP payloads can contain private data.
     if proc.returncode:
         fail(f"{backend} MCP subprocess exited {proc.returncode}")
     try:
@@ -88,9 +108,13 @@ def main():
     backend = {"api-token": "rovo", "oauth": "rest", "rovo": "rovo", "rest": "rest"}.get(mode)
     if backend is None:
         fail("choose api-token/rovo (Rovo MCP) or oauth/rest (REST fallback)")
+    load_private_config()
+    for name in ("BITBUCKET_WORKSPACE", "BITBUCKET_REPOSITORY"):
+        if not os.environ.get(name):
+            fail(f"{name} is required")
 
     list_actions = [("bitbucketPullRequest", {
-        "action": "list", "workspaceId": "solo_sig", "repoId": "solosig",
+        "action": "list", "workspaceId": os.environ["BITBUCKET_WORKSPACE"], "repoId": os.environ["BITBUCKET_REPOSITORY"],
         "state": "OPEN", "pagelen": 1,
     })]
     responses = call(backend, list_actions)
@@ -108,11 +132,11 @@ def main():
         fail(f"{backend} cannot identify a PR from list response")
 
     actions = [
-        ("bitbucketPullRequest", {"action": verb, "workspaceId": "solo_sig", "repoId": "solosig", "prId": pr_id})
+        ("bitbucketPullRequest", {"action": verb, "workspaceId": os.environ["BITBUCKET_WORKSPACE"], "repoId": os.environ["BITBUCKET_REPOSITORY"], "prId": pr_id})
         for verb in ("get", "diff", "comments")
     ]
     actions.append(("bitbucketPullRequest", {
-        "action": "merge", "workspaceId": "solo_sig", "repoId": "solosig", "prId": pr_id,
+        "action": "merge", "workspaceId": os.environ["BITBUCKET_WORKSPACE"], "repoId": os.environ["BITBUCKET_REPOSITORY"], "prId": pr_id,
     }))
     responses = call(backend, actions)
     for verb, response in zip(("get", "diff", "comments"), responses[:3]):

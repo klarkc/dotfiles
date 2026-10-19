@@ -12,15 +12,48 @@ import base64
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 ROVO_ENDPOINT = "https://mcp.atlassian.com/v1/mcp/authv2"
 REST_ENDPOINT = "https://api.bitbucket.org/2.0"
+
+
+def load_private_config() -> None:
+    path = Path.home() / ".profile_override"
+    try:
+        info = path.lstat()
+    except OSError:
+        raise RuntimeError("missing .profile_override") from None
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError("unsafe .profile_override permissions")
+    try:
+        proc = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-c",
+             'set +x; set -a; source "$HOME/.profile_override" >/dev/null 2>&1 || exit 2; exec env -0'],
+            env={key: os.environ[key] for key in ("HOME", "PATH", "LANG", "USER", "SHELL") if key in os.environ},
+            capture_output=True, text=False, check=False,
+        )
+    except OSError:
+        raise RuntimeError("could not load .profile_override") from None
+    if proc.returncode:
+        raise RuntimeError("could not load .profile_override")
+    for item in proc.stdout.split(b"\0"):
+        if b"=" in item:
+            key, value = item.split(b"=", 1)
+            try:
+                name = key.decode()
+                if name in ("ATLASSIAN_USER_EMAIL", "ATLASSIAN_MCP_TOKEN", "BITBUCKET_READ_TOKEN",
+                            "BITBUCKET_WORKSPACE", "BITBUCKET_REPOSITORY", "BITBUCKET_READ_BACKEND"):
+                    os.environ[name] = value.decode()
+            except UnicodeDecodeError:
+                continue
 MAX_TEXT = 120_000
 ALLOWED_ACTIONS = {
     "bitbucketRepository": ("get", "list"),
@@ -34,8 +67,8 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["get", "list"], "default": "get"},
-                "workspaceId": {"type": "string", "default": "solo_sig"},
-                "repoId": {"type": "string", "default": "solosig"},
+                "workspaceId": {"type": "string"},
+                "repoId": {"type": "string"},
                 "page": {"type": "integer", "minimum": 1},
                 "pagelen": {"type": "integer", "minimum": 1, "maximum": 50},
             },
@@ -55,8 +88,8 @@ TOOLS = [
                     "type": "string",
                     "enum": ["list", "get", "diff", "comments", "listTasks"],
                 },
-                "workspaceId": {"type": "string", "default": "solo_sig"},
-                "repoId": {"type": "string", "default": "solosig"},
+                "workspaceId": {"type": "string"},
+                "repoId": {"type": "string"},
                 "prId": {"type": "integer", "minimum": 1},
                 "state": {"type": "string", "enum": ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"]},
                 "page": {"type": "integer", "minimum": 1},
@@ -110,7 +143,10 @@ def validate(tool: str, raw: Any) -> dict[str, Any]:
         raise ValueError("forbidden action (read-only MCP)")
     result = {"action": action}
     for name in ("workspaceId", "repoId"):
-        value = raw.get(name, "solo_sig" if name == "workspaceId" else "solosig")
+        env_name = "BITBUCKET_WORKSPACE" if name == "workspaceId" else "BITBUCKET_REPOSITORY"
+        value = raw.get(name, os.environ.get(env_name, ""))
+        if not value:
+            raise ValueError(f"{env_name} is required")
         if not isinstance(value, str) or value in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.~-]{1,100}", value):
             raise ValueError(f"invalid {name}")
         result[name] = value
@@ -185,8 +221,8 @@ def rovo_post(payload: dict[str, Any], auth: str, session: str | None = None) ->
 
 
 def from_rovo(tool: str, args: dict[str, Any]) -> dict[str, Any]:
-    email = os.environ.get("ATLASSIAN_USER_EMAIL") or os.environ.get("SOLO098_ATLASSIAN_USER_EMAIL")
-    token = os.environ.get("ATLASSIAN_MCP_TOKEN") or os.environ.get("SOLO098_ATLASSIAN_ROVOMCP_SAFE_TOKEN")
+    email = os.environ.get("ATLASSIAN_USER_EMAIL")
+    token = os.environ.get("ATLASSIAN_MCP_TOKEN")
     if not email or not token:
         raise BackendError("Rovo runtime credentials unavailable")
     auth = base64.b64encode(f"{email}:{token}".encode()).decode("ascii")
@@ -224,8 +260,8 @@ def from_rovo(tool: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def from_rest(tool: str, args: dict[str, Any]) -> dict[str, Any]:
-    email = os.environ.get("ATLASSIAN_USER_EMAIL") or os.environ.get("SOLO098_ATLASSIAN_USER_EMAIL")
-    token = os.environ.get("BITBUCKET_READ_TOKEN") or os.environ.get("SOLO098_ATLASSIAN_BB_READ_TOKEN")
+    email = os.environ.get("ATLASSIAN_USER_EMAIL")
+    token = os.environ.get("BITBUCKET_READ_TOKEN")
     if not email or not token:
         raise BackendError("Bitbucket REST runtime credentials unavailable")
     workspace = urllib.parse.quote(args["workspaceId"], safe="")
@@ -322,7 +358,9 @@ def selftest() -> None:
         assert set(tool["inputSchema"]["properties"]["action"]["enum"]) == set(ALLOWED_ACTIONS[name])
         for verb in ("create", "approve", "merge", "comment", "delete", "update"):
             assert handle_tool(name, {"action": verb})["isError"]
-    assert validate("bitbucketPullRequest", {"action": "get", "prId": 29})["prId"] == 29
+    os.environ["BITBUCKET_WORKSPACE"] = "workspace-example"
+    os.environ["BITBUCKET_REPOSITORY"] = "repo-example"
+    assert validate("bitbucketPullRequest", {"action": "get", "prId": 42, "workspaceId": "workspace-example", "repoId": "repo-example"})["prId"] == 42
     for args in ({"action": "diff", "prId": 0}, {"action": "get", "prId": 1, "url": "http://localhost"}, {"action": "get", "prId": 1, "workspaceId": "../x"}, {"action": "get", "prId": 1, "workspaceId": ".."}):
         assert handle_tool("bitbucketPullRequest", args)["isError"]
     assert dispatch({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
@@ -333,6 +371,11 @@ def main() -> None:
     if sys.argv[1:] == ["--selftest"]:
         selftest()
         return
+    try:
+        load_private_config()
+    except RuntimeError as exc:
+        print(f"bitbucket-read-mcp: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     for line in sys.stdin:
         if not line.strip():
             continue
