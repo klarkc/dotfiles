@@ -22,6 +22,7 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/.local/state/optmem-git-sync %h/.local/state/optmem-production/snapshots
+ReadWritePaths=%h/.local/state/optmem-production/sidecar/agent-store.lock %h/.local/state/optmem-production/sidecar/writer.lock
 InaccessiblePaths=%h/.gnupg
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=yes
