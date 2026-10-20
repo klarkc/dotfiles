@@ -140,6 +140,24 @@ class GitMemoryTests(unittest.TestCase):
             if tmp.exists():
                 shutil.rmtree(tmp)
 
+    def test_foreign_writer_or_rolled_back_log_never_replaces_head(self):
+        self.store.sync()
+        current=self.store.repo
+        staged=self.root/"candidate"
+        shutil.copytree(current/"canonical",staged/"canonical")
+        shutil.copytree(current/"legacy",staged/"legacy")
+        with self.assertRaisesRegex(RuntimeError,"writer host changed"):
+            self.store.require_continuous_history(current,staged,"foreign-host")
+        log=staged/"canonical/memory/LOG.txt"
+        raw=log.read_bytes()
+        log.write_bytes(raw[:-320])
+        with self.assertRaisesRegex(RuntimeError,"LOG regressed"):
+            self.store.require_continuous_history(current,staged,self.store.host)
+        log.write_bytes(bytes([raw[0]^1])+raw[1:])
+        with self.assertRaisesRegex(RuntimeError,"LOG diverged"):
+            self.store.require_continuous_history(current,staged,self.store.host)
+        self.assertEqual(self.cmd("rev-list","--count","HEAD"),"1")
+
     def test_corruption_missing_file_and_unexpected_object_fail(self):
         self.store.sync()
         folder=self.store.repo

@@ -424,6 +424,35 @@ class GitMemory:
             raise RuntimeError("Unexpected files in uninitialized Git backup")
         return None
 
+    def require_continuous_history(self, previous: Path, upcoming: Path,
+                                   previous_host: str) -> None:
+        """Fail closed on writer handover or a stale/rolled-back canonical LOG.
+
+        Git itself preserves earlier history, but blindly committing an older
+        canonical copy over HEAD would silently make newer memories disappear
+        from current search. Canonical writers never rewrite existing records.
+        """
+        if previous_host != self.host:
+            raise RuntimeError("Memory writer host changed; explicit handover required")
+        old_log = private_file(previous / "canonical/memory/LOG.txt")
+        new_log = private_file(upcoming / "canonical/memory/LOG.txt")
+        if new_log.stat().st_size < old_log.stat().st_size:
+            raise RuntimeError("Canonical LOG regressed: refuse silent overwrite")
+        with old_log.open("rb") as old, new_log.open("rb") as new:
+            for chunk in iter(lambda: old.read(131072), b""):
+                if chunk != new.read(len(chunk)):
+                    raise RuntimeError("Canonical LOG diverged: manual recovery required")
+        for name in ("legacy/brain.sqlite3", "legacy/manifest.json"):
+            if digest(private_file(previous / name)) != digest(private_file(upcoming / name)):
+                raise RuntimeError("Retained native archive changed without reconciliation")
+        old_state = json.loads((previous / "canonical/manifest.json").read_text())["state"]
+        new_state = json.loads((upcoming / "canonical/manifest.json").read_text())["state"]
+        for field in ("records", "keys", "requests"):
+            if type(old_state.get(field)) is not int or type(new_state.get(field)) is not int:
+                raise RuntimeError("Canonical snapshot counters invalid")
+            if new_state[field] < old_state[field]:
+                raise RuntimeError("Canonical provenance ledger regressed")
+
     def commit_tree(self, sealed: Path, aux: dict[str, dict]) -> dict:
         canonical = json.loads((sealed / "manifest.json").read_text())
         if canonical.get("schema") != "OptMem-production-snapshot/v1":
@@ -456,6 +485,21 @@ class GitMemory:
             write_once(preparation / "manifest.json", canonical_json(manifest) + b"\n")
             write_once(preparation / "README.md", README.encode())
             self.verify_tree(preparation)
+            if old:
+                if old.get("status") == "LEGACY_BACKUP_VERIFIED":
+                    candidates = sorted((self.repo / "snapshots").iterdir())
+                    previous = candidates[-1]
+                    all_hosts = {
+                        json.loads((snapshot / "bundle.json").read_text()).get("host")
+                        for snapshot in candidates
+                    }
+                    if all_hosts != {self.host}:
+                        raise RuntimeError("Legacy snapshots include foreign writer host")
+                    previous_host = self.host
+                else:
+                    previous = self.repo
+                    previous_host = json.loads((previous / "manifest.json").read_text()).get("host")
+                self.require_continuous_history(previous, preparation, previous_host)
             self.scan_private_secrets(preparation)
             # A failure beyond this point leaves only a dirty private Git
             # checkout. Its next execution refuses it instead of overwriting.
