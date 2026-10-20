@@ -1,0 +1,28 @@
+[Unit]
+Description=OptMem private GitHub memory snapshot, reconciliation and recovery verification
+Documentation=file:%h/.local/lib/optmem-bridge/README.md
+ConditionPathExists=%h/.local/state/optmem-production/ACTIVE.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=%h/.local/lib/optmem-bridge
+ExecStart=/usr/bin/python3 -B %h/.local/lib/optmem-bridge/git_sync.py sync
+TimeoutStartSec=240s
+Nice=10
+CPUQuota=50%
+MemoryMax=768M
+NoNewPrivileges=yes
+StateDirectory=optmem-git-sync
+StateDirectoryMode=0700
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/optmem-git-sync %h/.local/state/optmem-production/snapshots
+InaccessiblePaths=%h/.gnupg
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+RestrictSUIDSGID=yes

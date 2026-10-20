@@ -68,12 +68,14 @@ directories, never in the canonical OptMem memory. The smoke entrypoint
 
 ## Release gates
 
-Before production: complete the **final semantic resync** from OpenCode,
-dotfiles Git, and a fresh supported GPT Web export; certify source provenance,
-dedup/supersession and semantic `nap` summaries; test the writer's full
-multi-harness integration and rollback; verify remote backup and restore under
-new permission, or explicitly negotiate a different durability policy. Do not
-mistake a read-only source resync for permission to push/sync memory.
+Before enabling the _Bash-to-canonical_ writer, complete the **final semantic
+resync** from OpenCode, dotfiles Git and an approved GPT Web export; verify
+source provenance, dedup/supersession and semantic nap summaries; and test
+Bash-specific outbox-to-writer receipts and recovery. The canonical OptMem
+writer already runs in production, and private GitHub snapshots of that
+canonical store are governed separately by the git_sync.py service documented
+in .local/lib/optmem-bridge/README.md. The Bash timers remain disabled.
+Never mistake source resync for authorization to publish unreviewed contents.
 
 Bash `histappend` and inter-shell synchronization are a distinct operational
 change and are **not** implemented or enabled here. Extracting knowledge

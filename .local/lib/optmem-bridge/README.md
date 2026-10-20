@@ -266,3 +266,68 @@ not promoted to current concise OptMem facts.
 Canonical/staging root mixing is rejected before any writer locks, SQLite
 sidecar initialization or memo append. Production authorization is bound
 to the exact canonical LOG plus its unique provenance sidecar pair.
+
+
+## Private GitHub recovery: klarkc/memory (Oct 2026)
+
+The canonical OptMem writer on solo098 remains the only live writer.
+The private GitHub repository klarkc/memory stores **immutable, complete
+recovery generations**, not an independently writable copy of the LOG.
+The repository contains personal memory text and the ZeroClaw retained
+SQLite archive **without extra encryption**, as explicitly chosen by the owner.
+Keep the GitHub repository private. No snapshot data is ever staged in
+klarkc/dotfiles.
+
+Tracked runtime integration:
+
+- git_sync.py sync runs an authenticated GitHub API check every time:
+  exact repository, private=true, default branch main, not archived.
+  It reads only the GH_TOKEN value from the existing private
+  ~/.profile_override if that variable is not already exported. It never
+  executes shell content from that file. If privacy cannot be verified,
+  **no upload takes place**.
+- Every run checks the seven production preflight gates and performs a
+  locked OptMem LOG/TREE/config + two SQLite provenance databases snapshot.
+  It includes the *complete* retained 88-row native ZeroClaw SQLite
+  database, both migration-receipt ledgers, activation/acceptance metadata,
+  and SHA-256 manifests. The archive is verified using SQLite integrity
+  checks; the recovered writer/agent ledgers must pass independent restore.
+- Only new fingerprints create Git commits. Historical generations are
+  immutable. Git fetch/fast-forward or an ordinary merge reconcile
+  independently produced Git generations; overlapping Git conflicts
+  **fail closed**, with no force push. A remote pull never overwrites
+  ~/.optmem/memory, native ZeroClaw data, or production sidecars.
+- Before upload, the Gitleaks credential scanner must pass. A successful
+  push is independently confirmed using a fresh private GitHub clone and
+  a complete recovered-generation integrity/restore check.
+- optmem-git-sync.timer performs hourly runs via systemd --user with
+  PrivateTmp, read-only home outside two narrowly writable state paths,
+  restricted network address families, umask 0077, and bounded resources.
+  An unreachable GitHub, unavailable private-token check, invalid writer,
+  or corrupted backup fails safely and retries at the next timer execution.
+
+Operational commands:
+
+    systemctl --user status optmem-git-sync.timer
+    systemctl --user start optmem-git-sync.service
+    journalctl --user -u optmem-git-sync.service -n 30 --no-pager
+    python3 -B ~/.local/lib/optmem-bridge/git_sync.py verify --generation <id>
+    python3 -B ~/.local/lib/optmem-bridge/git_sync.py restore --generation <id>
+
+The restore command selects a GitHub generation and copies it atomically
+into a **new** private directory under
+~/.local/state/optmem-git-sync/recovery/<id>. It refuses any overwrite,
+traversal, foreign/symlink file or inconsistent SQLite database. It does
+not activate the recovered state or change a live ZeroClaw service.
+On a replacement computer, install the same matching dotfiles runtime,
+restore into isolation, validate that dataset and perform a separately
+authorized quiescent cutover; never merge or overwrite active SQLite stores
+using Git. GitHub repository visibility must stay PRIVATE.
+
+Known limits: GitHub private storage is not end-to-end encryption, the
+manifest is not an independently signed adversarial authenticity proof,
+and remote history can grow because generations are immutable and no
+automatic pruning is allowed. This scope backs up current OptMem and
+the archived ZeroClaw legacy memory, not unrelated sessions, credentials
+or raw Bash history. The Bash capture/extract timers remain a distinct,
+inactive source integration until separately verified and activated.

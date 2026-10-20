@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly private GitHub backup of canonical OptMem memory
+
+[Timer]
+OnBootSec=5min
+OnCalendar=hourly
+RandomizedDelaySec=5min
+AccuracySec=1min
+Persistent=yes
+Unit=optmem-git-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -28,3 +28,16 @@
 - Runtime package naming convention: when a Nix package in `.nix/` composes or builds a tool runtime intended to be installed into the user profile and consumed from `%h/.nix-profile/bin/`, name the file `<tool>-runtime.nix` (e.g. `vllm-runtime.nix`, `ledgeur-runtime.nix`). The corresponding flake input/output/attribute and service unit must use the same `<tool>-runtime` name so that input file, Nix attribute, and service reference tie together.
 - Services must not run `nix build`/`nix-build` at startup. Profile-managed runtime dependencies must be realized by `nix profile upgrade klarkc` and consumed from `%h/.nix-profile/bin`.
 - This repo is installed at `$HOME`; systemd `%h` is the repo root. Do not use a nested source checkout as a flake root for this repo.
+
+## OptMem private GitHub recovery (solo098)
+
+Private remote memory data belongs in klarkc/memory, never klarkc/dotfiles.
+The canonical ~/.optmem/memory and two production SQLite sidecars have a
+single writer. Use .local/lib/optmem-bridge/git_sync.py to make immutable,
+verified Git recovery generations via systemd --user optmem-git-sync.timer.
+Require GitHub PRIVATE verification, local Gitleaks, Git fast-forward or
+nonconflicting normal merge, and independent remote clone/restore.
+Never force-push, auto-prune history, or git pull into the live memory.
+Restores always start in private isolation and require an explicit cutover.
+The legacy ZeroClaw SQLite memory archive remains recoverable, not an
+independent active writer. Bash ingest timers are separately inactive.
