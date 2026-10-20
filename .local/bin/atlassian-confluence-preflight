@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Read-only authorization probe against the existing official Atlassian MCP."""
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+ENDPOINT = "https://mcp.atlassian.com/v2/mcp"
+SAFE_TOOLS = frozenset(
+    ("atlassianUserInfo", "getAccessibleAtlassianResources", "getConfluenceContent")
+)
+
+
+class PreflightError(Exception):
+    pass
+
+
+def unpack_tool_reply(reply):
+    if reply.get("error"):
+        return {}, True, 0
+    body = reply.get("result") or {}
+    content = body.get("content") or []
+    text = next((v.get("text", "") for v in content if v.get("type") == "text"), "")
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return data, bool(body.get("isError") or data.get("error")), data.get("statusCode", 0)
+
+
+def classify(status, payload):
+    message = str(payload.get("message", "")).lower()
+    if status in (401, 403) and ("scope" in message or "token" in message):
+        return "scope_or_token_rejected"
+    if status in (401, 403):
+        return "access_denied"
+    if status in (409, 412):
+        return "version_conflict"
+    if status == 429:
+        return "rate_limited"
+    return "provider_error"
+
+
+class OfficialMcp:
+    def __init__(self, auth):
+        self.auth = auth
+        self.session = None
+        self.serial = 0
+
+    def rpc(self, method, params=None, notification=False):
+        self.serial += 1
+        msg = {"jsonrpc": "2.0", "method": method}
+        if not notification:
+            msg["id"] = self.serial
+        if params is not None:
+            msg["params"] = params
+        headers = {
+            "Authorization": "Basic " + self.auth,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-03-26",
+        }
+        if self.session:
+            headers["Mcp-Session-Id"] = self.session
+        request = urllib.request.Request(
+            ENDPOINT, json.dumps(msg).encode("utf-8"), headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                self.session = response.headers.get("Mcp-Session-Id") or self.session
+                text = response.read(1000000).decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raise PreflightError("mcp_http_status_" + str(exc.code)) from None
+        except Exception as exc:
+            raise PreflightError("mcp_transport_" + type(exc).__name__) from None
+        if notification:
+            return {}
+        parts = [line[6:] for line in text.splitlines() if line.startswith("data: ")]
+        try:
+            reply = json.loads(parts[-1] if parts else text)
+        except ValueError:
+            raise PreflightError("mcp_invalid_response") from None
+        if reply.get("error"):
+            raise PreflightError("mcp_rpc_error_" + str(reply["error"].get("code")))
+        return reply
+
+    def initialize(self):
+        reply = self.rpc(
+            "initialize",
+            {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "atlassian-confluence-readonly-preflight",
+                    "version": "1.0",
+                },
+            },
+        )
+        if "result" not in reply:
+            raise PreflightError("mcp_initialize_failed")
+        self.rpc("notifications/initialized", {}, notification=True)
+
+    def tool(self, name, arguments):
+        if name not in SAFE_TOOLS:
+            raise PreflightError("forbidden_mutation_tool")
+        return unpack_tool_reply(
+            self.rpc("tools/call", {"name": name, "arguments": arguments})
+        )
+
+
+def preflight(site_url, content_id, client):
+    client.initialize()
+    tools = (client.rpc("tools/list", {}).get("result") or {}).get("tools") or []
+    names = {x.get("name") for x in tools}
+    required = SAFE_TOOLS
+    if not required <= names:
+        raise PreflightError("required_read_tools_missing")
+    # Tool advertisements are diagnostics only: they do not prove scopes.
+    print("mcp_initialized=yes")
+    print("write_tools_advertised=" + str({
+        "createConfluenceContent", "updateConfluenceContent"
+    } <= names).lower())
+    identity, failure, _ = client.tool("atlassianUserInfo", {})
+    if failure or not (identity.get("data") or {}).get("accountId"):
+        raise PreflightError("identity_unavailable")
+    print("identity_verified=yes")
+    resources, failure, _ = client.tool("getAccessibleAtlassianResources", {})
+    if failure:
+        raise PreflightError("resources_unavailable")
+    available = (resources.get("data") or {}).get("resources") or []
+    selected = [x for x in available if x.get("url", "").rstrip("/") == site_url.rstrip("/")]
+    if len(selected) != 1 or not selected[0].get("cloudId"):
+        raise PreflightError("target_site_inaccessible")
+    print("site_verified=yes")
+    result, failure, status = client.tool(
+        "getConfluenceContent",
+        {"cloudId": selected[0]["cloudId"], "content_id": content_id, "detail": "summary"},
+    )
+    if failure:
+        reason = classify(status, result)
+        print("confluence_read=" + reason + "_status_" + str(status))
+        return 3
+    print("confluence_read=allowed")
+    print("write_permission=not_proven")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--site-url", required=True)
+    parser.add_argument("--content-id", required=True)
+    args = parser.parse_args(argv)
+    parsed = urllib.parse.urlsplit(args.site_url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.path not in ("", "/"):
+        parser.error("provide a canonical https site origin only")
+    if not args.content_id.isdecimal():
+        parser.error("content-id must be numeric")
+    auth = os.environ.get("ATLASSIAN_MCP_BASIC_AUTH")
+    if not auth:
+        print("mcp_auth_env=missing")
+        return 2
+    try:
+        return preflight(args.site_url, args.content_id, OfficialMcp(auth))
+    except PreflightError as exc:
+        print("preflight_failure=" + str(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

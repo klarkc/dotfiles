@@ -407,6 +407,9 @@
                 {
                   nativeBuildInputs = [ pkgs.python3 ];
                   src = ./.config/opencode/opencode.json;
+                  policyTest = ./.nix/tests/atlassian-confluence-policy-test.py;
+                  policySkill = ./.agents/skills/atlassian-write-human-guidance/SKILL.md;
+                  readProbe = ./.local/bin/atlassian-confluence-preflight;
                 }
                 ''
                   python3 - "$src" <<'PY'
@@ -444,6 +447,7 @@
                       sys.exit("FAIL: bitbucket_read MCP must inherit runtime credentials, not store secrets")
                   print("opencode-mcp-atlassian-config: token via environment + Bitbucket read-only; no inline secrets")
                   PY
+                  python3 -B "$policyTest" "$src" "$policySkill" "$readProbe"
                   touch $out
                 '';
             # Static verification that the vllm/opencode model-defaults

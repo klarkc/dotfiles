@@ -185,6 +185,9 @@ def selftest() -> None:
         assert filtered["playwright"]["enabled"] is False
         assert filtered["bitbucket_read"]["enabled"] is True
         assert filtered["atlassian"]["enabled"] is (mode == "full")
+    test_config = smoke_tool_output_config({"tool_output": {"max_lines": 300, "max_bytes": 16000}})
+    if test_config["tool_output"]["max_bytes"] < 262144:
+        fail("selftest: PR output may be truncated before evidence verification")
     if model_timeout_seconds("openai/gpt-5.6-sol") != 180:
         fail("selftest: remote model timeout changed")
     if model_timeout_seconds("vllm/qwen3.8-27b") != 1200:
@@ -194,6 +197,13 @@ def selftest() -> None:
     if model_timeout_seconds("vllm/qwen3.8-27b", "42") != 42:
         fail("selftest: explicit timeout was ignored")
     print("coding-agents-smoke-test: offline selftest PASS")
+
+
+def smoke_tool_output_config(config: dict) -> dict:
+    """Preserve full PR JSON only in the isolated proof session."""
+    result = dict(config)
+    result["tool_output"] = {"max_lines": 4000, "max_bytes": 262144}
+    return result
 
 
 def smoke_mcp_config(config: dict, mode: str) -> dict:
@@ -240,7 +250,7 @@ def main() -> None:
         fail("OpenCode OAuth credentials unavailable")
 
     with tempfile.TemporaryDirectory(prefix="bitbucket-agent-e2e-") as tmp:
-        test_config = dict(config)
+        test_config = smoke_tool_output_config(config)
         # Rovo and Atlassian have separate checks; no unrelated MCP (such
         # as Playwright) may influence this isolated Bitbucket proof.
         mcp = smoke_mcp_config(config, mode)

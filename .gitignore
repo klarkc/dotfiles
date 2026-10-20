@@ -53,6 +53,7 @@
 !/.local/bin
 /.local/bin/*
 !/.local/bin/atlassian-smoke-test
+!/.local/bin/atlassian-confluence-preflight
 !/.local/bin/bitbucket-read-mcp
 !/.local/bin/bitbucket-read-mcp-smoke-test
 !/.local/bin/optmem-bash-smoke-test

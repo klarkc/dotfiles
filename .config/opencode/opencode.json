@@ -231,7 +231,11 @@
 		"playwright_browser_run_code": "deny",
 		"playwright_browser_file_upload": "ask",
 		"playwright_browser_take_screenshot": "ask",
-		"playwright_browser_snapshot": "ask"
+		"playwright_browser_snapshot": "ask",
+		"atlassian_createConfluenceContent": "deny",
+		"atlassian_updateConfluenceContent": "deny",
+		"atlassian_executeWrite": "deny",
+		"atlassian_executeDestructive": "deny"
 	},
 	"mcp": {
 		"atlassian": {

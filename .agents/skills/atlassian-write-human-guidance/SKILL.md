@@ -1,101 +1,49 @@
 ---
 name: atlassian-write-human-guidance
-description: Use ONLY when the user asks to draft, edit, or compose a write operation against Atlassian Jira, Confluence, or Bitbucket Cloud (comment, issue create/update/transition, page create/update, PR comment, approve/merge guidance). The skill produces copy-paste-ready text and explicit manual instructions for the user to perform the write themselves in the web UI or CLI; it does NOT call any write API.
+description: Use for requests to create, update, review, or draft writes to Atlassian Confluence, Jira, or Bitbucket. Enforce the official MCP authorization gate for delegated Confluence changes; while that gate is blocked, provide copy-paste-ready manual guidance instead of performing writes.
 ---
 
-# Atlassian write-human-guidance skill
+# Atlassian write governance and human fallback
 
-This skill exists because write operations against Atlassian products are intentionally **not** automated for the user yet. The current integration only supports read operations through Atlassian Rovo MCP, with read-only personal API tokens. Writes must be performed by the human.
+This skill is discovered by OpenCode from `~/.agents/skills/atlassian-write-human-guidance/SKILL.md` through the native `skill` tool. This is the canonical tracked definition in the public dotfiles repository. Do not create a duplicate MCP, substitute another Atlassian identity, or change authentication methods to evade a denial.
 
-When this skill is active, the agent:
+## Current boundary: fail closed
 
-- Reads relevant context through Atlassian Rovo MCP (or direct read APIs where MCP is not available).
-- Drafts the exact text or action the user wants.
-- Tells the user where to paste, click, or run it manually.
-- Never calls `POST`, `PUT`, `PATCH`, `DELETE`, or any MCP tool that mutates state.
+The `atlassian` MCP uses the existing API-token identity, with authentication derived at runtime from `ATLASSIAN_USER_EMAIL` and `ATLASSIAN_MCP_TOKEN`. The private `.profile_override` contains values only; derived Basic authentication belongs in the tracked `.profile`, not in a secret file or Git.
 
-## When to use
+An October 2026 audit showed that an MCP can initialize and advertise `createConfluenceContent`, `updateConfluenceContent`, and `executeWrite` while a real `getConfluenceContent` call returns HTTP 403 for missing scope. A tool appearing in `tools/list` does **not** establish authorization. Until the prerequisites below are independently verified, the installed OpenCode policy denies `atlassian_createConfluenceContent`, `atlassian_updateConfluenceContent`, `atlassian_executeWrite`, and `atlassian_executeDestructive`.
 
-Use this skill ONLY when the user asks to:
+Do not invoke write tools while this deny gate is installed. Do not use REST, scripts, web browsers, a different connector, another identity, or another MCP to sidestep a refusal. A developer may use a _read-only_ MCP-protocol probe against the same official MCP to classify errors; that does not authorize a write.
 
-- Draft a Jira issue comment, worklog, transition, or update.
-- Draft a Jira issue creation (new ticket description, fields summary).
-- Draft a Confluence page create/update or footer/inline comment.
-- Draft a Bitbucket PR comment, review summary, or approval/merge guidance.
-- Plan a sequence of writes the user will perform manually.
+## Requirements before enabling delegated Confluence edits
 
-Skip this skill when:
+1. The actual token must support `read:confluence:agent-interface` **and** `write:confluence:agent-interface`. Existing API tokens cannot be assumed to have these scopes; a new scoped version may have to replace the value of the **same existing** `ATLASSIAN_MCP_TOKEN` variable, using the account's authorized token-management flow. Do not introduce a second credential or change it automatically.
+2. The organization admin must permit the `read_confluence` and `write_confluence` toolsets under Atlassian Administration > Connectors > Atlassian MCP server > Permissions; token authentication must remain authorized. The identity must also have the required Confluence space/page permissions. A ChatGPT connector's separate administrator grant is not evidence about OpenCode.
+3. Prove an actual authorized `getConfluenceContent` call succeeds using the existing `atlassian` MCP. HTTP 401/403 or a tool-level scope error means STOP; do not attempt a write, even in dry-run mode. Do not infer permission from the connection indicator, `discover`, or `tools/list`.
+4. Obtain explicit authorization for the target and side effects. First prove create -> read -> update -> read on a disposable page, not a production playbook, and verify version progression and snapshot conflicts. Do not alter production content to test infrastructure.
+5. After that evidence is reviewed, update the dotfiles **in an isolated worktree**: switch only `atlassian_createConfluenceContent`, `atlassian_updateConfluenceContent`, and `atlassian_executeWrite` from `deny` to `ask`. Keep `atlassian_executeDestructive` at `deny`; do not broadly `allow` writes. Run `make test`, normal hooks, and integrate safely before using OpenCode to edit official content.
 
-- The user only wants to read context (no draft needed).
-- The user is using ChatGPT or another agent that has its own OAuth-mediated Atlassian MCP write path (the user has not enabled that yet and prefers manual writes).
-- The user explicitly asks the agent to perform the write directly (the proper write layer is not built yet — escalate and confirm before any future ask-gated execution).
+No agent, skill, or test harness may silently turn off these gates.
 
-## Output contract
+## Authorized Confluence write procedure (after the gate is enabled)
 
-For every draft, produce:
+- Use **only** the existing official `atlassian` MCP. Identify the intended `cloudId`, space and target URL from existing authorized reads. Never choose a target from title alone.
+- Inspect space instructions and call `getContentFormatGuide` with the appropriate Confluence tool name before authoring content. For existing pages, retrieve `getConfluenceContent` with `detail=full` and `content_format=html`; preserve macros, links and surrounding HTML.
+- Capture the returned `snapshotToken`, version, and current body. Prepare the smallest necessary update, with a version message; use `dryRun=true` to preview when supported. Review the exact target, modifications, notifications, and reversibility with the user.
+- Invoke a create/update action **only after the OpenCode approval prompt is accepted**. Do not auto-approve MCP writes. For an update, pass the current `snapshotToken`; do not fabricate versions.
+- Re-read with `getConfluenceContent` and assert expected content persisted and that the version advanced. If a stale snapshot, HTTP 409, or other concurrency rejection occurs, stop and retrieve the latest revision; never blind-retry, force, or overwrite.
+- For smoke tests, create one clearly labeled disposable test page, update and re-read it, and report its URL and version evidence. Do not delete, archive, publish other pages, or modify access restrictions unless separately requested.
 
-1. **Title / summary**: one sentence describing what this draft is for.
-2. **Target**: which product + identifier (e.g. `JIRA-123`, page id, PR id, repo slug).
-3. **Body / action**: the exact text or step list, ready to paste.
-4. **Where to perform it**: the URL or UI step list (web UI) or CLI command (when applicable).
-5. **Side effects to confirm**: anything the user should double-check before clicking submit.
+## Manual fallback for any blocked operation
 
-Never include:
+For Confluence when prerequisites fail, or Jira/Bitbucket writes not explicitly governed and authorized here, produce a draft instead of calling a write API. Include the target, paste-ready body, UI or CLI steps for the human, expected effects and permission limitations. Do not claim a write succeeded. Read-only MCP tools may be used when the identity has legitimate access. If even reading returns 401/403, report the class of missing authorization without revealing identifiers or tokens.
 
-- Tokens, session ids, or any environment variable values.
-- Internal MCP request/response payloads.
-- Speculation about write success — the human will execute and confirm.
+## BuildDoc handoff
 
-## Atlassian Rovo MCP tool surface (read context)
+A BuildDoc agent must not update official playbooks until the disposable-page E2E proof and the permission-gate change are recorded. When enabled, use full HTML reads, `snapshotToken`, minimal modifications, explicit approval, and post-write verification for **each** page. Preserve the canonical Confluence documents, do not create competing Markdown copies, and keep unrelated deployment gates blocked.
 
-For read context the agent should prefer the official Atlassian Rovo MCP integration when the active coding agent supports it. The current token may not expose every tool below; the agent should fall back to whatever read tools are available and report gaps to the user instead of guessing.
+A ChatGPT Atlassian connector uses separate grants. If it reports `Access denied: Your organization admin has not authorized the write_confluence permission`, only an authorized organization administrator can grant its `write_confluence` toolset. Never work around that denial using a different connector.
 
-- Bitbucket Cloud: `bitbucketWorkspace`, `bitbucketRepository`, `bitbucketPullRequest` (`list` / `get` / `comments` / `diff` only), `bitbucketRepoContent` (`branch.get` / `commit.get` / `files.get` only), `bitbucketPipeline` (read steps only), `bitbucketDeployment` (list/get), `bitbucketEnvironment` (list/get).
-- Jira: `getJiraIssue`, `getJiraIssueRemoteIssueLinks`, `getVisibleJiraProjects`, `getTransitionsForJiraIssue`, `searchJiraIssuesUsingJql`.
-- Confluence: `getConfluencePage`, `getConfluencePageDescendants`, `getConfluencePageFooterComments`, `getConfluencePageInlineComments`, `getConfluenceCommentChildren`, `getConfluenceSpaces`, `getPagesInConfluenceSpace`, `searchConfluenceUsingCql`.
+## Security rules
 
-Any tool with a destructive hint, or whose `action` argument includes `create`, `update`, `delete`, `merge`, `approve`, `comment`, `transition`, `addWorklog`, `addComment`, `run`, `pipeline.run`, etc., must NOT be invoked by this skill.
-
-## Workflow per request
-
-### 1. Read context
-
-Pull only what is needed to draft accurately. For a Jira comment on `JIRA-123`, get the issue first; for a Bitbucket PR review summary, get the PR details, diff, and existing comments.
-
-### 2. Draft
-
-- Match the user's requested tone and length.
-- Reference existing context (other comments, related tickets, file paths) where useful.
-- For multi-step writes, list steps in order.
-
-### 3. Provide the manual path
-
-- **Jira**: web UI URL is `https://<site>.atlassian.net/browse/<KEY>` for the issue page; the comment box is at the bottom. Mention "Add a comment" vs. the specific transition if the user asked for a transition.
-- **Confluence**: page URL is `https://<site>.atlassian.net/wiki/spaces/<SPACE>/pages/<PAGE_ID>/<title>`; mention the "Edit" button or specific comment anchor.
-- **Bitbucket**: PR URL is `https://bitbucket.org/<workspace>/<repo>/pull-requests/<id>`; mention "Add comment", "Approve", "Merge" buttons, or specific CLI like `git fetch && git checkout <branch>` for testing locally.
-
-### 4. Surface confirmations
-
-Always note:
-
-- Whether the write is reversible.
-- Whether it notifies other people (reviewers, watchers, mentions).
-- Whether the user has permission (assume yes unless read context indicates otherwise).
-
-## Failure modes
-
-- If a required read returns 401/403: report the auth/scope issue without printing tokens; tell the user which Atlassian permission group is likely missing.
-- If a read returns 429: stop and report the rate limit; do not busy-loop.
-- If the user asks for a destructive bulk operation (delete page, decline many PRs, transition many issues): ask the user to confirm one by one.
-
-## What this skill does NOT do
-
-- Does not call Atlassian Rovo MCP write tools.
-- Does not shell out to `curl`/`httpie` with write verbs.
-- Does not invoke Bitbucket `bb`, `bitbucket-cli`, or any third-party write wrapper.
-- Does not store or print tokens, OAuth codes, or session ids.
-- Does not run any smoke test or live verification — that is handled by `.local/bin/atlassian-smoke-test` separately.
-
-## Future work
-
-A proper write layer (separate write tokens, per-operation allowlist, client-side ask gates, possibly official Rovo MCP write tools with admin-constrained scopes) is planned but not built yet. Until then, this skill is the only sanctioned path for Atlassian writes.
+Never print or commit API tokens, Basic headers, OAuth sessions, customer text, site-specific paths, or private organization identifiers. Keep the `.profile_override` values-only. Never use `curl` or the REST API as a substitute for a denied MCP write. Approval must be scoped to the actual operation, and destructive capabilities stay denied.
