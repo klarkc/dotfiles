@@ -85,7 +85,9 @@ class PolicyTests(unittest.TestCase):
         for phrase in (
             "OpenCode", "read:confluence:agent-interface",
             "write:confluence:agent-interface", "write_confluence",
-            "snapshotToken", "explicit authorization", "HTTP 403",
+            "Keep the generic `atlassian_executeWrite` and destructive",
+            "create -> read -> update -> read",
+            "snapshotToken", "explicit permission", "HTTP 403",
             "atlassian_executeDestructive", "manual", "Connectors",
             "getContentFormatGuide", "dryRun=true",
         ):
