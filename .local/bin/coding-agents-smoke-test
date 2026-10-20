@@ -150,6 +150,63 @@ def inspect_events(output: str, workspace: str = "workspace-example", repo: str 
     return verified_id, referenced_id, tools
 
 
+
+def session_ids(output: str) -> list[str]:
+    """Only IDs emitted by THIS finished OpenCode run may be exported."""
+    found = set()
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        candidate = event.get("sessionID")
+        if candidate is None and isinstance(event.get("part"), dict):
+            candidate = event["part"].get("sessionID")
+        if isinstance(candidate, str) and re.fullmatch(r"ses_[A-Za-z0-9]+", candidate):
+            found.add(candidate)
+    return sorted(found)
+
+
+def inspect_persisted_proof(stdout: str, env: dict, workspace: str,
+                            repo: str) -> tuple[int | None, bool, list[str]]:
+    """Cross-check stored MCP receipts when CLI JSON events omit tool parts.
+
+    A bare model answer or an unrelated/stale session NEVER counts as proof.
+    The source session must have been identified in the current CLI output,
+    be the exact smoke session, and contain a real completed MCP tool part.
+    """
+    ids = session_ids(stdout)
+    if len(ids) != 1:
+        return None, False, []
+    try:
+        result = subprocess.run(
+            ["opencode", "export", "--pure", ids[0]],
+            stdin=subprocess.DEVNULL, text=True, capture_output=True,
+            timeout=30, env=env, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, False, []
+    if result.returncode:
+        return None, False, []
+    try:
+        source = json.loads(result.stdout)
+    except ValueError:
+        return None, False, []
+    info = source.get("info") if isinstance(source, dict) else None
+    if (not isinstance(info, dict) or info.get("id") != ids[0]
+            or info.get("title") != "Bitbucket PR read E2E smoke"):
+        return None, False, []
+    events = []
+    for message in source.get("messages", []):
+        if not isinstance(message, dict):
+            return None, False, []
+        for part in message.get("parts", []):
+            if isinstance(part, dict):
+                events.append(json.dumps({"part": part}, ensure_ascii=False))
+    return inspect_events("\n".join(events), workspace, repo)
+
 def selftest() -> None:
     tool = {
         "type": "tool_use",
@@ -170,6 +227,10 @@ def selftest() -> None:
         fail("selftest rejected real successful tool evidence")
     if inspect_events(encode(text))[0] is not None:
         fail("selftest accepted hallucinated textual evidence")
+    if session_ids(encode(text)) or session_ids("not JSON"):
+        fail("selftest accepted a session ID without current-run evidence")
+    if session_ids(encode({"sessionID": "ses_abcd1234", "part": {"type": "text"}})) != ["ses_abcd1234"]:
+        fail("selftest could not locate legitimate current-run session ID")
     tool["part"]["state"]["status"] = "error"
     if inspect_events(encode(tool, text))[0] is not None:
         fail("selftest accepted errored MCP tool evidence")
@@ -292,7 +353,10 @@ def main() -> None:
         env["OPENCODE_CONFIG"] = str(config_path)
         # Rovo's own smoke tests cover its remote backend. Prefer fast REST
         # here; this remains a genuine call through the same local MCP.
-        env.setdefault("BITBUCKET_READ_BACKEND", "rest")
+        env["BITBUCKET_READ_BACKEND"] = "rest"
+        # Bitbucket's full PR objects often overflow the OpenCode tool-output
+        # budget even with pagelen=1. Require genuine bounded REST results.
+        env["BITBUCKET_READ_COMPACT_LIST"] = "1"
         prompt = (
             "Use the real MCP tool bitbucket_read_bitbucketPullRequest with "
             f"action=list, workspaceId={os.environ['BITBUCKET_WORKSPACE']}, repoId={os.environ['BITBUCKET_REPOSITORY']}, state=OPEN, pagelen=1. "
@@ -326,6 +390,11 @@ def main() -> None:
             fail(f"OpenCode run returned status {run.returncode}")
 
     pr_id, cited, tools = inspect_events(run.stdout, os.environ["BITBUCKET_WORKSPACE"], os.environ["BITBUCKET_REPOSITORY"])
+    if not tools or pr_id is None:
+        pr_id, cited, tools = inspect_persisted_proof(
+            run.stdout, env, os.environ["BITBUCKET_WORKSPACE"],
+            os.environ["BITBUCKET_REPOSITORY"],
+        )
     if not tools or pr_id is None:
         fail("no completed Bitbucket PR MCP tool event with real PR data")
     if not cited:

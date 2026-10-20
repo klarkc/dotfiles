@@ -1,5 +1,5 @@
 [Unit]
-Description=OptMem private GitHub memory snapshot, reconciliation and recovery verification
+Description=OptMem private GitHub canonical tree versioning and restore verification
 Documentation=file:%h/.local/lib/optmem-bridge/README.md
 ConditionPathExists=%h/.local/state/optmem-production/ACTIVE.json
 After=network-online.target

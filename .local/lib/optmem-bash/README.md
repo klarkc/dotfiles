@@ -72,8 +72,8 @@ Before enabling the _Bash-to-canonical_ writer, complete the **final semantic
 resync** from OpenCode, dotfiles Git and an approved GPT Web export; verify
 source provenance, dedup/supersession and semantic nap summaries; and test
 Bash-specific outbox-to-writer receipts and recovery. The canonical OptMem
-writer already runs in production, and private GitHub snapshots of that
-canonical store are governed separately by the git_sync.py service documented
+writer already runs in production, and private GitHub commit history of that
+canonical store is governed separately by the git_sync.py service documented
 in .local/lib/optmem-bridge/README.md. The Bash timers remain disabled.
 Never mistake source resync for authorization to publish unreviewed contents.
 

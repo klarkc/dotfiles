@@ -130,6 +130,41 @@ def result_text(value: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "isError": False}
 
 
+
+def compact_pr_listing(result: dict[str, Any]) -> dict[str, Any]:
+    """Summarize a genuine Bitbucket REST list for model-sized smoke results.
+
+    Opt-in only: regular agents retain their original full-response contract.
+    Refuse malformed/truncated data instead of presenting invented PR IDs.
+    """
+    if result.get("isError") is not False:
+        return fail("Bitbucket compact list: source tool failed")
+    content = result.get("content")
+    if not isinstance(content, list) or len(content) != 1:
+        return fail("Bitbucket compact list: expected one genuine content block")
+    raw = content[0].get("text") if isinstance(content[0], dict) else None
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) else None
+    except (ValueError, TypeError):
+        obj = None
+    if not isinstance(obj, dict) or obj.get("truncated") or not isinstance(obj.get("values"), list):
+        return fail("Bitbucket compact list: source was not a complete JSON PR list")
+    prs = []
+    for item in obj["values"]:
+        if not isinstance(item, dict) or type(item.get("id")) is not int or item["id"] < 1:
+            return fail("Bitbucket compact list: invalid PR record")
+        summary = {"id": item["id"]}
+        for field in ("title", "state"):
+            if isinstance(item.get(field), str):
+                summary[field] = item[field][:240]
+        prs.append(summary)
+    return result_text({
+        "pagelen": obj.get("pagelen"),
+        "page": obj.get("page"),
+        "size": obj.get("size"),
+        "values": prs,
+    })
+
 def validate(tool: str, raw: Any) -> dict[str, Any]:
     if tool not in ALLOWED_ACTIONS:
         raise ValueError("unknown tool")
@@ -280,6 +315,12 @@ def from_rest(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         params["state"] = args["state"]
     if action == "list" and "pagelen" not in params:
         params["pagelen"] = 20
+    if (tool == "bitbucketPullRequest" and action == "list"
+            and os.environ.get("BITBUCKET_READ_COMPACT_LIST") == "1"):
+        # The Bitbucket REST API supports response-field filtering. Filtering
+        # upstream also prevents a single long PR description from exceeding
+        # the MCP/OpenCode tool-output budget before local summarization.
+        params["fields"] = "page,pagelen,size,values.id,values.title,values.state"
     url = path + ("?" + urllib.parse.urlencode(params) if params else "")
     auth = base64.b64encode(f"{email}:{token}".encode()).decode("ascii")
     request = urllib.request.Request(
@@ -313,7 +354,11 @@ def handle_tool(tool: str, args: Any) -> dict[str, Any]:
             errors.append(str(exc))
     if backend in ("auto", "rest"):
         try:
-            return from_rest(tool, clean)
+            response = from_rest(tool, clean)
+            if (tool == "bitbucketPullRequest" and clean["action"] == "list"
+                    and os.environ.get("BITBUCKET_READ_COMPACT_LIST") == "1"):
+                return compact_pr_listing(response)
+            return response
         except BackendError as exc:
             errors.append(str(exc))
     return fail("; ".join(errors))
@@ -364,6 +409,18 @@ def selftest() -> None:
     for args in ({"action": "diff", "prId": 0}, {"action": "get", "prId": 1, "url": "http://localhost"}, {"action": "get", "prId": 1, "workspaceId": "../x"}, {"action": "get", "prId": 1, "workspaceId": ".."}):
         assert handle_tool("bitbucketPullRequest", args)["isError"]
     assert dispatch({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+    sample = result_text({"values": [
+        {"id": 42, "title": "x" * 40000, "state": "OPEN", "description": "private" * 500}
+    ], "page": 1, "pagelen": 1})
+    compact = compact_pr_listing(sample)
+    assert compact.get("isError") is False
+    parsed = json.loads(compact["content"][0]["text"])
+    assert parsed["values"][0]["id"] == 42 and len(parsed["values"][0]["title"]) <= 240
+    assert "description" not in parsed["values"][0]
+    assert len(compact["content"][0]["text"]) < 400
+    for invalid in ({"truncated": True, "first_characters": "partial"},
+                    {"values": [{"id": True}]}, {"values": [{"id": -2}]}):
+        assert compact_pr_listing(result_text(invalid))["isError"] is True
     print("bitbucket-read-mcp: offline selftest PASS")
 
 

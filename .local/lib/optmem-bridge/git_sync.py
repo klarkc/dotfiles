@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private, fail-closed GitHub snapshots of OptMem. Never pull onto live memory."""
+"""Private versioned working-tree replication for OptMem; Git commits are the snapshots."""
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
@@ -17,6 +17,8 @@ import sqlite3
 import stat
 import subprocess
 import tempfile
+import tarfile
+import io
 import uuid
 
 import production_operator as po
@@ -26,7 +28,8 @@ import snapshot_stage as snap
 
 REMOTE = "git@github.com:klarkc/memory.git"
 OWNER = "klarkc/memory"
-SCHEMA = "OptMem-private-Git-recovery/v1"
+LEGACY_SCHEMA = "OptMem-private-Git-recovery/v1"
+SCHEMA = "OptMem-private-Git-working-tree/v2"
 MAX_FILES = 512
 MAX_BYTES = 256 * 1024 * 1024
 AUX = {
@@ -37,21 +40,28 @@ AUX = {
     "metadata/acceptance.json": "canonical-acceptance.json",
     "metadata/migration-receipts.jsonl": "migration-receipts.jsonl",
 }
-README = """# OptMem private memory backups
+README = """# OptMem private Git history
 
-This repository contains private, unencrypted canonical OptMem memory,
-SQLite provenance and retained legacy memory. KEEP THE REPOSITORY PRIVATE.
-Never copy its history to a public repository or fork.
+This repository stores private, unencrypted canonical OptMem memories and
+the retained historical ZeroClaw SQLite database. KEEP IT PRIVATE.
 
-Each snapshots/<id> directory is a complete, immutable, SHA-256 verified
-recovery generation. The live writer is never changed by Git fetch or pull.
-The dotfiles git_sync.py restore command copies a verified generation to a
-new private recovery folder, and NEVER replaces active memory automatically.
+The root canonical/, legacy/, metadata/, and manifest.json files
+always represent the latest complete memory checkpoint. Each Git commit
+stores its previous version; unchanged memory produces NO NEW COMMIT.
+There are no per-run snapshots/<id> directories in current HEAD.
 
-Recovery on another computer requires explicit installation and a quiescent
-cutover. Checksums detect corruption, not malicious tampering by somebody
-who can rewrite both data and manifests. GitHub SSH transport is verified.
+The first backup commit in history used the old snapshots/<id> layout.
+Its objects remain accessible through git show e6db6bd:...; the migration
+commit changes only the Git working tree and NEVER force-pushes or rewrites
+that history. Restore older Git revisions using the dotfiles git_sync.py
+restore --revision <commit> command. Restores are always ISOLATED, never
+written automatically to the live canonical or ZeroClaw native stores.
+
+This is not end-to-end encrypted and SHA-256 detects corruption, not a
+malicious attacker who can replace both bytes and manifests. SQLite and
+provenance receipts are verified before push and after clone/restore.
 """
+
 
 
 def digest(path: Path) -> str:
@@ -224,12 +234,9 @@ class GitMemory:
             if behind:
                 self.git("merge", "--ff-only", "origin/main")
             elif not ahead:
-                result = self.git("-c", "user.name=OptMem Sync", "-c",
-                                  "user.email=optmem@localhost", "merge",
-                                  "--no-edit", "--no-ff", "origin/main", check=False)
-                if result.returncode:
-                    self.git("merge", "--abort", check=False)
-                    raise RuntimeError("Concurrent memory Git histories conflicted")
+                # Flat canonical LOG/SQLite must NEVER be automatically merged
+                # between two independently active writers or branches.
+                raise RuntimeError("Concurrent memory Git histories conflicted: manual reconciliation required")
         if self.git("status", "--porcelain").stdout.strip():
             raise RuntimeError("Git fetch left an unclean checkout")
 
@@ -257,26 +264,11 @@ class GitMemory:
                 raise RuntimeError("Archived native memory failed integrity check")
         return files
 
-    def known_fingerprints(self) -> set[str]:
-        snapshots = self.repo / "snapshots"
-        if not snapshots.exists():
-            return set()
-        private_dir(snapshots)
-        found = set()
-        for root in snapshots.iterdir():
-            private_dir(root)
-            doc = json.loads(private_file(root / "bundle.json").read_text())
-            if doc.get("schema") != SCHEMA:
-                raise RuntimeError("Unknown memory snapshot schema")
-            if doc.get("host") == self.host:
-                found.add(doc["fingerprint"])
-        return found
-
     def verify_generation(self, root: Path) -> dict:
         private_dir(root)
         bundle = json.loads(private_file(root / "bundle.json").read_text())
         valid_name = r"[a-z0-9-]{1,40}-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}"
-        if (bundle.get("schema") != SCHEMA
+        if (bundle.get("schema") != LEGACY_SCHEMA
                 or not isinstance(bundle.get("generation"), str)
                 or not re.fullmatch(valid_name, bundle["generation"])
                 or bundle["generation"] != root.name):
@@ -339,50 +331,154 @@ class GitMemory:
         if report.returncode:
             raise RuntimeError("Secret scan rejected memory snapshot; not uploaded")
 
-    def commit_snapshot(self, sealed: Path, aux: dict[str, dict]) -> dict:
+
+    def verify_tree(self, root: Path) -> dict:
+        """Verify one complete HEAD tree, not an accumulation of generations."""
+        private_dir(root)
+        metadata = json.loads(private_file(root / "manifest.json").read_text())
+        if metadata.get("schema") != SCHEMA:
+            raise RuntimeError("Unknown flat Git memory manifest")
+        manifest_files = metadata.get("files")
+        if not isinstance(manifest_files, dict) or len(manifest_files) > MAX_FILES:
+            raise RuntimeError("Incomplete flat memory file manifest")
+        required = {"canonical/manifest.json", "canonical/memory/LOG.txt",
+                    "canonical/sidecar/agent-facts.sqlite3",
+                    "canonical/sidecar/provenance.sqlite3", *AUX}
+        if not required.issubset(manifest_files):
+            raise RuntimeError("Missing canonical or legacy data")
+        allowed = {"README.md", "manifest.json", "canonical", "legacy", "metadata"}
+        if (root / ".git").is_dir():
+            private_dir(root / ".git")
+            allowed.add(".git")
+        if set(child.name for child in root.iterdir()) != allowed:
+            raise RuntimeError("Unknown top-level backup entries")
+        observed = set()
+        used = 0
+        for folder in ("canonical", "legacy", "metadata"):
+            private_dir(root / folder)
+            for file in snap._walk_files(root / folder):
+                rel = file.relative_to(root).as_posix()
+                private_file(file)
+                actual = {"sha256": digest(file), "size": file.stat().st_size}
+                if actual != manifest_files.get(rel):
+                    raise RuntimeError("Flat memory file hash/size mismatch")
+                observed.add(rel)
+                used += actual["size"]
+                if used > MAX_BYTES:
+                    raise RuntimeError("Memory backup larger than audit budget")
+        if observed != set(manifest_files):
+            raise RuntimeError("Unlisted or missing memory backup files")
+        private_file(root / "README.md")
+        canonical = json.loads((root / "canonical/manifest.json").read_text())
+        if canonical.get("schema") != "OptMem-production-snapshot/v1":
+            raise RuntimeError("Invalid embedded OptMem snapshot")
+        if canonical.get("files") != {
+            key.removeprefix("canonical/"): manifest_files[key]
+            for key in manifest_files if key.startswith("canonical/") and key != "canonical/manifest.json"
+        }:
+            raise RuntimeError("Embedded canonical manifest differs")
+        hashes = {key: manifest_files[key] for key in AUX}
+        fingerprint = hashlib.sha256(canonical_json(
+            {"canonical": canonical["files"], "ancillary": hashes})).hexdigest()
+        if fingerprint != metadata.get("fingerprint"):
+            raise RuntimeError("Memory fingerprint mismatch")
+        legacy = json.loads((root / "legacy/manifest.json").read_text())
+        if (legacy.get("schema") != "OptMem-native-retained-archive/v1"
+                or legacy.get("native_db_sha256") != hashes["legacy/brain.sqlite3"]["sha256"]
+                or legacy.get("source_rows") != metadata.get("native_rows")):
+            raise RuntimeError("Native legacy memory metadata mismatch")
+        with closing(sqlite3.connect(
+                f"file:{root/'legacy/brain.sqlite3'}?mode=ro&immutable=1", uri=True)) as con:
+            if (con.execute("PRAGMA integrity_check").fetchone()[0] != "ok"
+                    or con.execute("SELECT count(*) FROM memories").fetchone()[0]
+                    != legacy["source_rows"]):
+                raise RuntimeError("Native legacy memory cannot be restored")
+        private_dir(self.production / "snapshots", create=True)
+        restored = prod.restore_proof(root / "canonical")
+        expected = metadata.get("canonical_state")
+        if (not isinstance(expected, dict)
+                or restored["records"] != expected.get("records")
+                or restored["keys"] != expected.get("keys")
+                or restored["requests"] != expected.get("requests")):
+            raise RuntimeError("Canonical ledger did not restore")
+        return {"status": "VERIFIED", "records": restored["records"],
+                "native_rows": legacy["source_rows"],
+                "fingerprint": fingerprint, "files": len(observed)}
+
+    def _current_remote(self) -> dict | None:
+        if (self.repo / "manifest.json").is_file():
+            return self.verify_tree(self.repo)
+        if (self.repo / "snapshots").is_dir():
+            private_dir(self.repo / "snapshots")
+            for directory in (self.repo / "snapshots").iterdir():
+                self.verify_generation(directory)
+            if not list((self.repo / "snapshots").iterdir()):
+                raise RuntimeError("Empty legacy snapshot tree")
+            if set(child.name for child in self.repo.iterdir()) != {
+                    ".git", "README.md", "snapshots"}:
+                raise RuntimeError("Unknown legacy backup top-level entries")
+            return {"status": "LEGACY_BACKUP_VERIFIED"}
+        if self.has_ref("refs/heads/main"):
+            raise RuntimeError("Existing Git backup has no recognized complete state")
+        if set(child.name for child in self.repo.iterdir()) != {".git"}:
+            raise RuntimeError("Unexpected files in uninitialized Git backup")
+        return None
+
+    def commit_tree(self, sealed: Path, aux: dict[str, dict]) -> dict:
         canonical = json.loads((sealed / "manifest.json").read_text())
         if canonical.get("schema") != "OptMem-production-snapshot/v1":
-            raise RuntimeError("Unexpected canonical snapshot schema")
+            raise RuntimeError("Unexpected canonical snapshot manifest")
         fingerprint = hashlib.sha256(canonical_json(
             {"canonical": canonical["files"], "ancillary": aux})).hexdigest()
-        if fingerprint in self.known_fingerprints():
-            return {"status": "UNCHANGED", "records": canonical["state"]["records"]}
-        generation = (self.host + "-" +
-                      datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") +
-                      "-" + uuid.uuid4().hex[:12])
-        target = self.repo / "snapshots" / generation
-        private_dir(target / "canonical", create=True)
-        sources = {}
-        for file in snap._walk_files(sealed):
-            key = "canonical/" + file.relative_to(sealed).as_posix()
-            sources[key] = file
-        sources.update(self.ancillary())
-        listed = {}
-        for key, file in sorted(sources.items()):
-            path = target / safe_relative(key)
-            copied = snap._copy_secure(file, path)
-            if key in aux and copied != aux[key]:
-                raise RuntimeError("Legacy metadata changed while preparing backup")
-            listed[key] = copied
-        native = json.loads((target / "legacy/manifest.json").read_text())
-        bundle = {"schema": SCHEMA, "generation": generation, "host": self.host,
-                  "created_utc": datetime.now(timezone.utc).isoformat(),
-                  "fingerprint": fingerprint, "files": listed,
-                  "canonical_state": canonical["state"], "native_rows": native["source_rows"]}
-        write_once(target / "bundle.json", canonical_json(bundle) + b"\n")
-        self.verify_generation(target)
-        self.scan_private_secrets(target)
-        if not self.has_ref("refs/heads/main"):
-            write_once(self.repo / "README.md", README.encode())
-            self.git("add", "--", "README.md")
-        self.git("add", "--", "snapshots/" + generation)
-        self.git("-c", "user.name=OptMem Sync", "-c",
-                 "user.email=optmem@localhost", "commit", "--quiet",
-                 "-m", "backup(optmem): " + generation)
-        return {"status": "CREATED", "generation": generation,
-                "records": canonical["state"]["records"]}
+        old = self._current_remote()
+        if old and old.get("fingerprint") == fingerprint:
+            return {"status": "UNCHANGED", "records": old["records"]}
+        # Construct and verify one complete replacement tree outside Git.
+        preparation = self.state / (".pending-current-" + uuid.uuid4().hex)
+        preparation.mkdir(mode=0o700)
+        try:
+            sources = {}
+            for file in snap._walk_files(sealed):
+                sources["canonical/" + file.relative_to(sealed).as_posix()] = file
+            sources.update(self.ancillary())
+            listed = {}
+            for name, source in sorted(sources.items()):
+                recorded = snap._copy_secure(source, preparation / safe_relative(name))
+                if name in aux and recorded != aux[name]:
+                    raise RuntimeError("Legacy metadata changed during memory capture")
+                listed[name] = recorded
+            legacy_meta = json.loads((preparation / "legacy/manifest.json").read_text())
+            manifest = {"schema": SCHEMA, "created_utc":
+                        datetime.now(timezone.utc).isoformat(), "host": self.host,
+                        "files": listed, "fingerprint": fingerprint,
+                        "canonical_state": canonical["state"],
+                        "native_rows": legacy_meta["source_rows"]}
+            write_once(preparation / "manifest.json", canonical_json(manifest) + b"\n")
+            write_once(preparation / "README.md", README.encode())
+            self.verify_tree(preparation)
+            self.scan_private_secrets(preparation)
+            # A failure beyond this point leaves only a dirty private Git
+            # checkout. Its next execution refuses it instead of overwriting.
+            if old:
+                existing_names = (("snapshots", "README.md") if
+                                  old.get("status") == "LEGACY_BACKUP_VERIFIED"
+                                  else ("canonical", "legacy", "metadata",
+                                        "manifest.json", "README.md"))
+                self.git("rm", "--quiet", "-r", "--", *existing_names)
+            for file in snap._walk_files(preparation):
+                rel = file.relative_to(preparation)
+                snap._copy_secure(file, self.repo / rel)
+            self.git("add", "-A")
+            self.verify_tree(self.repo)
+            self.git("-c", "user.name=OptMem Sync", "-c",
+                     "user.email=optmem@localhost", "commit", "--quiet",
+                     "-m", "backup(optmem): canonical memory update")
+            return {"status": "CREATED", "records": canonical["state"]["records"]}
+        finally:
+            if preparation.exists():
+                shutil.rmtree(preparation)
 
-    def push_and_audit(self, generation: str | None) -> dict:
+    def push_and_audit(self) -> dict:
         if not self.has_ref("refs/heads/main"):
             raise RuntimeError("No committed backup branch")
         for attempt in range(3):
@@ -390,15 +486,9 @@ class GitMemory:
             if result.returncode == 0:
                 break
             if attempt == 2:
-                raise RuntimeError("Git push failed after safe retries; local data retained")
-            self.update_git()
+                raise RuntimeError("Push failed; no force push or Git history replacement")
+            self.update_git()  # Raises on divergence, never merges SQLite.
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        if generation is None:
-            # Verify newest local-host generation even when no new writes.
-            generations = self.local_generations()
-            if not generations:
-                raise RuntimeError("No backup generation exists to validate")
-            generation = generations[-1]
         with tempfile.TemporaryDirectory(prefix="verify-github-", dir=self.state) as tmp:
             checkout = Path(tmp) / "clone"
             subprocess_checked(["/usr/bin/git", "clone", "--quiet", "--depth=1",
@@ -408,96 +498,116 @@ class GitMemory:
             observed_head = subprocess_checked(["/usr/bin/git", "-C", str(checkout),
                                                   "rev-parse", "HEAD"], self.env).stdout.strip()
             if head != observed_head:
-                raise RuntimeError("GitHub HEAD differs from pushed local commit")
-            verified = self.verify_generation(checkout / "snapshots" / generation)
-        return {"status": "PUSHED_AND_RESTORED",
-                "remote": OWNER, "commit": head[:12],
-                "generation": generation, "records": verified["records"],
+                raise RuntimeError("Fresh GitHub clone HEAD differs")
+            verified = self.verify_tree(checkout)
+        return {"status": "PUSHED_AND_RESTORED", "remote": OWNER,
+                "commit": head[:12], "records": verified["records"],
                 "native_rows": verified["native_rows"]}
-
-    def local_generations(self) -> list[str]:
-        directory = self.repo / "snapshots"
-        if not directory.exists():
-            return []
-        private_dir(directory)
-        found = []
-        for path in directory.iterdir():
-            private_dir(path)
-            bundle = json.loads(private_file(path / "bundle.json").read_text())
-            if bundle.get("host") == self.host:
-                found.append(path.name)
-        return sorted(found)
 
     def sync(self) -> dict:
         with exclusive(self.state):
             self.update_git()
-            aux = self.verified_sources()
+            auxiliary = self.verified_sources()
             private_dir(self.production / "snapshots", create=True)
-            temporary = self.production / "snapshots" / ("sync-" + uuid.uuid4().hex[:18])
+            tmp = self.production / "snapshots" / ("sync-" + uuid.uuid4().hex[:18])
             try:
-                prod.seal(temporary)
-                created = self.commit_snapshot(temporary, aux)
+                prod.seal(tmp)
+                result = self.commit_tree(tmp, auxiliary)
             finally:
-                if temporary.exists():
-                    shutil.rmtree(temporary)
-            if created["status"] == "UNCHANGED":
+                if tmp.exists():
+                    shutil.rmtree(tmp)
+            if result["status"] == "UNCHANGED":
                 remote_matches = (self.has_ref("refs/remotes/origin/main")
                     and self.git("rev-parse", "HEAD").stdout.strip() ==
                         self.git("rev-parse", "origin/main").stdout.strip())
                 if remote_matches:
                     return {"status": "UNCHANGED", "remote": OWNER,
-                            "records": created["records"]}
-                return self.push_and_audit(None)
-            return self.push_and_audit(created["generation"])
+                            "records": result["records"]}
+            return self.push_and_audit()
 
-    def restore(self, generation: str) -> dict:
-        if not re.fullmatch(r"[a-z0-9-]{1,40}-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}", generation):
-            raise ValueError("Recovery ID rejected")
+    def restore(self, revision: str) -> dict:
+        """Recover HEAD or an ancestor Git commit to a NEW isolated directory."""
+        if not re.fullmatch(r"[0-9a-f]{7,40}", revision):
+            raise ValueError("Restoration requires a commit SHA, not a path")
         with exclusive(self.state):
             self.update_git()
+            resolved = self.git("rev-parse", "--verify",
+                                revision + "^{commit}").stdout.strip()
+            if (self.git("merge-base", "--is-ancestor", resolved, "HEAD",
+                         check=False).returncode != 0):
+                raise RuntimeError("Unknown or unreachable backup revision")
             private_dir(self.recovery, create=True)
-            source = self.repo / "snapshots" / generation
-            expected = self.verify_generation(source)
-            destination = self.recovery / generation
+            destination = self.recovery / resolved
             if destination.exists() or destination.is_symlink():
-                raise FileExistsError("Recovery destination already exists")
+                raise FileExistsError("Revision already restored; no overwrite")
+            # Git archive emits only objects from the given historical commit.
+            result = subprocess.run(["/usr/bin/git", "-C", str(self.repo),
+                                     "archive", "--format=tar", resolved],
+                                    capture_output=True, timeout=90, env=self.env)
+            if result.returncode != 0 or len(result.stdout) > MAX_BYTES:
+                raise RuntimeError("Git archive retrieval invalid or too large")
             staging = self.recovery / (".pending-" + uuid.uuid4().hex)
             staging.mkdir(mode=0o700)
-            recovered = staging / generation
-            recovered.mkdir(mode=0o700)
             try:
-                for path in snap._walk_files(source):
-                    snap._copy_secure(path, recovered / path.relative_to(source))
-                if self.verify_generation(recovered) != expected:
-                    raise RuntimeError("Independent recovery folder is incomplete")
-                recovered.rename(destination)
-                return {"status": "RECOVERED_ISOLATED", "generation": generation,
+                observed = set()
+                total = 0
+                with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+                    for member in archive:
+                        relative = safe_relative(member.name.rstrip("/"))
+                        target = staging / relative
+                        if member.isdir():
+                            private_dir(target, create=True)
+                            continue
+                        if not member.isfile() or relative.as_posix() in observed:
+                            raise RuntimeError("Nonregular or duplicate Git object")
+                        observed.add(relative.as_posix())
+                        total += member.size
+                        if len(observed) > MAX_FILES or total > MAX_BYTES:
+                            raise RuntimeError("Too many/big restored Git objects")
+                        reader = archive.extractfile(member)
+                        if reader is None:
+                            raise RuntimeError("Unreadable archive content")
+                        write_once(target, reader.read())
+                if (staging / "manifest.json").is_file():
+                    proof = self.verify_tree(staging)
+                else:
+                    legacy = staging / "snapshots"
+                    if not legacy.is_dir() or len(list(legacy.iterdir())) != 1:
+                        raise RuntimeError("Legacy Git revision is not a single verified snapshot")
+                    proof = self.verify_generation(next(legacy.iterdir()))
+                staging.rename(destination)
+                return {"status": "RECOVERED_ISOLATED", "revision": resolved[:12],
                         "destination": str(destination),
-                        "records": expected["records"],
-                        "native_rows": expected["native_rows"]}
+                        "records": proof["records"], "native_rows": proof["native_rows"]}
             finally:
-                shutil.rmtree(staging)
-
+                if staging.exists():
+                    shutil.rmtree(staging)
 
 def main():
     cli = argparse.ArgumentParser(description="Private GitHub OptMem backup and restore")
     subs = cli.add_subparsers(dest="command", required=True)
     subs.add_parser("sync")
     restore = subs.add_parser("restore")
-    restore.add_argument("--generation", required=True)
+    restore.add_argument("--revision", required=True)
     verify = subs.add_parser("verify")
-    verify.add_argument("--generation", required=True)
+    verify.add_argument("--revision", required=False)
     args = cli.parse_args()
     os.umask(0o077)
     store = GitMemory()
     if args.command == "sync":
         result = store.sync()
     elif args.command == "restore":
-        result = store.restore(args.generation)
+        result = store.restore(args.revision)
     else:
         with exclusive(store.state):
             store.update_git()
-            result = store.verify_generation(store.repo / "snapshots" / args.generation)
+            if args.revision:
+                if not re.fullmatch(r"[0-9a-f]{7,40}", args.revision):
+                    raise ValueError("Invalid Git commit")
+                full=store.git("rev-parse", "--verify", args.revision+"^{commit}").stdout.strip()
+                if store.git("rev-parse", "HEAD").stdout.strip()!=full:
+                    raise RuntimeError("Verify old revisions with restore --revision")
+            result = store.verify_tree(store.repo)
     print(json.dumps(result, sort_keys=True))
 
 

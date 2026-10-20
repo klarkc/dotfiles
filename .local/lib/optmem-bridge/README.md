@@ -268,66 +268,64 @@ sidecar initialization or memo append. Production authorization is bound
 to the exact canonical LOG plus its unique provenance sidecar pair.
 
 
-## Private GitHub recovery: klarkc/memory (Oct 2026)
+## Private GitHub memory history: klarkc/memory (Oct 2026)
 
-The canonical OptMem writer on solo098 remains the only live writer.
-The private GitHub repository klarkc/memory stores **immutable, complete
-recovery generations**, not an independently writable copy of the LOG.
-The repository contains personal memory text and the ZeroClaw retained
-SQLite archive **without extra encryption**, as explicitly chosen by the owner.
-Keep the GitHub repository private. No snapshot data is ever staged in
-klarkc/dotfiles.
+The OptMem canonical writer on solo098 is the only live writer. Its private
+GitHub backup klarkc/memory uses ONE CURRENT WORKING TREE:
 
-Tracked runtime integration:
+    README.md
+    manifest.json
+    canonical/memory/LOG.txt
+    canonical/memory/TREE/
+    canonical/memory/config
+    canonical/sidecar/{agent-facts.sqlite3,provenance.sqlite3}
+    canonical/manifest.json
+    legacy/{brain.sqlite3,manifest.json,archive-receipts.jsonl}
+    metadata/{activation.json,acceptance.json,migration-receipts.jsonl}
 
-- git_sync.py sync runs an authenticated GitHub API check every time:
-  exact repository, private=true, default branch main, not archived.
-  It reads only the GH_TOKEN value from the existing private
-  ~/.profile_override if that variable is not already exported. It never
-  executes shell content from that file. If privacy cannot be verified,
-  **no upload takes place**.
-- Every run checks the seven production preflight gates and performs a
-  locked OptMem LOG/TREE/config + two SQLite provenance databases snapshot.
-  It includes the *complete* retained 88-row native ZeroClaw SQLite
-  database, both migration-receipt ledgers, activation/acceptance metadata,
-  and SHA-256 manifests. The archive is verified using SQLite integrity
-  checks; the recovered writer/agent ledgers must pass independent restore.
-- Only new fingerprints create Git commits. Historical generations are
-  immutable. Git fetch/fast-forward or an ordinary merge reconcile
-  independently produced Git generations; overlapping Git conflicts
-  **fail closed**, with no force push. A remote pull never overwrites
-  ~/.optmem/memory, native ZeroClaw data, or production sidecars.
-- Before upload, the Gitleaks credential scanner must pass. A successful
-  push is independently confirmed using a fresh private GitHub clone and
-  a complete recovered-generation integrity/restore check.
-- optmem-git-sync.timer performs hourly runs via systemd --user with
-  PrivateTmp, read-only home outside two narrowly writable state paths,
-  restricted network address families, umask 0077, and bounded resources.
-  An unreachable GitHub, unavailable private-token check, invalid writer,
-  or corrupted backup fails safely and retries at the next timer execution.
+The Git history **is** the version history; every changed working-tree
+state is one commit. No snapshots/<generation> directories are created.
+Unchanged content creates no commit. The old e6db6bd snapshot-format commit
+remains recoverable in Git history; a migration commit removes its directory
+from current HEAD, NEVER force-pushes or rewrites its history.
 
-Operational commands:
+Safety properties:
+
+- Every run verifies klarkc/memory is still PRIVATE via GitHub API, using
+  the existing GH_TOKEN from the private ~/.profile_override. Never source
+  that file as executable shell; a token check failure blocks upload.
+- The seven production preflight gates must be READY. The writer-locked
+  OptMem LOG/TREE snapshot includes the two SQLite provenance ledgers.
+  The complete 88-row ZeroClaw legacy archive, both migration receipt
+  ledgers and activation/acceptance files are included and verified.
+- File hashes, SQLite integrity checks and independent canonical restore
+  are required before commit, before push and after a fresh remote clone.
+  Gitleaks scanning must pass before a push.
+- Multi-host divergent Git branches FAIL CLOSED. No automatic merge of
+  canonical LOG/SQLite, no force push, no git pull onto live memory.
+  Remote fast-forward updates only the private backup checkout.
+- optmem-git-sync.timer periodically runs the script as systemd --user,
+  with a private temporary directory, read-only home except bounded state
+  and advisory lock paths, and restricted resources.
+
+Commands:
 
     systemctl --user status optmem-git-sync.timer
     systemctl --user start optmem-git-sync.service
     journalctl --user -u optmem-git-sync.service -n 30 --no-pager
-    python3 -B ~/.local/lib/optmem-bridge/git_sync.py verify --generation <id>
-    python3 -B ~/.local/lib/optmem-bridge/git_sync.py restore --generation <id>
+    python3 -B ~/.local/lib/optmem-bridge/git_sync.py verify
+    git -C ~/.local/state/optmem-git-sync/repo log --oneline
+    python3 -B ~/.local/lib/optmem-bridge/git_sync.py restore --revision <sha>
 
-The restore command selects a GitHub generation and copies it atomically
-into a **new** private directory under
-~/.local/state/optmem-git-sync/recovery/<id>. It refuses any overwrite,
-traversal, foreign/symlink file or inconsistent SQLite database. It does
-not activate the recovered state or change a live ZeroClaw service.
-On a replacement computer, install the same matching dotfiles runtime,
-restore into isolation, validate that dataset and perform a separately
-authorized quiescent cutover; never merge or overwrite active SQLite stores
-using Git. GitHub repository visibility must stay PRIVATE.
+Restore selects a Git COMMIT, extracts its tree to a NEW private directory
+under ~/.local/state/optmem-git-sync/recovery/<full-sha>, checks every
+manifest and reconstructs the OptMem writer SQLite files independently.
+Older snapshot-format revisions are still accepted; no live writer or
+ZeroClaw SQLite database is overwritten. Activating a restored revision is
+a separate, quiescent, explicitly authorized operation.
 
-Known limits: GitHub private storage is not end-to-end encryption, the
-manifest is not an independently signed adversarial authenticity proof,
-and remote history can grow because generations are immutable and no
-automatic pruning is allowed. This scope backs up current OptMem and
-the archived ZeroClaw legacy memory, not unrelated sessions, credentials
-or raw Bash history. The Bash capture/extract timers remain a distinct,
-inactive source integration until separately verified and activated.
+Repository data remains unencrypted inside the PRIVATE GitHub repository,
+per user decision. SHA-256 is an integrity check, not a signed adversarial
+authenticity proof. Git history grows without automatic pruning. The Bash
+capture/extract timers remain separately disabled until source resync and
+their own acceptance gates are completed.

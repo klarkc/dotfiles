@@ -31,13 +31,14 @@
 
 ## OptMem private GitHub recovery (solo098)
 
-Private remote memory data belongs in klarkc/memory, never klarkc/dotfiles.
-The canonical ~/.optmem/memory and two production SQLite sidecars have a
-single writer. Use .local/lib/optmem-bridge/git_sync.py to make immutable,
-verified Git recovery generations via systemd --user optmem-git-sync.timer.
-Require GitHub PRIVATE verification, local Gitleaks, Git fast-forward or
-nonconflicting normal merge, and independent remote clone/restore.
-Never force-push, auto-prune history, or git pull into the live memory.
-Restores always start in private isolation and require an explicit cutover.
-The legacy ZeroClaw SQLite memory archive remains recoverable, not an
-independent active writer. Bash ingest timers are separately inactive.
+Private OptMem content belongs in klarkc/memory, never klarkc/dotfiles.
+The backup repository has ONE stable current canonical/, legacy/ and
+metadata/ tree with manifest.json at root. Git commits ARE the snapshots;
+never create per-run snapshots/<id> folders. Never rewrite or force-push
+history, auto-prune revisions, merge divergent SQLite/LOG histories, or pull
+Git files directly into live ~/.optmem/memory.
+Require PRIVATE GitHub visibility, Gitleaks, writer-locked canonical snapshot,
+both SQLite provenance ledgers, original legacy archive, hashes, restoration,
+a non-force push and independent clone validation. Restore --revision <sha>
+always starts in a private isolated recovery directory; live cutover remains
+separately authorized. Bash ingest timers remain inactive.
