@@ -45,7 +45,7 @@ After boot, check the serial console, tunnel port 22 through IAP, log in as `kla
 sudo bash ~/.nix/servidor-hj-mesmo/guest-bootstrap.sh
 ```
 
-This installs the Arch/Xorg/XRDP foundation, enables the self-hosted MCP runtime, and preserves the dotfiles tree. It is a **first-run bootstrap, not yet E2E verified**. AUR package build can fail on upstream changes; never bypass CI or disable firewall controls. Enable the Cloudflare tunnel only after placing privately maintained values in `~/.profile_override`.
+This installs the Arch/Xorg/XRDP foundation, enables the self-hosted MCP runtime, and preserves the dotfiles tree. It is a **first-run bootstrap, not yet E2E verified**. AUR package build can fail on upstream changes. `guest-bootstrap.sh` verifies pinned source revisions of `xrdp`, `xorgxrdp` and `brave-bin` and refuses unexpectedly modified source. Never bypass pin validation, CI or firewall controls. Enable the Cloudflare tunnel only after placing privately maintained values in `~/.profile_override`.
 
 Acceptance: real RDP XMonad login and reconnect, non-GPU terminal/window manager, real `Desktop_Commander_solo098` tool call, VM stop/start retaining disk and costs within the agreed budget.
 
@@ -55,7 +55,7 @@ Acceptance: real RDP XMonad login and reconnect, non-GPU terminal/window manager
 - `guest-bootstrap.sh` builds this package as `klarkc` using `makepkg` and installs it with `pacman` without configuring APT. The existing XMonad startup command `/opt/enpass/Enpass -minimize` is retained.
 - Package provenance: https://apt.enpass.io/dists/x11/main/binary-amd64/Packages; https://help.enpass.io/personal/latest/all/enpass-apps-installation. A vendor update requires manually reviewing the X11 package index, the new digest and compatibility before changing the pin.
 - **Runtime acceptance still pending:** verify the application opens inside a real X11 RDP session, the operator can unlock/sync a private vault, and the Brave extension's native bridge works. Do not put credentials or vault data in Git, cloud metadata or CI logs.
-- **Brave is also P0 and is not yet installed by this step.** Provisioning/desktop productivity is not accepted until both applications are usable.
+- **Brave is also P0:** guest-bootstrap now builds reviewed `brave-bin` 1.99.56 from an exact AUR revision, alongside pinned `xrdp`/`xorgxrdp` sources. The AUR pin check fails closed if remote HEAD changes; an update requires fresh PKGBUILD review. **This is not yet runtime-tested.** Provisioning/desktop productivity is not accepted until both applications are usable.
 
 ## Windows control
 

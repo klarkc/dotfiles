@@ -60,10 +60,26 @@ cleanup() {
   rm -rf -- "$build_dir"
 }
 trap cleanup EXIT
-for package in xrdp xorgxrdp; do
+# Pin reviewed AUR PKGBUILD revisions. A new revision requires manual
+# inspection and a new commit; floating upstream code is never auto-executed.
+declare -A aur_revisions=(
+  [xrdp]=4701987b7d76df432dc41351875678dd370f42b8
+  [xorgxrdp]=b04814d56be91d993f4d76370c473dda1b691641
+  [brave-bin]=62caba7bf015ce1c53986cfab86b177625743fb4
+)
+for package in xrdp xorgxrdp brave-bin; do
   runuser -u klarkc -- git clone --depth 1 "https://aur.archlinux.org/$package.git" "$build_dir/$package"
+  actual_revision="$(runuser -u klarkc -- git -C "$build_dir/$package" rev-parse HEAD)"
+  if [[ "$actual_revision" != "${aur_revisions[$package]}" ]]; then
+    echo "BLOCKED: AUR $package revision changed; review PKGBUILD and update its pin before proceeding." >&2
+    exit 1
+  fi
   runuser -u klarkc -- bash -c 'cd "$1" && makepkg -si --noconfirm --needed' _ "$build_dir/$package"
 done
+command -v brave >/dev/null || {
+  echo 'BLOCKED: Brave executable missing after package installation.' >&2
+  exit 1
+}
 # The default Enpass AUR package now uses the Wayland build; preserve X11.
 # This local PKGBUILD pins the official Enpass X11 .deb and its SHA256.
 enpass_build="$build_dir/enpass-x11"
