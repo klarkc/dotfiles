@@ -322,9 +322,13 @@
                   touch $out
                 '';
             solo098-preflight-contract =
-              pkgs.runCommand "solo098-preflight-contract" { nativeBuildInputs = [ pkgs.bash ]; }
+              pkgs.runCommand "solo098-preflight-contract" { nativeBuildInputs = [ pkgs.bash pkgs.gnupg pkgs.gawk ]; }
                 ''
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
+                  export GNUPGHOME="$TMPDIR/gnupg"
+                  mkdir -m 0700 "$GNUPGHOME"
+                  fp="$(gpg --show-keys --with-colons ${./.nix/servidor-hj-mesmo/arch-boxes-key.asc} 2>/dev/null | awk -F: '$1=="fpr" {print $10; exit}')"
+                  test "$fp" = "1B9A16984A4E8CB448712D2AE0B78BF4326C6F8F"
                   touch $out
                 '';
             desktop-commander-mcp-contract =
