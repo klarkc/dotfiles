@@ -71,8 +71,9 @@ install -Dm755 /dev/stdin /etc/xrdp/startwm.sh <<'SH'
 exec /usr/local/bin/solo098-xrdp-session
 SH
 systemctl enable --now xrdp xrdp-sesman
-# MCP runtime is already in the historical Nix flake and pulls cloudflared.
-runuser -u klarkc -- bash -c 'cd "$HOME" && nix profile install .#desktop-commander-mcp-runtime'
+# Install the shared full CPU-only Nix workstation profile (including MCP).
+# The original default profile retains its CUDA/vLLM feature.
+runuser -u klarkc -- bash -c 'cd "$HOME" && nix profile install .#solo098-gce'
 loginctl enable-linger klarkc
 install -d -m 0755 -o klarkc -g klarkc "$home/.config/systemd/user/default.target.wants"
 ln -sfn ../desktop-commander-mcp-runtime.service "$home/.config/systemd/user/default.target.wants/desktop-commander-mcp-runtime.service"
