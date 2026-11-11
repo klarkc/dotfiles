@@ -3,7 +3,7 @@
 # --apply: the same local verification plus explicit consent before paid creation.
 set -euo pipefail
 mode="${1:-}"
-if [[ $# != 1 || ( $mode != --verify-only && $mode != --apply ) ]]; then
+if [[ $# != 1 || ($mode != --verify-only && $mode != --apply) ]]; then
   echo "Usage: bash $0 --verify-only | --apply" >&2
   exit 2
 fi
