@@ -64,16 +64,16 @@ jobs:
             const outdated = output.outdated;
             const body = `## Outdated Dependencies Detected
 
-This repository has **${outdated.length}** outdated dependency(ies) out of **${output.total_checked}** checked.
+            This repository has **${outdated.length}** outdated dependency(ies) out of **${output.total_checked}** checked.
 
-${outdated.map(d => `### ${d.name} (\`${d.owner}/${d.repo}\`)
-- **Locked revision:** \`${d.locked_rev}\`
-- **Latest revision:** \`${d.latest}\`
-- **Branch:** \`${d.branch}\`
-- **Estimated staleness:** ${d.stale_hours} hours`).join('\n\n')}
+            ${outdated.map(d => `### ${d.name} (\`${d.owner}/${d.repo}\`)
+            - **Locked revision:** \`${d.locked_rev}\`
+            - **Latest revision:** \`${d.latest}\`
+            - **Branch:** \`${d.branch}\`
+            - **Estimated staleness:** ${d.stale_hours} hours`).join('\n\n')}
 
----
-*This issue was auto-created by the Dependency Monitor workflow.*`;
+            ---
+            *This issue was auto-created by the Dependency Monitor workflow.*`;
 
             // Check if there's already an open issue for this
             const issues = await github.rest.issues.listForRepo({
