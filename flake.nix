@@ -224,37 +224,40 @@
           nixProfile = pkgs.writeText "nix-profile" ''
             export NIX_PATH="nixpkgs=flake:${inputs.nixpkgs}"
           '';
-          profileCommonPaths = with pkgs; with ctx; [
-                (pkgs.runCommand "profile" { } ''
-                  mkdir -p $out/etc/profile.d
-                  cp ${nixProfile} $out/etc/profile.d/nix.sh
-                '')
-                # GCE CPU-only: keep the NVIDIA wrapper defined above, but do not evaluate it in the default profile.
-                alacrittyWithLigatures
-                direnv
-                nixos-rebuild
-                nix-output-monitor
-                nix-fast-build
-                flake-edit
-                uv
-                gh
-                gitleaks
-                # Authentication helper only: Codex CLI refreshes ChatGPT OAuth,
-                # which opencode-with-codex-auth imports when newer. Not a coding agent.
-                codex
-                opencodeWithCodexAuth
-                opencodeCodexAuthTools
-                backupTools.packScript
-                backupTools.testScript
-                kolu
-                herdr
-                ledgeurRuntime
-                mcpRemoteRuntime
-                playwright-mcp
-                desktopCommanderRuntime
-                desktopCommanderMcpRuntime
-                zeroclawWithLandlock
-              ];
+          profileCommonPaths =
+            with pkgs;
+            with ctx;
+            [
+              (pkgs.runCommand "profile" { } ''
+                mkdir -p $out/etc/profile.d
+                cp ${nixProfile} $out/etc/profile.d/nix.sh
+              '')
+              # GCE CPU-only: keep the NVIDIA wrapper defined above, but do not evaluate it in the default profile.
+              alacrittyWithLigatures
+              direnv
+              nixos-rebuild
+              nix-output-monitor
+              nix-fast-build
+              flake-edit
+              uv
+              gh
+              gitleaks
+              # Authentication helper only: Codex CLI refreshes ChatGPT OAuth,
+              # which opencode-with-codex-auth imports when newer. Not a coding agent.
+              codex
+              opencodeWithCodexAuth
+              opencodeCodexAuthTools
+              backupTools.packScript
+              backupTools.testScript
+              kolu
+              herdr
+              ledgeurRuntime
+              mcpRemoteRuntime
+              playwright-mcp
+              desktopCommanderRuntime
+              desktopCommanderMcpRuntime
+              zeroclawWithLandlock
+            ];
           treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
             projectRootFile = "flake.nix";
 
