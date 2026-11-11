@@ -1,5 +1,14 @@
 # Dotfiles
 
+> **Active target (2026-11-11): NixOS only, all changes on `main`.**
+> Arch Linux/NVIDIA instructions below are retired historical material, not
+> a supported installation recipe. User-specific packages, XMonad, Brave,
+> Enpass, shell and services must be expressed declaratively in Nix here,
+> while system/GCE/XRDP infrastructure lives in `klarkc/os`.
+> Do not run legacy `pacman`, `yay`, default NVIDIA profile or broad `make`
+> targets on the GCE workstation. Existing functionality requires an audited
+> NixOS migration before any legacy Arch block is deleted.
+
 Optioned Linux for a dev environment
 
 ```bash
@@ -31,7 +40,7 @@ git checkout main
 
 ## Machines
 
-Machine-specific configurations and enabled features are maintained in host branches; `main` is the default branch.
+All machine/user configurations and features are maintained on `main` only. Historical branches are read-only migration sources, not active deployment targets.
 
 ### Aliases
 
@@ -54,7 +63,7 @@ Machine-specific configurations and enabled features are maintained in host bran
 
 Below are the supported distro setups
 
-### Arch Linux with NVidia
+### Retired reference: Arch Linux with NVIDIA (do not execute on NixOS)
 
 #### Dependencies
 
