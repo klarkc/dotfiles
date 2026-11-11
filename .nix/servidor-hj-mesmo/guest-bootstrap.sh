@@ -24,10 +24,11 @@ pacman -Syu --noconfirm
 pacman -S --noconfirm --needed \
   base-devel git git-lfs openssh sudo nix dbus \
   xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xsetroot xorg-xset \
-  xorg-xmodmap xorg-setxkbmap xmonad xmonad-contrib dmenu \
-  pipewire pipewire-audio pipewire-pulse pipewire-alsa wireplumber \
+  xorg-xmodmap xorg-setxkbmap xmonad xmonad-contrib dmenu ghc taffybar \
+  pipewire pipewire-audio pipewire-pulse pipewire-alsa wireplumber pamixer \
   keyd dunst libnotify picom feh scrot satty i3lock xss-lock xclip \
-  gvim haskell-language-server lsd dconf-editor \
+  gvim haskell-language-server lsd dconf-editor vimb discord \
+  the_silver_searcher sword pacutils brightnessctl \
   ttf-fira-code noto-fonts-emoji
 systemctl enable --now nix-daemon.socket
 systemctl enable --now sshd
