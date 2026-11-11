@@ -11,8 +11,8 @@ The `klarkc/os` **plano-legado** remains frozen.
 ## Cost and configuration
 
 - VM candidate: `e2-highmem-4`, 4 vCPU/32 GiB RAM, in `southamerica-east1-b`.
-- Persistent boot disk: 512 GiB `pd-standard` (still charged while stopped).
-- Ceiling: R$560/month, working-hours usage **only**. Cloud NAT, storage and internet egress incur additional charges. BusinessManager cost review is in `klarkc/broker/inbox/platformmanager/`.
+- Persistent boot disk: 256 GiB `pd-standard` (still charged while stopped).
+- Ceiling: R$560/month, working-hours usage **only**. Account-specific 2026-11-11 reference: ~R$93.72/month for the 256 GiB disk and ~R$1.75 per running VM hour; 176h yields ~R$401.92 for VM + disk only. Cloud NAT/IP, image/staging storage, taxes and internet egress incur additional charges. Re-check billing prices before provisioning. BusinessManager cost review is in `klarkc/broker/inbox/platformmanager/`.
 - Preserve non-GPU features: PipeWire, XMonad, Taffybar, picom (`xrender` for RDP), feh, scrot/satty, i3lock (manual), Haskell LSP, Gvim, git-lfs, keyd and all other dotfiles. Leave Sunshine and CUDA/NVIDIA auto-start disabled.
 
 ## Preflight — read-only
@@ -27,13 +27,13 @@ bash .nix/servidor-hj-mesmo/preflight.sh
 
 ## Cloud Shell provisioning (billable)
 
-Only run after `Test` CI is green at the _exact_ branch SHA, an up-to-date provider cost quote and reviewing the bootstrap. The tool prompts for `CRIAR_SOLO098_512` before any paid resource creation.
+Only run after `Test` CI is green at the _exact_ branch SHA, an up-to-date provider cost quote and reviewing the bootstrap. The tool prompts for `CRIAR_SOLO098_256` before any paid resource creation.
 
 ```bash
 bash .nix/servidor-hj-mesmo/provision-gce.sh --apply
 ```
 
-It checks the signed checksum, downloads/verifies the full image, converts to sparse raw disk and imports a custom GCE image, then creates a private VPC, Cloud NAT, IAP-only firewalls and the 512 GiB VM. The official Arch image has `cloud-init`, not the Google guest agent. The image and guest login are **not yet validated on GCE**. If the boot or cloud-init fails, stop and investigate; do not guess credentials.
+It checks the signed checksum, downloads/verifies the full image, converts to sparse raw disk and imports a custom GCE image, then creates a private VPC, Cloud NAT, IAP-only firewalls and the 256 GiB VM. The official Arch image has `cloud-init`, not the Google guest agent. The image and guest login are **not yet validated on GCE**. If the boot or cloud-init fails, stop and investigate; do not guess credentials.
 
 The Cloud Shell creates a local SSH key; the only material inserted into guest `user-data` is its public key. The XRDP login password remains locked until the operator configures it via SSH/IAP. Cloudflare credentials stay in the guest private `~/.profile_override`, never Git or cloud metadata.
 

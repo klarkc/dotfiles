@@ -57,12 +57,14 @@ if gcloud compute instances describe "$vm" --project="$project" --zone="$zone" >
   echo "BLOCKED: VM $vm already exists. Refusing to mutate it." >&2
   exit 1
 fi
-echo 'Billable plan: e2-highmem-4 (4 vCPU, 32 GiB), 512 GiB pd-standard.'
+echo 'Billable plan: e2-highmem-4 (4 vCPU, 32 GiB), 256 GiB pd-standard.'
 echo 'Target R$560/month at controlled working hours; NOT a 24/7 quote.'
+echo '2026-11-11 account-rate reference: ~R$401.92 at 176 VM hours + 256 GiB pd-standard.'
+echo 'This excludes Cloud NAT/IP, egress, custom image, staging storage, taxes and usage already billed.'
 echo 'Disk, imported image, Cloud NAT, staging bucket and egress can incur charges.'
 echo 'Guest environment is not yet proven on GCE. A failed boot may require manual cleanup.'
-read -r -p 'To create paid resources, type CRIAR_SOLO098_512: ' confirmed
-[[ $confirmed == CRIAR_SOLO098_512 ]] || {
+read -r -p 'To create paid resources, type CRIAR_SOLO098_256: ' confirmed
+[[ $confirmed == CRIAR_SOLO098_256 ]] || {
   echo 'No changes.'
   exit 1
 }
@@ -148,7 +150,7 @@ users:
 EOF
 gcloud compute instances create "$vm" --project="$project" --zone="$zone" \
   --machine-type=e2-highmem-4 --image="$image_name" \
-  --boot-disk-size=512GB --boot-disk-type=pd-standard --no-boot-disk-auto-delete \
+  --boot-disk-size=256GB --boot-disk-type=pd-standard --no-boot-disk-auto-delete \
   --network="$vpc" --subnet="$subnet" --no-address --no-service-account --no-scopes \
   --tags=solo098-iap --labels=plan=servidor-hj-mesmo \
   --metadata=enable-oslogin=FALSE,block-project-ssh-keys=TRUE \
