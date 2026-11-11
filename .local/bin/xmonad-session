@@ -70,6 +70,11 @@ configure_idle_timeout() {
 configure_idle_timeout
 
 start_lock_screen() {
+  # In RDP, disconnection must not trigger an unrecoverable automatic locker.
+  # Manual Mod-Ctrl-L / i3lock remains available.
+  if [ "${SOLO098_GCE_RDP:-0}" = 1 ]; then
+    return
+  fi
   if command -v xss-lock >/dev/null 2>&1; then
     if ! pgrep -x -u "$(id -u)" xss-lock >/dev/null 2>&1; then
       xss-lock --transfer-sleep-lock -- "$HOME/.local/bin/lock-screen" &

@@ -322,9 +322,19 @@
                   touch $out
                 '';
             solo098-preflight-contract =
-              pkgs.runCommand "solo098-preflight-contract" { nativeBuildInputs = [ pkgs.bash pkgs.gnupg pkgs.gawk ]; }
+              pkgs.runCommand "solo098-preflight-contract"
+                {
+                  nativeBuildInputs = [
+                    pkgs.bash
+                    pkgs.gnupg
+                    pkgs.gawk
+                  ];
+                }
                 ''
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
+                  bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}
+                  bash -n ${./.nix/servidor-hj-mesmo/guest-bootstrap.sh}
+                  bash -n ${./.nix/servidor-hj-mesmo/xrdp-session.sh}
                   export GNUPGHOME="$TMPDIR/gnupg"
                   mkdir -m 0700 "$GNUPGHOME"
                   fp="$(gpg --show-keys --with-colons ${./.nix/servidor-hj-mesmo/arch-boxes-key.asc} 2>/dev/null | awk -F: '$1=="fpr" {print $10; exit}')"

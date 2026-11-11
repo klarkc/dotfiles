@@ -2,9 +2,18 @@
 # Run as root ON solo098 only after successful cloud-init and IAP/SSH verification.
 # No private credentials or passwords should ever be passed to this script.
 set -euo pipefail
-[[ "$(id -u)" -eq 0 ]] || { echo 'Run as root via sudo.' >&2; exit 2; }
-command -v pacman >/dev/null || { echo 'Expected Arch Linux' >&2; exit 2; }
-[[ -d /home/klarkc ]] || { echo 'cloud-init has not created klarkc' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || {
+  echo 'Run as root via sudo.' >&2
+  exit 2
+}
+command -v pacman >/dev/null || {
+  echo 'Expected Arch Linux' >&2
+  exit 2
+}
+[[ -d /home/klarkc ]] || {
+  echo 'cloud-init has not created klarkc' >&2
+  exit 1
+}
 [[ ! -e /var/lib/solo098-guest-installed ]] || { echo 'Already provisioned; no changes.'; exit 0; }
 pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm
@@ -35,11 +44,7 @@ if [[ ! -d "$home/.git" ]]; then
 fi
 # The original dotfiles includes all user services and XMonad configuration.
 # RDP uses a conditional session wrapper, not the physical Lemurs login.
-install -Dm755 "$home/.nix/servidor-hj-mesmo/xrdp-session.sh" /usr/local/bin/solo098-xrdp-session
-install -Dm755 /dev/stdin /etc/xrdp/startwm.sh <<'SH'
-#!/bin/sh
-exec /usr/local/bin/solo098-xrdp-session
-SH
+# XRDP will install its own startwm.sh; replace it only AFTER package installation.
 # XRDP and xorgxrdp are AUR packages: build unprivileged, never as root.
 build_dir="$(mktemp -d)"
 chmod 755 "$build_dir"
@@ -54,6 +59,11 @@ for package in xrdp xorgxrdp; do
 done
 cleanup
 trap - EXIT
+install -Dm755 "$home/.nix/servidor-hj-mesmo/xrdp-session.sh" /usr/local/bin/solo098-xrdp-session
+install -Dm755 /dev/stdin /etc/xrdp/startwm.sh <<'SH'
+#!/bin/sh
+exec /usr/local/bin/solo098-xrdp-session
+SH
 systemctl enable --now xrdp xrdp-sesman
 # MCP runtime is already in the historical Nix flake and pulls cloudflared.
 runuser -u klarkc -- bash -c 'cd "$HOME" && nix profile install .#desktop-commander-mcp-runtime'

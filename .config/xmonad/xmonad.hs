@@ -68,12 +68,12 @@ myConfig =
       focusedBorderColor = "#5E81AC",
       -- modMask = controlMask, -- Ctrl
       startupHook = do
-        spawn "xrandr --output HDMI-0 --off"
-        spawn "xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1"
+        -- Only physical consoles have these NVIDIA monitor names.
+        spawn "if [ \"$SOLO098_GCE_RDP\" != 1 ]; then xrandr --output HDMI-0 --off; xrandr --output HDMI-0 --mode 1920x1080 --primary --right-of DP-1; fi"
         spawn "xsetroot -cursor_name left_ptr"
         spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
-        spawn "pgrep -x picom >/dev/null || picom"
+        spawn "pgrep -x picom >/dev/null || if [ \"$SOLO098_GCE_RDP\" = 1 ]; then picom --backend xrender; else picom; fi"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         spawn "/opt/enpass/Enpass -minimize"
@@ -86,7 +86,7 @@ myConfig =
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),
                         ("M-s", runSteam),
-                        ("<XF86PowerOff>", spawn "systemctl suspend"),
+                        ("<XF86PowerOff>", spawn "[ \"$SOLO098_GCE_RDP\" = 1 ] || systemctl suspend"),
                         ("<XF86AudioRaiseVolume>", spawn "pamixer sset Master 10%+"),
                         ("<XF86AudioLowerVolume>", spawn "pamixer sset Master 10%-"),
                         ("<XF86AudioMute>", spawn "pamixer sset Master toggle"),

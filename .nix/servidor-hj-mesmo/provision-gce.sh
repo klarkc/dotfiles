@@ -20,10 +20,19 @@ router=solo098-router
 nat=solo098-nat
 gcs_bucket=argon-surf-472319-b0-solo098-image-staging
 for t in gcloud git curl gpg qemu-img tar sha256sum python3 ssh-keygen; do
-  command -v "$t" >/dev/null || { echo "Missing $t. Install it before provisioning." >&2; exit 2; }
+  command -v "$t" >/dev/null || {
+    echo "Missing $t. Install it before provisioning." >&2
+    exit 2
+  }
 done
-[[ "$(git branch --show-current)" == servidor-hj-mesmo ]] || { echo 'Unexpected branch.' >&2; exit 1; }
-git diff --quiet && git diff --cached --quiet || { echo 'Dirty tree: stop.' >&2; exit 1; }
+[[ "$(git branch --show-current)" == servidor-hj-mesmo ]] || {
+  echo 'Unexpected branch.' >&2
+  exit 1
+}
+git diff --quiet && git diff --cached --quiet || {
+  echo 'Dirty tree: stop.' >&2
+  exit 1
+}
 sha="$(git rev-parse HEAD)"
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
@@ -65,12 +74,14 @@ if ! gcloud compute images describe "$image_name" --project="$project" >/dev/nul
   curl --fail --silent --show-error --location --retry 3 \
     "$mirror/$image_file" -o "$tmp/$image_file"
   gpg --batch --verify "$tmp/$image_file.sig" "$tmp/$image_file" >/dev/null 2>&1 || {
-    echo 'BLOCKED: image PGP signature invalid' >&2; exit 1;
+    echo 'BLOCKED: image PGP signature invalid' >&2
+    exit 1
   }
   (cd "$tmp" && sha256sum --check "$image_file.SHA256")
+  qemu-img check -f qcow2 "$tmp/$image_file"
   qemu-img info -f qcow2 "$tmp/$image_file"
   qemu-img convert -p -f qcow2 -O raw -S 4k "$tmp/$image_file" "$tmp/disk.raw"
-  tar -Sczf "$tmp/disk.tar.gz" -C "$tmp" disk.raw
+  tar --format=oldgnu -Sczf "$tmp/disk.tar.gz" -C "$tmp" disk.raw
   if ! gcloud storage buckets describe "gs://$gcs_bucket" --project="$project" >/dev/null 2>&1; then
     gcloud storage buckets create "gs://$gcs_bucket" \
       --project="$project" --location="$region" --uniform-bucket-level-access \
@@ -98,7 +109,11 @@ if ! gcloud compute routers nats describe "$nat" --project="$project" --router="
     --region="$region" --auto-allocate-nat-external-ips --nat-custom-subnet-ip-ranges="$subnet"
 fi
 for port in 22 3389; do
-  if [[ "$port" == 22 ]]; then rule=solo098-iap-ssh; else rule=solo098-iap-rdp; fi
+  if [[ "$port" == 22 ]]; then
+    rule=solo098-iap-ssh
+  else
+    rule=solo098-iap-rdp
+  fi
   if ! gcloud compute firewall-rules describe "$rule" --project="$project" >/dev/null 2>&1; then
     gcloud compute firewall-rules create "$rule" --project="$project" \
       --network="$vpc" --direction=INGRESS --source-ranges=35.235.240.0/20 \
