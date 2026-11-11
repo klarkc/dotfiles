@@ -16,6 +16,14 @@ vm=solo098
 image_name=solo098-arch-20261101
 image_file=Arch-Linux-x86_64-cloudimg-20261101.620452.qcow2
 mirror=https://geo.mirror.pkgbuild.com/images/latest
+# Official Arch mirrors for an immutable release. The size and cryptographic
+# checks below prevent silently accepting a partial or substituted image.
+image_bytes=576697856
+image_mirrors=(
+  https://fastly.mirror.pkgbuild.com/images/latest
+  https://geo.mirror.pkgbuild.com/images/latest
+  https://mirror.arizona.edu/archlinux/images/latest
+)
 vpc=solo098-vpc
 subnet=solo098-subnet
 router=solo098-router
@@ -81,8 +89,69 @@ if [[ $mode == --apply ]] && gcloud compute images describe "$image_name" --proj
   image_exists=true
 fi
 if [[ $image_exists == false ]]; then
-  curl --fail --silent --show-error --location --retry 3 \
-    "$mirror/$image_file" -o "$tmp/$image_file"
+  # Keep only the public, immutable QCOW2 in ephemeral /tmp between attempts.
+  # Interrupting the script removes mktemp files but preserves this partial
+  # download for curl to resume next time (within the same Cloud Shell VM).
+  cache_dir="/tmp/solo098-arch-cache-$(id -u)"
+  if [[ -L $cache_dir || (-e $cache_dir && ! -d $cache_dir) ]]; then
+    echo 'BLOCKED: unexpected download cache path.' >&2
+    exit 1
+  fi
+  install -d -m 0700 "$cache_dir"
+  [[ $(stat -c '%u' "$cache_dir") == "$(id -u)" ]] || {
+    echo 'BLOCKED: download cache is owned by another user.' >&2
+    exit 1
+  }
+  cache_file="$cache_dir/$image_file"
+  if [[ -L $cache_file || (-e $cache_file && ! -f $cache_file) ]]; then
+    echo 'BLOCKED: unexpected cached image path.' >&2
+    exit 1
+  fi
+  if [[ -f $cache_file ]]; then
+    cached_bytes="$(stat -c '%s' "$cache_file")"
+    if ((cached_bytes > image_bytes)); then
+      echo 'BLOCKED: cached image is larger than the pinned official file.' >&2
+      exit 1
+    fi
+    if ((cached_bytes == image_bytes)) &&
+      ! (cd "$cache_dir" && sha256sum --check "$tmp/$image_file.SHA256" >/dev/null 2>&1); then
+      echo 'Cached complete image has a wrong checksum; discarding and downloading again.'
+      rm -f -- "$cache_file"
+    fi
+  fi
+  echo "Image: $image_file ($image_bytes bytes, approximately 550 MiB)"
+  echo "Reusable ephemeral download cache: $cache_file"
+  if [[ -f $cache_file ]] &&
+    (cd "$cache_dir" && sha256sum --check "$tmp/$image_file.SHA256" >/dev/null 2>&1); then
+    echo 'PASS: using previously downloaded, SHA256-verified image.'
+  else
+    downloaded=false
+    for image_mirror in "${image_mirrors[@]}"; do
+      echo "Downloading from $image_mirror (visible progress; resumable)"
+      if curl --fail --location --show-error --progress-bar \
+        --connect-timeout 20 --speed-limit 65536 --speed-time 60 \
+        --retry 1 --retry-all-errors --retry-delay 2 \
+        --continue-at - --output "$cache_file" "$image_mirror/$image_file"; then
+        if [[ $(stat -c '%s' "$cache_file") == "$image_bytes" ]]; then
+          downloaded=true
+          break
+        fi
+        echo 'Mirror returned an incomplete or unexpected-size image; trying another.'
+      else
+        echo 'Mirror failed or transfer stalled; preserving partial bytes for next mirror.'
+      fi
+      if [[ -f $cache_file ]]; then
+        echo "Cached bytes so far: $(stat -c '%s' "$cache_file") / $image_bytes"
+      fi
+    done
+    if [[ $downloaded != true ]]; then
+      echo 'BLOCKED: all mirrors failed; partial download retained in /tmp for next run.' >&2
+      exit 1
+    fi
+  fi
+  # A symlink avoids copying another 550 MiB into mktemp. This is public data.
+  ln -s -- "$cache_file" "$tmp/$image_file"
+  echo 'Download complete; verifying detached signature and SHA256.'
   gpg --batch --verify "$tmp/$image_file.sig" "$tmp/$image_file" >/dev/null 2>&1 || {
     echo 'BLOCKED: image PGP signature invalid' >&2
     exit 1
@@ -114,7 +183,7 @@ PY
   du -h "$tmp/$image_file" "$tmp/disk.raw" "$tmp/disk.tar.gz"
   if [[ $mode == --verify-only ]]; then
     echo 'PASS: signed official QCOW2, SHA256, qemu-img, sparse RAW and oldgnu tar.gz verified locally.'
-    echo 'PASS: no GCE resources created or modified; temporary files will be removed.'
+    echo 'PASS: no GCE resources created or modified; conversion files will be removed.'
     exit 0
   fi
   echo 'Local image verification complete. Subsequent steps may incur GCE charges.'

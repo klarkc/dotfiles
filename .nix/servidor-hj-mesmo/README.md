@@ -33,7 +33,7 @@ After installing `qemu-utils` in Cloud Shell, run the exact same signed-image ch
 bash .nix/servidor-hj-mesmo/provision-gce.sh --verify-only
 ```
 
-The command requires a clean checkout and green `Test` CI at its exact SHA; it downloads the official immutable November image into a temporary folder, verifies its signature and checksum, tests conversion, checks free space and deletes temporary files automatically. It does not provision a VM, image, Cloud NAT, bucket or firewall. Reserve at least the size it reports for temporary storage; the Cloud Shell's `/home` partition is not used for the image.
+The command requires a clean checkout and green `Test` CI at its exact SHA. It downloads the official immutable November image (576,697,856 bytes), displays curl progress, detects stalled transfers (under 64 KiB/s for 60 seconds), and attempts multiple Arch mirrors (Fastly, geo and Arizona). A partial public QCOW2 is cached in private `/tmp/solo098-arch-cache-$(id -u)` **for resuming if interrupted** in the same Cloud Shell VM, and is verified against the signed SHA256 before use. The cache is ephemeral and is **not** in `/home`. Conversion artifacts are deleted at exit; the public QCOW2 cache remains to avoid re-downloading for a later `--apply`. The operation checks signature, QCOW2, sparse RAW, tar archive and temporary free space. It does not provision a VM, image, Cloud NAT, bucket or firewall.
 
 ## Cloud Shell provisioning (billable)
 
