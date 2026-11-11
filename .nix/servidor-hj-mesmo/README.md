@@ -25,6 +25,16 @@ cd dotfiles
 bash .nix/servidor-hj-mesmo/preflight.sh
 ```
 
+## Full image verification on Cloud Shell (no GCE charges)
+
+After installing `qemu-utils` in Cloud Shell, run the exact same signed-image checks and local QCOW2 -> sparse RAW -> oldgnu tar.gz conversion **without** creating GCE resources:
+
+```bash
+bash .nix/servidor-hj-mesmo/provision-gce.sh --verify-only
+```
+
+The command requires a clean checkout and green `Test` CI at its exact SHA; it downloads the official immutable November image into a temporary folder, verifies its signature and checksum, tests conversion, checks free space and deletes temporary files automatically. It does not provision a VM, image, Cloud NAT, bucket or firewall. Reserve at least the size it reports for temporary storage; the Cloud Shell's `/home` partition is not used for the image.
+
 ## Cloud Shell provisioning (billable)
 
 Only run after `Test` CI is green at the _exact_ branch SHA, an up-to-date provider cost quote and reviewing the bootstrap. The tool prompts for `CRIAR_SOLO098_256` before any paid resource creation.

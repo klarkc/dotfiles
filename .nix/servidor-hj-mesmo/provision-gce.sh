@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# One-time Cloud Shell import/provision. Paid resources: requires --apply and confirmation.
+# --verify-only: full local QCOW2 signature/checksum/RAW/tar test, NO GCE writes.
+# --apply: the same local verification plus explicit consent before paid creation.
 set -euo pipefail
-if [[ $# != 1 || $1 != --apply ]]; then
-  echo "Usage: bash $0 --apply (requires GCE billing and prints a final confirmation)" >&2
+mode="${1:-}"
+if [[ $# != 1 || ( $mode != --verify-only && $mode != --apply ) ]]; then
+  echo "Usage: bash $0 --verify-only | --apply" >&2
   exit 2
 fi
 root="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
@@ -53,21 +55,20 @@ if not ok: raise SystemExit("BLOCKED: exact commit lacks green mandatory Test CI
 print("PASS: required Test CI green at exact commit",sha)
 PY
 bash "$root/.nix/servidor-hj-mesmo/preflight.sh"
-if gcloud compute instances describe "$vm" --project="$project" --zone="$zone" >/dev/null 2>&1; then
+if [[ $mode == --apply ]] && gcloud compute instances describe "$vm" --project="$project" --zone="$zone" >/dev/null 2>&1; then
   echo "BLOCKED: VM $vm already exists. Refusing to mutate it." >&2
   exit 1
 fi
-echo 'Billable plan: e2-highmem-4 (4 vCPU, 32 GiB), 256 GiB pd-standard.'
-echo 'Target R$560/month at controlled working hours; NOT a 24/7 quote.'
+echo 'Plan: e2-highmem-4 (4 vCPU, 32 GiB), 256 GiB pd-standard.'
+echo 'Budget ceiling R$560/month, 176 working hours reference; NOT 24/7.'
 echo '2026-11-11 account-rate reference: ~R$401.92 at 176 VM hours + 256 GiB pd-standard.'
-echo 'This excludes Cloud NAT/IP, egress, custom image, staging storage, taxes and usage already billed.'
-echo 'Disk, imported image, Cloud NAT, staging bucket and egress can incur charges.'
-echo 'Guest environment is not yet proven on GCE. A failed boot may require manual cleanup.'
-read -r -p 'To create paid resources, type CRIAR_SOLO098_256: ' confirmed
-[[ $confirmed == CRIAR_SOLO098_256 ]] || {
-  echo 'No changes.'
-  exit 1
-}
+echo 'This excludes Cloud NAT/IP, egress, custom image, staging storage, taxes and existing spend.'
+if [[ $mode == --verify-only ]]; then
+  echo 'VERIFY-ONLY: local QCOW2/RAW/tar validation; no GCE resources will be created.'
+else
+  echo 'WARNING: --apply may create billable image, staging bucket, NAT and VM.'
+  echo 'A failed boot may require manual cleanup; the guest environment is not yet proven.'
+fi
 mkdir -m 0700 "$tmp/gnupg"
 export GNUPGHOME="$tmp/gnupg"
 gpg --batch --import "$root/.nix/servidor-hj-mesmo/arch-boxes-key.asc" >/dev/null 2>&1
@@ -75,7 +76,11 @@ for extension in SHA256 SHA256.sig sig; do
   curl --fail --silent --show-error --location --retry 3 \
     "$mirror/$image_file.$extension" -o "$tmp/$image_file.$extension"
 done
-if ! gcloud compute images describe "$image_name" --project="$project" >/dev/null 2>&1; then
+image_exists=false
+if [[ $mode == --apply ]] && gcloud compute images describe "$image_name" --project="$project" >/dev/null 2>&1; then
+  image_exists=true
+fi
+if [[ $image_exists == false ]]; then
   curl --fail --silent --show-error --location --retry 3 \
     "$mirror/$image_file" -o "$tmp/$image_file"
   gpg --batch --verify "$tmp/$image_file.sig" "$tmp/$image_file" >/dev/null 2>&1 || {
@@ -85,8 +90,39 @@ if ! gcloud compute images describe "$image_name" --project="$project" >/dev/nul
   (cd "$tmp" && sha256sum --check "$image_file.SHA256")
   qemu-img check -f qcow2 "$tmp/$image_file"
   qemu-img info -f qcow2 "$tmp/$image_file"
+  qemu-img info -f qcow2 --output=json "$tmp/$image_file" >"$tmp/qcow-info.json"
+  # Fail before conversion when /tmp cannot fit the worst-case RAW and tar.
+  # The official Arch cloud image starts at 2 GiB; boot disk expands to 256 GiB in GCE.
+  python3 - "$tmp/qcow-info.json" "$tmp" "$tmp/$image_file" <<'PY'
+import json, os, shutil, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    virtual = int(json.load(f)["virtual-size"])
+gib = 1024 ** 3
+if virtual < gib or virtual % gib:
+    raise SystemExit("BLOCKED: virtual disk size is not a whole GiB")
+free = shutil.disk_usage(sys.argv[2]).free
+# Conservative reservation: original QCOW2 plus two full RAW copies and 1 GiB.
+need = 2 * virtual + os.path.getsize(sys.argv[3]) + gib
+print(f"QCOW2 virtual disk: {virtual / gib:.2f} GiB; temporary free: {free / gib:.2f} GiB")
+print(f"Conservative free-space requirement: {need / gib:.2f} GiB")
+if free < need:
+    raise SystemExit("BLOCKED: insufficient temporary disk space; no GCE writes")
+PY
   qemu-img convert -p -f qcow2 -O raw -S 4k "$tmp/$image_file" "$tmp/disk.raw"
   tar --format=oldgnu -Sczf "$tmp/disk.tar.gz" -C "$tmp" disk.raw
+  tar -tzf "$tmp/disk.tar.gz" | grep -Fx 'disk.raw'
+  du -h "$tmp/$image_file" "$tmp/disk.raw" "$tmp/disk.tar.gz"
+  if [[ $mode == --verify-only ]]; then
+    echo 'PASS: signed official QCOW2, SHA256, qemu-img, sparse RAW and oldgnu tar.gz verified locally.'
+    echo 'PASS: no GCE resources created or modified; temporary files will be removed.'
+    exit 0
+  fi
+  echo 'Local image verification complete. Subsequent steps may incur GCE charges.'
+  read -r -p 'To create paid resources, type CRIAR_SOLO098_256: ' confirmed
+  [[ $confirmed == CRIAR_SOLO098_256 ]] || {
+    echo 'No GCE writes performed.'
+    exit 1
+  }
   if ! gcloud storage buckets describe "gs://$gcs_bucket" --project="$project" >/dev/null 2>&1; then
     gcloud storage buckets create "gs://$gcs_bucket" \
       --project="$project" --location="$region" --uniform-bucket-level-access \
@@ -97,6 +133,14 @@ if ! gcloud compute images describe "$image_name" --project="$project" >/dev/nul
     --source-uri="gs://$gcs_bucket/disk.tar.gz" \
     --family=solo098-arch --storage-location="$region" \
     --labels=plan=servidor-hj-mesmo
+else
+  # Explicit consent is required even when resuming after an existing image.
+  echo 'Existing custom image found; its provenance still requires operator review.'
+  read -r -p 'To continue with paid resources, type CRIAR_SOLO098_256: ' confirmed
+  [[ $confirmed == CRIAR_SOLO098_256 ]] || {
+    echo 'No GCE writes performed.'
+    exit 1
+  }
 fi
 # Dedicated VPC with IAP-only SSH and RDP; Cloud NAT permits outbound package updates.
 if ! gcloud compute networks describe "$vpc" --project="$project" >/dev/null 2>&1; then
