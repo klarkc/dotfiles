@@ -49,6 +49,14 @@ This installs the Arch/Xorg/XRDP foundation, enables the self-hosted MCP runtime
 
 Acceptance: real RDP XMonad login and reconnect, non-GPU terminal/window manager, real `Desktop_Commander_solo098` tool call, VM stop/start retaining disk and costs within the agreed budget.
 
+## Enpass X11 — required for SoloSIG
+
+- The standard Enpass AUR packages tracked in November 2026 use the Wayland build `6.12.6.2258` and are not suitable for an X11-only XRDP/XMonad desktop. Enpass officially maintains the `x11` APT channel; the local Arch `enpass-x11/PKGBUILD` extracts the vendor's `6.12.6.2255` Debian package and verifies its pinned SHA-256 (`716fbae54d52ccd807a6bd53f4cf2d359f6c7f0892ad8491f3a1bf5d8d37b099`).
+- `guest-bootstrap.sh` builds this package as `klarkc` using `makepkg` and installs it with `pacman` without configuring APT. The existing XMonad startup command `/opt/enpass/Enpass -minimize` is retained.
+- Package provenance: https://apt.enpass.io/dists/x11/main/binary-amd64/Packages; https://help.enpass.io/personal/latest/all/enpass-apps-installation. A vendor update requires manually reviewing the X11 package index, the new digest and compatibility before changing the pin.
+- **Runtime acceptance still pending:** verify the application opens inside a real X11 RDP session, the operator can unlock/sync a private vault, and the Brave extension's native bridge works. Do not put credentials or vault data in Git, cloud metadata or CI logs.
+- **Brave is also P0 and is not yet installed by this step.** Provisioning/desktop productivity is not accepted until both applications are usable.
+
 ## Windows control
 
 The Windows `solo098-control.ps1` is distributed separately. It uses `gcloud.cmd` to start/stop the VM and creates a local IAP tunnel for `mstsc`. Closing RDP does not stop the GCE instance. No Cloudflare is involved in that connection.

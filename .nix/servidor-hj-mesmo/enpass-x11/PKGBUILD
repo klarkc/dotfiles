@@ -1,0 +1,49 @@
+# Enpass's official X11 channel for solo098 (Arch Linux + XRDP/XMonad).
+# Source: https://apt.enpass.io/dists/x11/main/binary-amd64/Packages
+# SHA256 pinned from Enpass's X11 Packages index, checked 2026-11-11.
+# Do not replace with the default stable channel (Wayland-only build).
+pkgname=enpass-x11
+pkgver=6.12.6.2255
+pkgrel=1
+pkgdesc='Enpass password manager, official X11 build'
+arch=('x86_64')
+url='https://www.enpass.io/'
+license=('LicenseRef-Enpass-EULA')
+depends=(
+  'brotli' 'curl' 'dbus' 'fontconfig' 'freetype2' 'gcc-libs'
+  'glib2' 'glibc' 'gtk3' 'libbsd' 'libglvnd' 'libpsl'
+  'libsm' 'libx11' 'libxcb' 'libxkbcommon-x11' 'libxss'
+  'lsof' 'pango' 'xcb-util-cursor' 'xcb-util-image'
+  'xcb-util-keysyms' 'xcb-util-renderutil' 'xcb-util-wm'
+  'zlib'
+)
+provides=('enpass')
+conflicts=('enpass' 'enpass-bin' 'enpass-beta')
+# The vendor binary is already stripped; re-stripping can break browser messaging.
+options=('!strip' '!debug')
+source=("enpass-${pkgver}-x11.deb::https://apt.enpass.io/pool/main/e/enpass/enpass_${pkgver}_amd64.deb")
+sha256sums=('716fbae54d52ccd807a6bd53f4cf2d359f6c7f0892ad8491f3a1bf5d8d37b099')
+noextract=("enpass-${pkgver}-x11.deb")
+
+package() {
+  local deb_file="$srcdir/enpass-${pkgver}-x11.deb"
+  local payload_dir="$srcdir/enpass-payload"
+  local data_tar
+
+  install -d "$payload_dir" "$pkgdir"
+  bsdtar -xf "$deb_file" -C "$payload_dir"
+  data_tar="$(find "$payload_dir" -maxdepth 1 -type f -name 'data.tar.*' -print -quit)"
+  if [[ -z "$data_tar" ]]; then
+    printf '%s\n' 'Enpass .deb has no data.tar.* payload' >&2
+    return 1
+  fi
+  bsdtar -xf "$data_tar" -C "$pkgdir" --no-same-owner
+  if [[ ! -x "$pkgdir/opt/enpass/Enpass" ]]; then
+    printf '%s\n' 'Enpass X11 executable missing from package payload' >&2
+    return 1
+  fi
+  install -d "$pkgdir/usr/bin"
+  if [[ ! -e "$pkgdir/usr/bin/enpass" && ! -L "$pkgdir/usr/bin/enpass" ]]; then
+    ln -s /opt/enpass/Enpass "$pkgdir/usr/bin/enpass"
+  fi
+}

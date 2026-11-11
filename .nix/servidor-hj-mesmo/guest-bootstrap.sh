@@ -64,6 +64,17 @@ for package in xrdp xorgxrdp; do
   runuser -u klarkc -- git clone --depth 1 "https://aur.archlinux.org/$package.git" "$build_dir/$package"
   runuser -u klarkc -- bash -c 'cd "$1" && makepkg -si --noconfirm --needed' _ "$build_dir/$package"
 done
+# The default Enpass AUR package now uses the Wayland build; preserve X11.
+# This local PKGBUILD pins the official Enpass X11 .deb and its SHA256.
+enpass_build="$build_dir/enpass-x11"
+install -d -m 0755 -o klarkc -g klarkc "$enpass_build"
+install -m 0644 "$home/.nix/servidor-hj-mesmo/enpass-x11/PKGBUILD" "$enpass_build/PKGBUILD"
+chown klarkc:klarkc "$enpass_build/PKGBUILD"
+runuser -u klarkc -- bash -c 'cd "$1" && makepkg -si --noconfirm --needed' _ "$enpass_build"
+[[ -x /opt/enpass/Enpass ]] || {
+  echo 'BLOCKED: Enpass X11 executable missing after package installation.' >&2
+  exit 1
+}
 cleanup
 trap - EXIT
 install -Dm755 "$home/.nix/servidor-hj-mesmo/xrdp-session.sh" /usr/local/bin/solo098-xrdp-session
