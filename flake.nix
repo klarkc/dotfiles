@@ -650,7 +650,8 @@
                   mkdir -p $out/etc/profile.d
                   cp ${nixProfile} $out/etc/profile.d/nix.sh
                 '')
-                alacrittyWithHostGL
+                # GCE CPU-only: keep the NVIDIA wrapper defined above, but do not evaluate it in the default profile.
+                alacrittyWithLigatures
                 direnv
                 nixos-rebuild
                 nix-output-monitor
