@@ -35,6 +35,8 @@ bash .nix/servidor-hj-mesmo/provision-gce.sh --apply
 
 It checks the signed checksum, downloads/verifies the full image, converts to sparse raw disk and imports a custom GCE image, then creates a private VPC, Cloud NAT, IAP-only firewalls and the 256 GiB VM. The official Arch image has `cloud-init`, not the Google guest agent. The image and guest login are **not yet validated on GCE**. If the boot or cloud-init fails, stop and investigate; do not guess credentials.
 
+The Cloud Shell records the exact CI-tested dotfiles SHA in non-secret VM metadata (`solo098-dotfiles-sha`). Guest bootstrap refuses a newer or divergent checkout, preventing installation of untested branch changes. If the branch advances after provisioning, stop and reconcile explicitly rather than bypassing the SHA guard.
+
 The Cloud Shell creates a local SSH key; the only material inserted into guest `user-data` is its public key. The XRDP login password remains locked until the operator configures it via SSH/IAP. Cloudflare credentials stay in the guest private `~/.profile_override`, never Git or cloud metadata.
 
 ## Guest bootstrap and acceptance

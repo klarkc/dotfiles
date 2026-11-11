@@ -22,7 +22,7 @@ pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm
 # GUI, Nix, audio, dev tools: preserve dotfiles features instead of stripping them.
 pacman -S --noconfirm --needed \
-  base-devel git git-lfs openssh sudo nix dbus \
+  base-devel git git-lfs curl openssh sudo nix dbus \
   xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xsetroot xorg-xset \
   xorg-xmodmap xorg-setxkbmap xmonad xmonad-contrib dmenu ghc taffybar \
   pipewire pipewire-audio pipewire-pulse pipewire-alsa wireplumber pamixer \
@@ -36,15 +36,38 @@ if ! grep -Eq '^[[:space:]]*experimental-features[[:space:]]*=' /etc/nix/nix.con
   printf '\nexperimental-features = nix-command flakes\n' >>/etc/nix/nix.conf
 fi
 home=/home/klarkc
+# The VM records the exact SHA that cleared mandatory Test CI.
+# Do not silently run an updated branch that was not admitted by provision-gce.
+metadata_sha_url='http://metadata.google.internal/computeMetadata/v1/instance/attributes/solo098-dotfiles-sha'
+expected_repo_sha="$(curl --fail --silent --show-error --max-time 10 \
+  --header 'Metadata-Flavor: Google' "$metadata_sha_url")" || {
+  echo 'BLOCKED: cannot read the provisioned dotfiles SHA from GCE metadata.' >&2
+  exit 1
+}
+if [[ ! $expected_repo_sha =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'BLOCKED: invalid provisioned dotfiles SHA.' >&2
+  exit 1
+fi
 if [[ ! -d "$home/.git" ]]; then
   stage="$(mktemp -d)"
   trap 'rm -rf -- "$stage"' EXIT
   git clone --depth 1 --branch servidor-hj-mesmo https://github.com/klarkc/dotfiles.git "$stage/dotfiles"
+  cloned_sha="$(git -C "$stage/dotfiles" rev-parse HEAD)"
+  if [[ $cloned_sha != "$expected_repo_sha" ]]; then
+    echo 'BLOCKED: cloned branch HEAD differs from the provisioned, CI-tested SHA.' >&2
+    exit 1
+  fi
   # This new VM has no pre-existing user data; preserve SSH metadata-owned files.
   cp -a "$stage/dotfiles/." "$home/"
   chown -R klarkc:klarkc "$home"
   rm -rf -- "$stage"
   trap - EXIT
+else
+  existing_sha="$(git -C "$home" rev-parse HEAD)"
+  if [[ $existing_sha != "$expected_repo_sha" ]]; then
+    echo 'BLOCKED: existing dotfiles checkout differs from the provisioned SHA.' >&2
+    exit 1
+  fi
 fi
 # The original dotfiles includes all user services and XMonad configuration.
 # RDP uses a conditional session wrapper, not the physical Lemurs login.

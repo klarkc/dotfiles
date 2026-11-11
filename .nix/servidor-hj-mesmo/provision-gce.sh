@@ -153,7 +153,7 @@ gcloud compute instances create "$vm" --project="$project" --zone="$zone" \
   --boot-disk-size=256GB --boot-disk-type=pd-standard --no-boot-disk-auto-delete \
   --network="$vpc" --subnet="$subnet" --no-address --no-service-account --no-scopes \
   --tags=solo098-iap --labels=plan=servidor-hj-mesmo \
-  --metadata=enable-oslogin=FALSE,block-project-ssh-keys=TRUE \
+  --metadata=enable-oslogin=FALSE,block-project-ssh-keys=TRUE,solo098-dotfiles-sha="$sha" \
   --metadata-from-file="user-data=$tmp/user-data"
 echo 'VM created. Cloud-init first boot and SSH via IAP must now be tested.'
 echo "Cloud Shell private SSH key remains at $ssh_key (do not share)."
