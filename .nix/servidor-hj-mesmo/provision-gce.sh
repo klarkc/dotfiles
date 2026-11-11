@@ -195,7 +195,7 @@ PY
   if ! gcloud storage buckets describe "gs://$gcs_bucket" --project="$project" >/dev/null 2>&1; then
     gcloud storage buckets create "gs://$gcs_bucket" \
       --project="$project" --location="$region" --uniform-bucket-level-access \
-      --public-access-prevention=enforced
+      --public-access-prevention --soft-delete-duration=0
   fi
   gcloud storage cp "$tmp/disk.tar.gz" "gs://$gcs_bucket/disk.tar.gz"
   gcloud compute images create "$image_name" --project="$project" \
