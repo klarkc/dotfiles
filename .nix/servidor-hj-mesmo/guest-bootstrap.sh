@@ -65,12 +65,12 @@ trap cleanup EXIT
 declare -A aur_revisions=(
   [xrdp]=4701987b7d76df432dc41351875678dd370f42b8
   [xorgxrdp]=b04814d56be91d993f4d76370c473dda1b691641
-  [brave-bin]=62caba7bf015ce1c53986cfab86b177625743fb4
+  ["brave-bin"]=62caba7bf015ce1c53986cfab86b177625743fb4
 )
 for package in xrdp xorgxrdp brave-bin; do
   runuser -u klarkc -- git clone --depth 1 "https://aur.archlinux.org/$package.git" "$build_dir/$package"
   actual_revision="$(runuser -u klarkc -- git -C "$build_dir/$package" rev-parse HEAD)"
-  if [[ "$actual_revision" != "${aur_revisions[$package]}" ]]; then
+  if [[ $actual_revision != "${aur_revisions[$package]}" ]]; then
     echo "BLOCKED: AUR $package revision changed; review PKGBUILD and update its pin before proceeding." >&2
     exit 1
   fi
