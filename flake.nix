@@ -321,6 +321,12 @@
                   python3 -B ${./.}/.nix/tests/public-config-contract.py
                   touch $out
                 '';
+            solo098-preflight-contract =
+              pkgs.runCommand "solo098-preflight-contract" { nativeBuildInputs = [ pkgs.bash ]; }
+                ''
+                  bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
+                  touch $out
+                '';
             desktop-commander-mcp-contract =
               pkgs.runCommand "desktop-commander-mcp-contract"
                 {

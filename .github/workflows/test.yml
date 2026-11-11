@@ -1,7 +1,7 @@
 name: "Test"
 on:
   push:
-    branches: [main]
+    branches: [main, servidor-hj-mesmo]
   pull_request:
 jobs:
   tests:
