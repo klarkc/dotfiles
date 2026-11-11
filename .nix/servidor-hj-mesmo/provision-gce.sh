@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time Cloud Shell import/provision. Paid resources: requires --apply and confirmation.
 set -euo pipefail
-if [[ "$#" != 1 || "$1" != --apply ]]; then
+if [[ $# != 1 || $1 != --apply ]]; then
   echo "Usage: bash $0 --apply (requires GCE billing and prints a final confirmation)" >&2
   exit 2
 fi
@@ -62,7 +62,10 @@ echo 'Target R$560/month at controlled working hours; NOT a 24/7 quote.'
 echo 'Disk, imported image, Cloud NAT, staging bucket and egress can incur charges.'
 echo 'Guest environment is not yet proven on GCE. A failed boot may require manual cleanup.'
 read -r -p 'To create paid resources, type CRIAR_SOLO098_512: ' confirmed
-[[ "$confirmed" == CRIAR_SOLO098_512 ]] || { echo 'No changes.'; exit 1; }
+[[ $confirmed == CRIAR_SOLO098_512 ]] || {
+  echo 'No changes.'
+  exit 1
+}
 mkdir -m 0700 "$tmp/gnupg"
 export GNUPGHOME="$tmp/gnupg"
 gpg --batch --import "$root/.nix/servidor-hj-mesmo/arch-boxes-key.asc" >/dev/null 2>&1
@@ -109,7 +112,7 @@ if ! gcloud compute routers nats describe "$nat" --project="$project" --router="
     --region="$region" --auto-allocate-nat-external-ips --nat-custom-subnet-ip-ranges="$subnet"
 fi
 for port in 22 3389; do
-  if [[ "$port" == 22 ]]; then
+  if [[ $port == 22 ]]; then
     rule=solo098-iap-ssh
   else
     rule=solo098-iap-rdp
@@ -129,7 +132,7 @@ if [[ ! -s "$ssh_key.pub" ]]; then
   ssh-keygen -q -t ed25519 -N '' -f "$ssh_key" -C 'solo098-cloudshell'
 fi
 public_key="$(cat "$ssh_key.pub")"
-cat > "$tmp/user-data" <<EOF
+cat >"$tmp/user-data" <<EOF
 #cloud-config
 users:
   - default

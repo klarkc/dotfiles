@@ -27,7 +27,7 @@ bash .nix/servidor-hj-mesmo/preflight.sh
 
 ## Cloud Shell provisioning (billable)
 
-Only run after `Test` CI is green at the *exact* branch SHA, an up-to-date provider cost quote and reviewing the bootstrap. The tool prompts for `CRIAR_SOLO098_512` before any paid resource creation.
+Only run after `Test` CI is green at the _exact_ branch SHA, an up-to-date provider cost quote and reviewing the bootstrap. The tool prompts for `CRIAR_SOLO098_512` before any paid resource creation.
 
 ```bash
 bash .nix/servidor-hj-mesmo/provision-gce.sh --apply

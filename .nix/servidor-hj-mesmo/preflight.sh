@@ -19,7 +19,7 @@ trap 'rm -rf -- "$tmp"' EXIT
 mkdir -m 0700 "$tmp/gnupg"
 export GNUPGHOME="$tmp/gnupg"
 fingerprint="$(gpg --show-keys --with-colons "$here/arch-boxes-key.asc" 2>/dev/null | awk -F: '$1=="fpr" {print $10; exit}')"
-[[ "$fingerprint" == "$key" ]] || {
+[[ $fingerprint == "$key" ]] || {
   echo 'FAIL: Arch signing key fingerprint mismatch' >&2
   exit 1
 }

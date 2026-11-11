@@ -14,7 +14,10 @@ command -v pacman >/dev/null || {
   echo 'cloud-init has not created klarkc' >&2
   exit 1
 }
-[[ ! -e /var/lib/solo098-guest-installed ]] || { echo 'Already provisioned; no changes.'; exit 0; }
+[[ ! -e /var/lib/solo098-guest-installed ]] || {
+  echo 'Already provisioned; no changes.'
+  exit 0
+}
 pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm
 # GUI, Nix, audio, dev tools: preserve dotfiles features instead of stripping them.
@@ -29,7 +32,7 @@ pacman -S --noconfirm --needed \
 systemctl enable --now nix-daemon.socket
 systemctl enable --now sshd
 if ! grep -Eq '^[[:space:]]*experimental-features[[:space:]]*=' /etc/nix/nix.conf 2>/dev/null; then
-  printf '\nexperimental-features = nix-command flakes\n' >> /etc/nix/nix.conf
+  printf '\nexperimental-features = nix-command flakes\n' >>/etc/nix/nix.conf
 fi
 home=/home/klarkc
 if [[ ! -d "$home/.git" ]]; then
@@ -51,7 +54,10 @@ chmod 755 "$build_dir"
 chown klarkc:klarkc "$build_dir"
 printf '%s\n' 'klarkc ALL=(root) NOPASSWD: /usr/bin/pacman' >/etc/sudoers.d/solo098-aur
 chmod 0440 /etc/sudoers.d/solo098-aur
-cleanup() { rm -f /etc/sudoers.d/solo098-aur; rm -rf -- "$build_dir"; }
+cleanup() {
+  rm -f /etc/sudoers.d/solo098-aur
+  rm -rf -- "$build_dir"
+}
 trap cleanup EXIT
 for package in xrdp xorgxrdp; do
   runuser -u klarkc -- git clone --depth 1 "https://aur.archlinux.org/$package.git" "$build_dir/$package"
