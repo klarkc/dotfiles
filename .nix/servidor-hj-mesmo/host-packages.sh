@@ -17,12 +17,12 @@ fi
 # noninteractive mode only after authorized first-boot provisioning.
 pacman_flags=()
 case "${1:-}" in
-  '') ;;
-  --non-interactive) pacman_flags=(--noconfirm) ;;
-  *)
-    echo 'Only --non-interactive is supported.' >&2
-    exit 2
-    ;;
+'') ;;
+--non-interactive) pacman_flags=(--noconfirm) ;;
+*)
+  echo 'Only --non-interactive is supported.' >&2
+  exit 2
+  ;;
 esac
 # Bump note: keep these tools aligned with Makefile targets and RDP smoke
 # checks when adding dependencies to the guest desktop.
