@@ -57,6 +57,10 @@ The Cloud Shell records the exact CI-tested dotfiles SHA in non-secret VM metada
 
 The Cloud Shell creates a local SSH key; the only material inserted into guest `user-data` is its public key. The XRDP login password remains locked until the operator configures it via SSH/IAP. Cloudflare credentials stay in the guest private `~/.profile_override`, never Git or cloud metadata.
 
+## Shared Makefile: GCE flag
+
+There is **one** Makefile. Use `make GCE=1` on `solo098` after the pinned guest bootstrap and a CI-green checkout. This selects `nix profile add .#solo098-gce` (CPU-only, no CUDA/vLLM) while keeping the original themes, icons, Vim, tmux, Git, and npm targets. Plain `make` remains the original/default profile and is **not** appropriate on GCE. `make -n GCE=1` previews the commands; do not execute until the checkout/metadata are reconciled and external theme downloads/dependencies reviewed. The original 2026-11-12 bootstrap did **not** run make, and desktop appearance/localization remain unverified. See [RUNBOOK.md](./RUNBOOK.md) for the full post-bootstrap procedure.
+
 ## Guest bootstrap and acceptance
 
 After boot, check the serial console, tunnel port 22 through IAP, log in as `klarkc`, and set a private password with `sudo passwd klarkc`. Then review/run:
