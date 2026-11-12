@@ -16,61 +16,76 @@ Estado documental: 12 de novembro de 2026. Este procedimento descreve **uma reco
 
 1. Possuir direitos Compute Engine/IAP, Cloud Storage e Cloud Router no projeto. Revisar custo e saldo; confirmar região e quantos recursos já existem.
 2. Cloud Shell é efêmero: pacotes apt não sobrevivem necessariamente à substituição da VM do Shell. Instalar qemu-img usando qemu-utils, se faltar:
-~~~bash
+
+```bash
 sudo apt-get update
 sudo apt-get install -y qemu-utils
 qemu-img --version
-~~~
+```
+
 3. Clonar a branch, sem executar scripts de um checkout sujo:
-~~~bash
+
+```bash
 git clone --branch servidor-hj-mesmo https://github.com/klarkc/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 git status --short
 git rev-parse HEAD
-~~~
+```
+
 4. Verificar o Test CI no **SHA exato**, sem aceitar o verde de um SHA anterior. O próprio script falha fechado.
-~~~bash
+
+```bash
 bash .nix/servidor-hj-mesmo/preflight.sh
 bash .nix/servidor-hj-mesmo/provision-gce.sh --verify-only
-~~~
+```
+
 O verify-only baixa imagem QCOW2 oficial Arch 2026-11-01 assinada, confere PGP, SHA256 e qemu-img, converte em RAW sparse + oldgnu disk.tar.gz e não cria recursos faturáveis. O QCOW2 tem 576697856 bytes, virtual 2 GiB. O download pode ser retomado em /tmp/solo098-arch-cache-UID, **não** em /home; mudanças de sessão podem perder o cache.
 
 ## 2. Provisionar do zero (pago)
 
 **Somente** com consentimento explícito para criar recursos, inventário conferido e CI verde:
-~~~bash
+
+```bash
 cd ~/dotfiles
 bash .nix/servidor-hj-mesmo/provision-gce.sh --apply
-~~~
+```
+
 O script pede CRIAR_SOLO098_256 antes de qualquer escrita faturável; importa a imagem de um bucket staging, cria VPC/subnet/router/NAT/firewalls e a VM, preservando o disco quando parar ou excluir a VM. O script recusa uma VM de mesmo nome já existente. Não execute --apply novamente às cegas se falhar depois da criação do bucket. Liste o que existe, concilie custos e prossiga manualmente com acompanhamento.
 
 Verificação de estado:
-~~~bash
+
+```bash
 gcloud compute images describe solo098-arch-20261101 --project=argon-surf-472319-b0
 gcloud compute instances describe solo098 --project=argon-surf-472319-b0 --zone=southamerica-east1-b --format='yaml(name,status,networkInterfaces,disks,metadata)'
 gcloud compute routers nats list --router=solo098-router --region=southamerica-east1 --project=argon-surf-472319-b0
 gcloud storage ls gs://argon-surf-472319-b0-solo098-image-staging
-~~~
+```
+
 A importação gera uma imagem personalizada independente do tar no bucket. Após confirmar READY e o primeiro boot, avaliar a exclusão segura do objeto e bucket de staging para reduzir custo, sem remover a imagem de boot.
 
 ## 3. Primeiro boot, disco, metadata e SSH
 
 Verificar serial, especialmente cloud-init:
-~~~bash
+
+```bash
 gcloud compute instances get-serial-port-output solo098 \
   --project=argon-surf-472319-b0 --zone=southamerica-east1-b --port=1 | tail -n 80
-~~~
+```
+
 O usuário klarkc é criado sem senha inicial, apenas com chave SSH pública, e a chave privada é criada no Cloud Shell em ~/.ssh/solo098-cloudshell. Verificar o fingerprint de host SSH contra a saída do console antes de aceitar a conexão. **Com --plain, passar a chave privada explicitamente**:
-~~~bash
+
+```bash
 gcloud compute ssh klarkc@solo098 \
   --project=argon-surf-472319-b0 --zone=southamerica-east1-b \
   --tunnel-through-iap --plain --ssh-key-file="$HOME/.ssh/solo098-cloudshell" \
   -- -i "$HOME/.ssh/solo098-cloudshell" \
   -o IdentitiesOnly=yes -o PreferredAuthentications=publickey \
   -o PasswordAuthentication=no
-~~~
+```
+
 Dentro da VM:
-~~~bash
+
+```bash
 whoami
 cat /etc/os-release
 cloud-init status --long
@@ -79,20 +94,23 @@ df -h /
 getent ahostsv4 metadata.google.internal
 curl --noproxy '*' -fsS -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/solo098-dotfiles-sha
-~~~
+```
+
 No primeiro deploy real (2026-11-12), o Arch inicializou, cloud-init reportou done com avisos DNS transitórios e /dev/sda3 Btrfs cresceu automaticamente de 2 GiB para aproximadamente 256 GiB. Nome e IP 169.254.169.254 do metadata retornaram o SHA pinado. Se o DNS falhar após boot, verificar systemd-resolved antes de modificar configuração.
 
 Definir senha local interativa para XRDP e sudo; nunca em metadata, Git ou chat:
-~~~bash
+
+```bash
 sudo passwd klarkc
-~~~
+```
 
 ## 4. Bootstrap guest e identidade do Nix
 
 O script guest-bootstrap.sh instala pacotes de GUI, AUR (xrdp, xorgxrdp, brave-bin), Enpass X11 e **Determinate Nix v3.24.2** com checksum fixado; o script falha fechado para pacman/nix ou estado parcial de /nix. Ele exige correspondência entre **HEAD local** e metadata solo098-dotfiles-sha. Não habilitar CUDA/Sunshine ou remover funcionalidades.
 
 Para a primeira VM sem checkout, baixar o bootstrap do SHA de metadata, verificar sintaxe e executar. O script cria /home/klarkc com o checkout autenticado, mas a branch pública deve continuar no mesmo commit até a clonagem. Preferir preparar uma tag/commit imutável e melhorar o clone pinado antes de qualquer reconstrução futura se o branch HEAD tiver avançado.
-~~~bash
+
+```bash
 SHA="$(curl --noproxy '*' -fsS -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/solo098-dotfiles-sha)"
 curl -fLsS --retry 3 \
@@ -101,7 +119,8 @@ curl -fLsS --retry 3 \
 bash -n /tmp/solo098-guest-bootstrap.sh
 set -o pipefail
 sudo bash /tmp/solo098-guest-bootstrap.sh 2>&1 | tee -a "$HOME/solo098-guest-bootstrap.log"
-~~~
+```
+
 Se o checkout já está em /home/klarkc, usar **seu script versionado** após conferir metadata e HEAD; não usar o /tmp desatualizado. Não alterar metadata enquanto o bootstrap está em execução.
 
 ### Lições do primeiro deploy em 2026-11-12
@@ -110,11 +129,13 @@ Se o checkout já está em /home/klarkc, usar **seu script versionado** após co
 - Cloud Shell novo perdeu qemu-img e o cache QCOW2; apt install qemu-utils resolveu.
 - O primeiro login SSH pediu senha porque --plain não repassava a chave. O login por -i, sem senha, funcionou.
 - xorgxrdp 0.10.5 passou no SHA256, mas o makepkg não possuía a chave PGP 03993B4065E7193B. Importar sob klarkc (sem sudo), conferir fingerprint principal 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB e subchave 18AB838A907167745914871903993B4065E7193B; jamais usar --skippgpcheck. Hoje ainda há etapa manual e pin AUR dependente de revisão upstream.
-~~~bash
+
+```bash
 gpg --keyserver hkps://keyserver.ubuntu.com \
   --recv-keys 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
 gpg --fingerprint --fingerprint 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
-~~~
+```
+
 - O primeiro bootstrap usou o pacote nix 2.35.6-1 do Arch e falhou porque /nix/store não existia. Foi substituído no commit CI-verde fa0fc9608ad6044149325841273762961831e189 por Determinate Nix. Durante a migração real, o operador removeu apenas pacman/nix, preservou /etc/nix sob /root/solo098-arch-nix-backup, confirmou que /nix continha somente diretórios e socket residuais (0 bytes), e identificou dez usuários nixbld01..10 e grupo nixbld GID 968. A limpeza foi controlada por testes de IDs/processos e remoção direcionada: nunca apagar /nix às cegas nem assumir que todas as instalações futuras terão o mesmo estado.
 - O commit fa0fc960 usa Determinate Nix installer v3.24.2, SHA256 do binário x86_64-linux 22ed14ee1b24d100d388f1fc245e3062bd5982433d159cffa6dec34c0eb15dab. O bootstrap requer /nix/receipt.json, /nix/store e versão identificada como Determinate Nix, depois nix profile add .#solo098-gce.
 - As observações acima são do histórico de depuração. **Uma instalação nova deve seguir o bootstrap corrente**, e não reproduzir a limpeza do Arch Nix se não houver resíduos.
@@ -124,12 +145,14 @@ gpg --fingerprint --fingerprint 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
 Script canônico no repositório: .nix/servidor-hj-mesmo/solo098-control.ps1. Copiar esse arquivo revisado para o Windows; ele não será sincronizado automaticamente pelo checkout Linux. Requer gcloud.cmd no PATH (autenticado com conta e projeto corretos), IAM para ligar/parar Compute VM, gerenciar Cloud NAT e usar IAP; mstsc.exe presente.
 
 No Windows PowerShell:
-~~~powershell
+
+```powershell
 gcloud.cmd auth login
 gcloud.cmd config set project argon-surf-472319-b0
 .\solo098-control.ps1 -InstalarAtalho
 .\solo098-control.ps1
-~~~
+```
+
 Fluxo atualizado: executar o script/atalho consulta o estado da VM. Se RUNNING, abre IAP/RDP diretamente. Se TERMINATED, mostra diálogo Windows Forms; **Ligar e conectar** é a resposta padrão após 5 segundos, mas Cancelar evita qualquer criação. O túnel abre somente em localhost:13389. Estados desconhecidos falham fechados. Sem Cloudflare no caminho RDP. A rotina -Desligar continua disponível como **fallback externo** e verifica TERMINATED antes de excluir NAT. Fechar o RDP **não** desliga a VM. O controlador GUI ainda precisa de E2E no Windows após a atualização.
 
 Para permitir scripts no Windows PowerShell 5.1 (somente usuário): Set-ExecutionPolicy -Scope CurrentUser RemoteSigned; revisar o script pinado baixado do GitHub e executar Unblock-File exclusivamente nesse arquivo. Não usar Unrestricted.
@@ -140,16 +163,16 @@ No desktop Linux, o operador pode executar `systemctl poweroff` após salvar seu
 
 Procedimento de reconciliação externa (Cloud Shell ou Windows com gcloud autenticado; NÃO executar stop durante trabalho ativo):
 
-~~~bash
+```bash
 gcloud compute instances describe solo098 --project=argon-surf-472319-b0 --zone=southamerica-east1-b --format='value(status)'
 gcloud compute routers nats list --project=argon-surf-472319-b0 --region=southamerica-east1 --router=solo098-router
-~~~
+```
 
 Se a VM estiver TERMINATED, executar `solo098-control.ps1 -Desligar` no Windows para remover o NAT. Esse fallback é idempotente na ausência de NAT. Em Cloud Shell, apenas depois de confirmar TERMINATED, pode ser usado:
 
-~~~bash
+```bash
 gcloud compute routers nats delete solo098-nat --project=argon-surf-472319-b0 --region=southamerica-east1 --router=solo098-router --quiet
-~~~
+```
 
 **Não existe garantia absoluta de custo zero após um poweroff.** O disco, imagens, staging, IPs e outros recursos podem persistir e continuar cobrados. Para tolerar queda do Windows ou do guest, considerar um reconciliador **externo** (Cloud Scheduler + Cloud Run/Function ou equivalente) que consulta o estado real e remove NAT **apenas se TERMINATED**, com IAM mínimo, operação idempotente, logs, retry, alerta e monitoramento de execução; também precisaríamos de política independente para VM presa em RUNNING e alertas de orçamento (alertas não são limites rígidos). Isso ainda **não foi implantado** e pode gerar despesas adicionais. Até aprovação explícita, realizar reconciliação manual.
 
@@ -159,14 +182,14 @@ O perfil privado `/home/klarkc/.profile_override` é requisito do serviço `desk
 
 Diagnóstico **somente leitura**, via SSH/IAP (não colar conteúdo do perfil privado nem tokens no chat):
 
-~~~bash
+```bash
 test -s /home/klarkc/.profile_override && echo 'Perfil privado presente' || echo 'Perfil privado ausente/vazio'
 ls -l /home/klarkc/.nix-profile/bin/desktop-commander-mcp-runtime
 systemctl --user status desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service --no-pager
 journalctl --user -u desktop-commander-mcp-runtime.service -u desktop-commander-mcp-tunnel.service -n 70 --no-pager
 pgrep -af '[c]loudflared|[d]esktop-commander' || true
 loginctl show-user klarkc -p Linger
-~~~
+```
 
 Se o serviço de usuário não estiver disponível na sessão SSH, verificar `systemctl --user` com a sessão de usuário correta; não executar como root. Provisionamento Cloudflare/OAuth exige enrollment privado e consentimento antes de criar recursos. Segredos ficam apenas em `.profile_override`, nunca em Git, Cloud metadata, logs ou conversa. Os arquivos de serviço existem no dotfiles: `.config/systemd/user/desktop-commander-mcp-runtime.service` e `.config/systemd/user/desktop-commander-mcp-tunnel.service`. Para concluir, confirmar acesso via conector real, não apenas serviço ativo.
 
