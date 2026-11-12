@@ -123,6 +123,26 @@ sudo bash /tmp/solo098-guest-bootstrap.sh 2>&1 | tee -a "$HOME/solo098-guest-boo
 
 Se o checkout já está em /home/klarkc, usar **seu script versionado** após conferir metadata e HEAD; não usar o /tmp desatualizado. Não alterar metadata enquanto o bootstrap está em execução.
 
+### Instalação das configurações do usuário (Makefile compartilhado)
+
+O `guest-bootstrap.sh` original executou `nix profile add .#solo098-gce`, mas **não executou `make`**. O Makefile aceita agora a flag `GCE=1` para selecionar o perfil **CPU-only** sem pular as demais tarefas de tema Nordic, ícones Papirus, Vim, tmux, Git e npm. Não executar `make` sem a flag nesta VM: o padrão continua usando o perfil com vLLM/CUDA do host original. Não rodar `make` como root, nem atualizar automaticamente o checkout/metadata pinado durante outros trabalhos.
+
+Executar somente após CI verde no SHA escolhido, revisão do Makefile e atualização coordenada do checkout+metadata (não substituir o SHA da VM só porque a branch avançou):
+
+```bash
+cd /home/klarkc
+make -n GCE=1
+make GCE=1
+systemctl --user daemon-reload
+```
+
+Para conferir só a seleção do perfil, sem executar instalação: `make -n GCE=1 nix.Profile`. A opção `GCE=0` (ou nenhuma flag) conserva a instalação histórica: `nix profile install .`. O modo `GCE=1` usa `nix profile add .#solo098-gce`; não cria outro Makefile e não muda os targets comuns. A instalação do perfil Nix já foi feita no bootstrap inicial, mas as tarefas de interface não foram. **O pós-bootstrap do primeiro deploy ainda não foi executado/validado**.
+
+Alguns alvos originais precisam de dependências do usuário (como `npm`, `gsettings`, `xfconf-query`, `vim` e `tmux`) e baixam temas de URLs upstream sem pinning imutável; esse risco precisa de revisão antes de repetir em produção e os passos não devem rodar enquanto houver outras instalações. A ausência dessas dependências não autoriza remover funcionalidades do dotfiles, instalar CUDA ou trocar o tema. Se faltar algo, diagnosticar primeiro e corrigir os requisitos de host/Makefile em commit testado.
+
+O `make` atual não configura por si só `pt_BR.UTF-8`, layouts de teclado ABNT2 ou OpenGL da sessão XRDP. Testar locale e Alacritty separadamente. A preferência é Mesa/llvmpipe e configuração de host, **não** patches dos aplicativos; incompatibilidades específicas XRDP/GCE são último recurso. O login Google/Drive e a recuperação de `~/.profile_override` acontecem pelo Enpass na GUI, sem colocar segredos no repositório.
+
+
 ### Lições do primeiro deploy em 2026-11-12
 
 - CLI Cloud Storage: --public-access-prevention é flag booleana; não usar =enforced. Script atualizado usa --soft-delete-duration=0 no staging.
