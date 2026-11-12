@@ -1,5 +1,19 @@
 ICONS=.icons
 
+# Keep one Makefile for both the original workstation and the temporary
+# CPU-only GCE/XRDP host. This flag selects only the Nix profile; all common
+# dotfiles setup targets (themes, icons, Vim, tmux, Git, npm) remain enabled.
+GCE ?= 0
+ifeq ($(GCE),1)
+NIX_PROFILE_REF := .#solo098-gce
+NIX_PROFILE_ACTION := add
+else ifeq ($(GCE),0)
+NIX_PROFILE_REF := .
+NIX_PROFILE_ACTION := install
+else
+$(error GCE must be 0 or 1)
+endif
+
 .PHONY: all
 all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
@@ -70,7 +84,7 @@ xmonad.LemursInstall: .local/bin/xmonad-session
 
 .PHONY: nix.Profile
 nix.Profile:
-	nix --extra-experimental-features "nix-command flakes" profile install .
+	nix --extra-experimental-features "nix-command flakes" profile $(NIX_PROFILE_ACTION) "$(NIX_PROFILE_REF)"
 
 # `make test` is the mandatory Git-hook verification entrypoint.
 # It always runs `nix flake check` (static config + offline self-tests).
