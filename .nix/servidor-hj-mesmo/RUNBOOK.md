@@ -119,7 +119,7 @@ gpg --fingerprint --fingerprint 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
 - O commit fa0fc960 usa Determinate Nix installer v3.24.2, SHA256 do binário x86_64-linux 22ed14ee1b24d100d388f1fc245e3062bd5982433d159cffa6dec34c0eb15dab. O bootstrap requer /nix/receipt.json, /nix/store e versão identificada como Determinate Nix, depois nix profile add .#solo098-gce.
 - As observações acima são do histórico de depuração. **Uma instalação nova deve seguir o bootstrap corrente**, e não reproduzir a limpeza do Arch Nix se não houver resíduos.
 
-## 5. Windows: ligar, conectar, desligar
+## 5. Windows: GUI de conexão e desligamento seguro
 
 Script canônico no repositório: .nix/servidor-hj-mesmo/solo098-control.ps1. Copiar esse arquivo revisado para o Windows; ele não será sincronizado automaticamente pelo checkout Linux. Requer gcloud.cmd no PATH (autenticado com conta e projeto corretos), IAM para ligar/parar Compute VM, gerenciar Cloud NAT e usar IAP; mstsc.exe presente.
 
@@ -130,14 +130,52 @@ gcloud.cmd config set project argon-surf-472319-b0
 .\solo098-control.ps1 -InstalarAtalho
 .\solo098-control.ps1
 ~~~
-Menu: C cria Cloud NAT somente se ausente, inicia VM se parada, abre túnel IAP localhost:13389 para porta 3389 e abre RDP. D para VM e verifica TERMINATED antes de excluir Cloud NAT; S fecha menu sem efeitos. Atalhos: -Conectar e -Desligar. Uma porta 13389 já ocupada impede um segundo túnel. Fechar RDP NÃO desliga VM; voltar ao menu e escolher D explicitamente. O script de Windows ainda não passou por teste real na máquina do operador. Não guardar senha no script.
+Fluxo atualizado: executar o script/atalho consulta o estado da VM. Se RUNNING, abre IAP/RDP diretamente. Se TERMINATED, mostra diálogo Windows Forms; **Ligar e conectar** é a resposta padrão após 5 segundos, mas Cancelar evita qualquer criação. O túnel abre somente em localhost:13389. Estados desconhecidos falham fechados. Sem Cloudflare no caminho RDP. A rotina -Desligar continua disponível como **fallback externo** e verifica TERMINATED antes de excluir NAT. Fechar o RDP **não** desliga a VM. O controlador GUI ainda precisa de E2E no Windows após a atualização.
+
+Para permitir scripts no Windows PowerShell 5.1 (somente usuário): Set-ExecutionPolicy -Scope CurrentUser RemoteSigned; revisar o script pinado baixado do GitHub e executar Unblock-File exclusivamente nesse arquivo. Não usar Unrestricted.
+
+### Desligamento a partir do Linux e garantia financeira
+
+No desktop Linux, o operador pode executar `systemctl poweroff` após salvar seu trabalho. **Não afirmar que isso limpa NAT.** O desligamento iniciado pelo convidado deve ser acompanhado de leitura independente do estado GCE. Um hook do systemd pode não rodar em kernel panic, queda de energia, shutdown abrupto ou perda de rede e não é um lugar confiável para depender de credenciais amplas do GCP. A imagem Arch atual usa cloud-init e **não** instala o Google guest agent; o comportamento de transição para TERMINATED após poweroff ainda precisa de teste real. Se ficar RUNNING, usar `gcloud compute instances stop` no controlador externo após verificar ausência de tarefas importantes.
+
+Procedimento de reconciliação externa (Cloud Shell ou Windows com gcloud autenticado; NÃO executar stop durante trabalho ativo):
+
+~~~bash
+gcloud compute instances describe solo098 --project=argon-surf-472319-b0 --zone=southamerica-east1-b --format='value(status)'
+gcloud compute routers nats list --project=argon-surf-472319-b0 --region=southamerica-east1 --router=solo098-router
+~~~
+
+Se a VM estiver TERMINATED, executar `solo098-control.ps1 -Desligar` no Windows para remover o NAT. Esse fallback é idempotente na ausência de NAT. Em Cloud Shell, apenas depois de confirmar TERMINATED, pode ser usado:
+
+~~~bash
+gcloud compute routers nats delete solo098-nat --project=argon-surf-472319-b0 --region=southamerica-east1 --router=solo098-router --quiet
+~~~
+
+**Não existe garantia absoluta de custo zero após um poweroff.** O disco, imagens, staging, IPs e outros recursos podem persistir e continuar cobrados. Para tolerar queda do Windows ou do guest, considerar um reconciliador **externo** (Cloud Scheduler + Cloud Run/Function ou equivalente) que consulta o estado real e remove NAT **apenas se TERMINATED**, com IAM mínimo, operação idempotente, logs, retry, alerta e monitoramento de execução; também precisaríamos de política independente para VM presa em RUNNING e alertas de orçamento (alertas não são limites rígidos). Isso ainda **não foi implantado** e pode gerar despesas adicionais. Até aprovação explícita, realizar reconciliação manual.
+
+### Diagnóstico Cloudflare / Desktop Commander autogerenciado
+
+O perfil privado `/home/klarkc/.profile_override` é requisito do serviço `desktop-commander-mcp-tunnel.service`; o bootstrap termina mesmo sem enrollment inicial. A conexão Desktop Commander `solo098` foi vista **Offline em 12/11/2026**, enquanto GCE reportava RUNNING. Uma chamada ao conector autogerenciado falhou internamente: não prova que o cloudflared não está instalado, apenas que a cadeia ponta a ponta não está ativa.
+
+Diagnóstico **somente leitura**, via SSH/IAP (não colar conteúdo do perfil privado nem tokens no chat):
+
+~~~bash
+test -s /home/klarkc/.profile_override && echo 'Perfil privado presente' || echo 'Perfil privado ausente/vazio'
+ls -l /home/klarkc/.nix-profile/bin/desktop-commander-mcp-runtime
+systemctl --user status desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service --no-pager
+journalctl --user -u desktop-commander-mcp-runtime.service -u desktop-commander-mcp-tunnel.service -n 70 --no-pager
+pgrep -af '[c]loudflared|[d]esktop-commander' || true
+loginctl show-user klarkc -p Linger
+~~~
+
+Se o serviço de usuário não estiver disponível na sessão SSH, verificar `systemctl --user` com a sessão de usuário correta; não executar como root. Provisionamento Cloudflare/OAuth exige enrollment privado e consentimento antes de criar recursos. Segredos ficam apenas em `.profile_override`, nunca em Git, Cloud metadata, logs ou conversa. Os arquivos de serviço existem no dotfiles: `.config/systemd/user/desktop-commander-mcp-runtime.service` e `.config/systemd/user/desktop-commander-mcp-tunnel.service`. Para concluir, confirmar acesso via conector real, não apenas serviço ativo.
 
 ## 6. Testes de aceitação e encerramento
 
 - Confirmar systemctl status xrdp xrdp-sesman (services active) e Determinate Nix/daemon funcional na VM.
 - Via Windows, realizar RDP real, reconectar, validar XMonad/Taffybar, picom CPU-xrender, áudio posterior, Brave, Enpass X11 e ponte nativa para navegador.
-- Testar Desktop Commander remoto via caminho Cloudflare Access/OAuth **separado do RDP**; manter credenciais somente em arquivo privado de usuário (nunca no Git).
-- Confirmar que script Windows para VM e deleta NAT, que disco e imagem permanecem, e que VM reinicia preservando dados.
+- Testar Desktop Commander remoto via caminho Cloudflare Access/OAuth **separado do RDP**; em 12/11 mostrou Offline e enrollment ainda pendente. Manter credenciais somente em arquivo privado de usuário (nunca no Git).
+- Confirmar GUI de 5 segundos, que VM já ligada conecta diretamente; validar botão Cancelar não cria recursos, reconexão, fallback -Desligar, que disco/imagem permanecem e que VM reinicia preservando dados. Validar poweroff do Linux, transição GCE para TERMINATED e remoção de NAT via reconciliador externo.
 - VM desligada ainda gera custos de disco/imagem/staging; teto de R$560 não é enforcement automático. Verificar o painel de faturamento real e remover o staging após liberação.
 - Evitar habilitar heartbeats/automação autônoma sem autorização explícita.
 
