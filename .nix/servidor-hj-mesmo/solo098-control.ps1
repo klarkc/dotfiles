@@ -3,9 +3,10 @@
 .SYNOPSIS
   Windows controller for the private GCE solo098 workstation.
 .DESCRIPTION
-  C: create Cloud NAT if absent, start VM if stopped, tunnel TCP 3389 over IAP
-     to localhost:13389, and open mstsc. D: stop VM, then remove Cloud NAT.
-  S: exit. RDP disconnect does NOT stop the VM.
+  One-click: if RUNNING, connect immediately; if TERMINATED, show a GUI prompt
+  that accepts after five seconds unless cancelled. Shutdown from the guest
+  uses systemctl poweroff. -Desligar is an emergency external fallback only.
+  Closing RDP does NOT stop the VM.
   No public VM address, Cloudflare or saved password is used.
 .NOTES
   Requires a locally authenticated gcloud.cmd, appropriate GCE/IAP IAM
@@ -195,33 +196,78 @@ function Connect-Rdp {
   Write-Host 'Sessao RDP encerrada. A VM permanece RUNNING e faturando. Escolha D para desligar.'
 }
 
+# Legacy emergency stop remains available as -Desligar. The normal UX never
+# attempts to delete Cloud NAT from a guest shutdown hook. Use an independent
+# GCP reconciler for that; see RUNBOOK.md.
 if ($Desligar) {
   Stop-VmAndNat
   return
 }
 
-if ($Conectar) {
-  Connect-Rdp
-  return
+function Confirm-StartWithCountdown {
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+  $form = New-Object System.Windows.Forms.Form
+  $form.Text = 'Workstation GCE - solo098'
+  $form.Width = 440
+  $form.Height = 180
+  $form.StartPosition = 'CenterScreen'
+  $form.FormBorderStyle = 'FixedDialog'
+  $form.MaximizeBox = $false
+  $form.MinimizeBox = $false
+  $form.Topmost = $true
+
+  $label = New-Object System.Windows.Forms.Label
+  $label.AutoSize = $false
+  $label.SetBounds(18, 16, 390, 52)
+  $form.Controls.Add($label)
+
+  $start = New-Object System.Windows.Forms.Button
+  $start.Text = 'Ligar e conectar'
+  $start.SetBounds(85, 86, 145, 30)
+  $start.DialogResult = [System.Windows.Forms.DialogResult]::Yes
+  $form.Controls.Add($start)
+
+  $cancel = New-Object System.Windows.Forms.Button
+  $cancel.Text = 'Cancelar'
+  $cancel.SetBounds(242, 86, 100, 30)
+  $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+  $form.Controls.Add($cancel)
+  $form.AcceptButton = $start
+  $form.CancelButton = $cancel
+
+  $remaining = 5
+  $timer = New-Object System.Windows.Forms.Timer
+  $timer.Interval = 1000
+  $timer.Add_Tick({
+    $remaining--
+    if ($remaining -le 0) {
+      $timer.Stop()
+      $form.DialogResult = [System.Windows.Forms.DialogResult]::Yes
+      $form.Close()
+    }
+    else {
+      $label.Text = "A VM solo098 esta desligada. Ligar e conectar automaticamente em $remaining segundos?"
+    }
+  })
+  $label.Text = "A VM solo098 esta desligada. Ligar e conectar automaticamente em $remaining segundos?"
+  $form.Add_Shown({ $timer.Start() })
+  try { return ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::Yes) }
+  finally { $timer.Stop(); $timer.Dispose(); $form.Dispose() }
 }
 
-while ($true) {
-  Write-Host ''
-  Write-Host "Workstation GCE: $script:Vm (projeto $script:Project)"
-  Write-Host '[C] Conectar (cria NAT e liga VM se preciso; IAP + RDP)'
-  Write-Host '[D] Desligar (para VM e exclui NAT)'
-  Write-Host '[S] Sair (nao altera recursos)'
-  $choice = (Read-Host 'Opcao').Trim().ToUpperInvariant()
-  try {
-    switch ($choice) {
-      'C' { Connect-Rdp }
-      'D' { Stop-VmAndNat }
-      'S' { return }
-      default { Write-Host 'Opcao invalida.' }
-    }
-  }
-  catch {
-    Write-Warning $_.Exception.Message
-    Write-Warning 'Confira o estado e as cobrancas no Google Cloud antes de repetir.'
-  }
+# One-click: already RUNNING -> connect immediately; TERMINATED -> ask in GUI,
+# auto-accept after five seconds unless cancelled. Unknown state -> fail closed.
+$state = Get-VmStatus
+if ($state -eq 'TERMINATED' -and -not (Confirm-StartWithCountdown)) {
+  Write-Host 'Inicio cancelado; recursos inalterados.'
+  return
+}
+try {
+  Connect-Rdp
+}
+catch {
+  Write-Warning $_.Exception.Message
+  Write-Warning 'Confira a VM e Cloud NAT no GCP antes de tentar novamente.'
+  throw
 }
