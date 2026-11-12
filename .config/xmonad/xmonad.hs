@@ -82,6 +82,7 @@ myConfig =
         -- spawn "steam-runtime -silent"
     }
     `additionalKeysP` [ ("M-S-<Return>", spawn "alacritty"),
+                        ("M-C-<Return>", spawn "xterm"),
                         ("M-q", spawn "gnome-session-quit --logout --no-prompt"),
                         ("M-C-s", unGrab *> spawn "scrot -s -F - | satty --filename - --fullscreen --early-exit --action-on-enter save-to-file --initial-tool highlight --output-filename ~/screenshot-$(date '+%Y%m%d-%H:%M:%S').png"),
                         ("M-f", spawn "vimb"),

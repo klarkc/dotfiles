@@ -46,7 +46,7 @@ for locale_name in en_US.UTF-8 pt_BR.UTF-8; do
 done
 
 locale-gen
-# Graphical default; ~/.bashrc overrides interactive terminal to en_US.
-localectl set-locale LANG=pt_BR.UTF-8
+# Host default stays English; only XMonad's child processes use pt_BR.
+localectl set-locale LANG=en_US.UTF-8
 # System Xorg defaults also use ABNT2 (XMonad reasserts it per session).
 localectl set-x11-keymap br pc105 abnt2 caps:escape

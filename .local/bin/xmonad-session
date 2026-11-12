@@ -21,7 +21,7 @@ if command -v setxkbmap >/dev/null 2>&1; then
 fi
 
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-  dbus-update-activation-environment --systemd \
+  dbus-update-activation-environment \
     DBUS_SESSION_BUS_ADDRESS \
     DISPLAY \
     XAUTHORITY \
@@ -43,9 +43,7 @@ if command -v systemctl >/dev/null 2>&1; then
     XDG_SESSION_DESKTOP \
     DESKTOP_SESSION \
     XDG_SESSION_TYPE \
-    XDG_RUNTIME_DIR \
-    LANG \
-    LANGUAGE || true
+    XDG_RUNTIME_DIR || true
 fi
 
 start_notification_daemon() {

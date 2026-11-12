@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# GCE/Arch host prerequisites for the shared dotfiles Makefile and OpenGL
-# software rendering. No GPU drivers, CUDA or application patches.
+# Complete Arch XMonad workstation prerequisites; not a minimal cloud server.
+# No GPU drivers, CUDA or application patches.
 set -euo pipefail
 
 if ((EUID != 0)); then
@@ -27,4 +27,9 @@ esac
 # Bump note: keep these tools aligned with Makefile targets and RDP smoke
 # checks when adding dependencies to the guest desktop.
 pacman -Syu --needed "${pacman_flags[@]}" \
-  nodejs npm tmux xfconf mesa mesa-utils
+  nodejs npm tmux xfconf mesa mesa-utils \
+  man-db man-pages less groff texinfo xterm \
+  wget unzip htop jq ripgrep fd fzf file which rsync \
+  xorg-xmessage xorg-xev xorg-xprop xorg-xwininfo \
+  xdg-utils xdg-user-dirs desktop-file-utils shared-mime-info \
+  noto-fonts ttf-dejavu

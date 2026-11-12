@@ -104,8 +104,9 @@ else
 fi
 # Shared Arch locale prerequisite for pt-BR GUI and en-US interactive shells.
 bash "$home/.nix/configure-locale-arch.sh"
-# Supply npm/tmux/Xfconf and Mesa/llvmpipe diagnostics on new GCE guests.
-# This is the same package list that make GCE=1 uses on existing machines.
+# Complete the Arch XMonad workstation: man pages, xterm fallback,
+# desktop/CLI tools, npm/tmux/Xfconf and Mesa software rendering.
+# The same list is used by make GCE=1 on already provisioned machines.
 bash "$home/.nix/servidor-hj-mesmo/host-packages.sh" --non-interactive
 # The original dotfiles includes all user services and XMonad configuration.
 # RDP uses a conditional session wrapper, not the physical Lemurs login.
