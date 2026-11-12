@@ -23,14 +23,14 @@ printf '%s\n' "$snippet" \
   '[[ "$LANGUAGE" == en_US:en ]]' \
   '! env | grep -q "^LC_ALL="' \
   '! env | grep -q "^LC_MESSAGES="' |
-  env LANG=pt_BR.UTF-8 LANGUAGE=pt_BR:pt LC_ALL=C LC_MESSAGES=pt_BR.UTF-8 bash -e
+  env LANG=C LANGUAGE=pt_BR:pt LC_ALL=C LC_MESSAGES=C bash -e
 
 grep -Fq 'export LANG=pt_BR.UTF-8' .local/bin/xmonad-session
 grep -Fq 'export LANGUAGE=pt_BR:pt' .local/bin/xmonad-session
 grep -Fq 'setxkbmap -layout br -variant abnt2 -option caps:escape' .local/bin/xmonad-session
 grep -Fq 'localectl set-locale LANG=pt_BR.UTF-8' .nix/configure-locale-arch.sh
 grep -Fq 'bash "$home/.nix/configure-locale-arch.sh"' .nix/servidor-hj-mesmo/guest-bootstrap.sh
-grep -Fq 'all: locale.Configure nix.Profile' Makefile
+grep -Fq 'all: $(GCE_HOST_PREREQUISITE) locale.Configure nix.Profile' Makefile
 grep -Fq 'sudo bash .nix/configure-locale-arch.sh' Makefile
 grep -Fq 'LANG=pt_BR.UTF-8' .config/environment.d/10-locale.conf
 grep -Fq 'LANGUAGE=pt_BR:pt' .config/environment.d/10-locale.conf
