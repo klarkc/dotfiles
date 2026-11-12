@@ -22,7 +22,7 @@ pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm
 # GUI, Nix, audio, dev tools: preserve dotfiles features instead of stripping them.
 pacman -S --noconfirm --needed \
-  base-devel git git-lfs curl openssh sudo nix dbus \
+  base-devel git git-lfs curl openssh sudo dbus \
   xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xsetroot xorg-xset \
   xorg-xmodmap xorg-setxkbmap xmonad xmonad-contrib dmenu ghc taffybar \
   pipewire pipewire-audio pipewire-pulse pipewire-alsa wireplumber pamixer \
@@ -30,11 +30,44 @@ pacman -S --noconfirm --needed \
   gvim haskell-language-server lsd dconf-editor vimb discord \
   the_silver_searcher sword pacutils brightnessctl \
   ttf-fira-code noto-fonts-emoji
-systemctl enable --now nix-daemon.socket
 systemctl enable --now sshd
-if ! grep -Eq '^[[:space:]]*experimental-features[[:space:]]*=' /etc/nix/nix.conf 2>/dev/null; then
-  printf '\nexperimental-features = nix-command flakes\n' >>/etc/nix/nix.conf
+# Determinate Nix, not the Arch nix package. This installer is an immutable
+# official GitHub release, pinned by both version and binary SHA256.
+# Installing over pacman-managed Nix or partially initialized /nix is unsafe.
+if pacman -Q nix >/dev/null 2>&1; then
+  echo 'BLOCKED: pacman-managed nix is installed. Inspect and migrate it before rerunning.' >&2
+  echo 'Read-only checks: pacman -Qi nix; systemctl status nix-daemon.socket; ls -ld /nix /etc/nix' >&2
+  exit 1
 fi
+determinate_nix=/nix/var/nix/profiles/default/bin/nix
+if [[ ! -x $determinate_nix ]]; then
+  if [[ -e /nix || -e /etc/nix/nix.conf ]]; then
+    echo 'BLOCKED: existing partial/unknown Nix state; review it rather than overwriting.' >&2
+    exit 1
+  fi
+  installer="$(mktemp)"
+  trap 'rm -f -- "$installer"' EXIT
+  curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --retry 3 \
+    https://github.com/DeterminateSystems/nix-installer/releases/download/v3.24.2/nix-installer-x86_64-linux \
+    -o "$installer"
+  printf '%s  %s\n' \
+    '22ed14ee1b24d100d388f1fc245e3062bd5982433d159cffa6dec34c0eb15dab' "$installer" |
+    sha256sum --check
+  chmod 0700 "$installer"
+  "$installer" install --determinate
+  rm -f -- "$installer"
+  trap - EXIT
+fi
+if [[ ! -r /nix/receipt.json || ! -d /nix/store || ! -x $determinate_nix ]]; then
+  echo 'BLOCKED: Determinate Nix installation is incomplete.' >&2
+  exit 1
+fi
+determinate_version="$("$determinate_nix" --version)"
+if [[ $determinate_version != *"Determinate Nix"* ]]; then
+  echo "BLOCKED: Nix distribution is not Determinate Nix: $determinate_version" >&2
+  exit 1
+fi
+echo "PASS: $determinate_version"
 home=/home/klarkc
 # The VM records the exact SHA that cleared mandatory Test CI.
 # Do not silently run an updated branch that was not admitted by provision-gce.
@@ -124,7 +157,7 @@ SH
 systemctl enable --now xrdp xrdp-sesman
 # Install the shared full CPU-only Nix workstation profile (including MCP).
 # The original default profile retains its CUDA/vLLM feature.
-runuser -u klarkc -- bash -c 'cd "$HOME" && nix profile install .#solo098-gce'
+runuser -u klarkc -- bash -c 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && cd /home/klarkc && nix profile add .#solo098-gce'
 loginctl enable-linger klarkc
 install -d -m 0755 -o klarkc -g klarkc "$home/.config/systemd/user/default.target.wants"
 ln -sfn ../desktop-commander-mcp-runtime.service "$home/.config/systemd/user/default.target.wants/desktop-commander-mcp-runtime.service"

@@ -1,5 +1,13 @@
 # servidor-hj-mesmo
 
+## Determinate Nix: pinned distribution and one-time migration
+
+- **Only Determinate Nix** is supported on `solo098`; do not install the Arch `nix` package. The guest bootstrap uses the official [Determinate Nix Installer](https://github.com/DeterminateSystems/nix-installer/releases/tag/v3.24.2), release `v3.24.2`, **x86_64-linux binary SHA256** `22ed14ee1b24d100d388f1fc245e3062bd5982433d159cffa6dec34c0eb15dab`. It verifies the checksum before running the binary. The binary installs Determinate Nix and the multi-user daemon.
+- Determinate Nix owns `/etc/nix/nix.conf`; custom options belong in `/etc/nix/nix.custom.conf`. Do not append `experimental-features` to the installer-managed configuration. Bootstrap requires `/nix/receipt.json`, `/nix/store` and a `nix --version` that explicitly identifies **Determinate Nix**.
+- **Fail closed on mixed installations:** bootstrap refuses `pacman -Q nix` and refuses unknown partial `/nix` or `/etc/nix/nix.conf`. It never deletes an existing store or silently replaces a Nix installation.
+- **Recovery from the first guest bootstrap (2026-11-12):** the initial CI-pinned `a67ade2d` script installed Arch's `nix` package and failed at `nix profile install .#solo098-gce` with missing `/nix/store`, after XRDP/Brave/Enpass were installed. The correct recovery is to **inspect** the existing pacman package, unit, config and any store content before explicitly removing only the Arch package; do not delete `/nix` or `/etc/nix` blindly. A new CI-green guest-bootstrap commit needs a controlled fast-forward of the guest's dotfiles checkout **and** reconciliation of GCE metadata `solo098-dotfiles-sha` to that exact commit. Never rerun the old `/tmp` bootstrap while migrating.
+- On guest, the installer needs to run with root privileges and can prompt for confirmation. After installing, bootstrap sources the Determinate daemon profile for user `klarkc`, then uses `nix profile add .#solo098-gce`. This is separate from the long-term `klarkc/os` NixOS module.
+
 Independent Arch Linux workstation built from the 2026-10-20 dotfiles snapshot.
 The `klarkc/os` **plano-legado** remains frozen.
 
