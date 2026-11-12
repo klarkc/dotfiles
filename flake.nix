@@ -362,9 +362,11 @@
                     pkgs.bash
                     pkgs.gnupg
                     pkgs.gawk
+                    pkgs.gnumake
                   ];
                 }
                 ''
+                  bash ${./.nix/tests/solo098-make-profile-test.sh} ${./.}
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/guest-bootstrap.sh}
