@@ -91,5 +91,4 @@ Use `systemctl poweroff` inside Linux only after saving work. **A systemd shutdo
 
 The guest bootstrap completed on 2026-11-12 and `nix --version` reports `nix (Determinate Nix 3.24.2) 2.35.3`; `zeroclaw --version` reports 0.8.5. XRDP services, XMonad, Brave and Enpass binaries were verified. Desktop Commander remote `solo098` currently appears **Offline**, though the VM is RUNNING. The MCP runtime and Cloudflare tunnel user-service unit files exist in this repository, but Cloudflare credentials and OAuth enrollment were _not_ provisioned by guest bootstrap. A direct MCP diagnostics call failed; do not claim successful end-to-end Cloudflare connectivity. Read-only SSH diagnostics and safe enrollment requirements are documented in [RUNBOOK.md](./RUNBOOK.md). The private `~/.profile_override` must never be published.
 
-
 For first-time provisioning, interrupted creation, signed-image validation, SSH/IAP, rescue procedures and Windows usage, read [RUNBOOK.md](./RUNBOOK.md).
