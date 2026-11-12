@@ -23,9 +23,18 @@ skip="$(make -Bn GCE=1 SKIP_NIX_PROFILE=1 nix.Profile)"
   echo 'Skip profile option still executes nix' >&2
   exit 1
 }
-host="$(make -Bn GCE=1 gce.HostPackages)"
-[[ $host == *'host-packages.sh'* ]] || {
-  echo 'GCE host packages prerequisite is missing' >&2
+host="$(make -Bn GCE=1 host.Verify)"
+[[ $host == *'configure-locale-arch.sh --check'* && $host == *'host-packages.sh --check'* ]] || {
+  echo 'Read-only host checks missing' >&2
+  exit 1
+}
+whole="$(make -Bn GCE=1 SKIP_NIX_PROFILE=1 all)"
+if printf '%s\n' "$whole" | grep -Eq '^[[:space:]]*(sudo|pacman -S|locale-gen)([[:space:]]|$)'; then
+  echo 'Makefile must not execute system commands' >&2
+  exit 1
+fi
+[[ $whole == *'install-tmux-plugins.sh'* ]] || {
+  echo 'Headless tmux installer missing' >&2
   exit 1
 }
 if make -Bn GCE=1 SKIP_NIX_PROFILE=bogus nix.Profile >/dev/null 2>&1; then
@@ -49,4 +58,4 @@ vim_target="$(make -Bn GCE=1 SKIP_NIX_PROFILE=1 vim.PluginInstall)"
 }
 grep -Fq 'call plug#begin(' .vimrc
 grep -Fq 'call plug#end()' .vimrc
-echo 'PASS: standard and GCE Makefile profile and Vim bootstrap contracts'
+echo 'PASS: unprivileged Makefile, GCE profile and user setup contracts'

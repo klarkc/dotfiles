@@ -50,8 +50,11 @@ grep -Fq 'setxkbmap -layout br -variant abnt2 -option caps:escape' .local/bin/xm
 grep -Fq 'localectl set-locale LANG=en_US.UTF-8' .nix/configure-locale-arch.sh
 grep -Fq 'localectl set-x11-keymap br pc105 abnt2 caps:escape' .nix/configure-locale-arch.sh
 grep -Fq 'bash "$home/.nix/configure-locale-arch.sh"' .nix/servidor-hj-mesmo/guest-bootstrap.sh
-grep -Fq 'all: $(GCE_HOST_PREREQUISITE) locale.Configure nix.Profile' Makefile
-grep -Fq 'sudo bash .nix/configure-locale-arch.sh' Makefile
+grep -Fq 'all: host.Verify nix.Profile' Makefile
+grep -Fq 'bash .nix/configure-locale-arch.sh --check' Makefile
+grep -Fq 'bash .nix/servidor-hj-mesmo/host-packages.sh --check' Makefile
+! grep -Eq '^[[:space:]]+sudo([[:space:]]|$)' Makefile
+bash -n .nix/install-tmux-plugins.sh
 test ! -e .config/environment.d/10-locale.conf
 ! grep -Fq 'dbus-update-activation-environment --systemd' .local/bin/xmonad-session
 awk '/systemctl --user import-environment/{capture=1} capture && /LANG|LANGUAGE/{exit 1} capture && /\|\| true/{exit 0}' .local/bin/xmonad-session

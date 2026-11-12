@@ -24,6 +24,22 @@ if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
   return 0
 fi
 
+# Read-only locale/keyboard check for unprivileged make.
+if [[ ${1:-} == --check ]]; then
+  status="$(localectl status 2>/dev/null)" || exit 1
+  locale -a | grep -qx 'en_US.utf8' || exit 1
+  locale -a | grep -qx 'pt_BR.utf8' || exit 1
+  grep -Fq 'System Locale: LANG=en_US.UTF-8' <<<"$status" || exit 1
+  grep -Fq 'X11 Layout: br' <<<"$status" || exit 1
+  grep -Fq 'X11 Variant: abnt2' <<<"$status" || exit 1
+  grep -Fq 'X11 Options: caps:escape' <<<"$status" || exit 1
+  exit 0
+fi
+if [[ ${1:-} != '' ]]; then
+  echo 'Only --check is supported.' >&2
+  exit 2
+fi
+
 if ((EUID != 0)); then
   echo 'Run as root with sudo bash .nix/configure-locale-arch.sh' >&2
   exit 2

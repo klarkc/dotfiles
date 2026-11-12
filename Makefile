@@ -1,14 +1,12 @@
 ICONS=.icons
 
-# Keep one Makefile for both the original workstation and the temporary
-# CPU-only GCE/XRDP host. This flag selects only the Nix profile; all common
-# dotfiles setup targets (themes, icons, Vim, tmux, Git, npm) remain enabled.
+# One unprivileged Makefile for workstation and CPU-only GCE/XRDP.
+# System preparation happens before make; user setup targets remain enabled.
 GCE ?= 0
 SKIP_NIX_PROFILE ?= 0
 ifeq ($(GCE),1)
 NIX_PROFILE_REF := .\#solo098-gce
 NIX_PROFILE_ACTION := add
-GCE_HOST_PREREQUISITE := gce.HostPackages
 else ifeq ($(GCE),0)
 NIX_PROFILE_REF := .
 NIX_PROFILE_ACTION := install
@@ -20,20 +18,30 @@ $(error SKIP_NIX_PROFILE must be 0 or 1)
 endif
 
 .PHONY: all
-all: $(GCE_HOST_PREREQUISITE) locale.Configure nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: host.Verify nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
-# Only the temporary GCE/Arch host needs this explicit host-package layer;
-# all other shared targets retain their original behavior.
-.PHONY: gce.HostPackages
-gce.HostPackages:
-	sudo bash .nix/servidor-hj-mesmo/host-packages.sh
+# Privileged Arch host setup must run before make, never as a make recipe:
+#   sudo bash .nix/configure-locale-arch.sh
+# On GCE also run sudo bash .nix/servidor-hj-mesmo/host-packages.sh
+.PHONY: host.Verify
+host.Verify:
+	@bash .nix/configure-locale-arch.sh --check || { \
+		echo 'Host locale missing: sudo bash .nix/configure-locale-arch.sh before make' >&2; \
+		exit 1; \
+	}
+ifeq ($(GCE),1)
+	@bash .nix/servidor-hj-mesmo/host-packages.sh --check || { \
+		echo 'GCE packages missing: sudo bash .nix/servidor-hj-mesmo/host-packages.sh before make' >&2; \
+		exit 1; \
+	}
+endif
 
-.themes/Nordic: $(GCE_HOST_PREREQUISITE)
+.themes/Nordic: host.Verify
 	mkdir -p .themes
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
 	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
 	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
-	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic"
+	xfconf-query -c xsettings -p /Net/ThemeName -s "Nordic" --create --type string
 
 .PHONY: .themes/Nordic/clean
 .themes/Nordic/clean:
@@ -42,14 +50,14 @@ gce.HostPackages:
 	xfconf-query -c xsettings -p /Net/ThemeName -s "Default"
 	rm -Rf .themes/Nordic
 
-$(ICONS)/Papirus: $(GCE_HOST_PREREQUISITE)
+$(ICONS)/Papirus: host.Verify
 	curl -L -s https://git.io/papirus-icon-theme-install | DESTDIR=$(ICONS) sh
 	-mkdir .papirus-nord
 	curl -L -s https://github.com/Adapta-Projects/Papirus-Nord/releases/latest/download/Papirus-Nord.tar.xz | tar -xJC .papirus-nord
 	cd .papirus-nord && (yes "N" | ./install) && (./papirus-folders -C polarnight1 --theme Papirus-Dark)
 	-rm -r .papirus-nord
 	gsettings set org.gnome.desktop.interface icon-theme "Papirus-Dark"
-	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark --create
+	xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark --create --type string
 
 .PHONY: $(ICONS)/Papirus/clean
 $(ICONS)/Papirus/clean:
@@ -69,11 +77,11 @@ $(ICONS)/Papirus/clean:
 	git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
 
 .PHONY: tmux.TpmInstall
-tmux.TpmInstall: .tmux/plugins/tpm $(GCE_HOST_PREREQUISITE)
-	.tmux/plugins/tpm/scripts/install_plugins.sh
+tmux.TpmInstall: .tmux/plugins/tpm host.Verify
+	bash .nix/install-tmux-plugins.sh
 
 .PHONY: vim.PluginInstall
-vim.PluginInstall: .vim/autoload/plug.vim $(GCE_HOST_PREREQUISITE)
+vim.PluginInstall: .vim/autoload/plug.vim host.Verify
 	vim -c 'PlugInstall --sync' -c 'qa!'
 
 .PHONY: git.Config
@@ -84,21 +92,14 @@ git.Config:
 	git config --global init.defaultBranch main
 
 .PHONY: npm.Config
-npm.Config: $(GCE_HOST_PREREQUISITE)
+npm.Config: host.Verify
 	npm config set prefix "${HOME}/.npm-packages"
 
 .PHONY: xmonad.Config
 xmonad.Config: .local/bin/xmonad-session
 
-.PHONY: xmonad.LemursInstall
-xmonad.LemursInstall: .local/bin/xmonad-session
-	install -Dm755 $< /etc/lemurs/wms/xmonad
-
-# Shared host prerequisites: both make and make GCE=1 configure Arch locales.
-# NixOS hosts must manage the equivalent locales declaratively in their module.
-.PHONY: locale.Configure
-locale.Configure:
-	sudo bash .nix/configure-locale-arch.sh
+# Optional Lemurs registration belongs to the separate privileged stage:
+#   sudo install -Dm755 .local/bin/xmonad-session /etc/lemurs/wms/xmonad
 
 .PHONY: nix.Profile
 nix.Profile:
