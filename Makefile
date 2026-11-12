@@ -7,7 +7,6 @@ GCE ?= 0
 ifeq ($(GCE),1)
 NIX_PROFILE_REF := .\#solo098-gce
 NIX_PROFILE_ACTION := add
-GCE_LOCALE_PREREQUISITE := gce.Locale
 else ifeq ($(GCE),0)
 NIX_PROFILE_REF := .
 NIX_PROFILE_ACTION := install
@@ -16,7 +15,7 @@ $(error GCE must be 0 or 1)
 endif
 
 .PHONY: all
-all: nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: locale.Configure nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
 .themes/Nordic:
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
@@ -83,13 +82,14 @@ xmonad.Config: .local/bin/xmonad-session
 xmonad.LemursInstall: .local/bin/xmonad-session
 	install -Dm755 $< /etc/lemurs/wms/xmonad
 
-# GCE's OS locale prerequisite uses the same helper as guest-bootstrap.
-.PHONY: gce.Locale
-gce.Locale:
-	sudo bash .nix/servidor-hj-mesmo/configure-locale.sh
+# Shared host prerequisites: both make and make GCE=1 configure Arch locales.
+# NixOS hosts must manage the equivalent locales declaratively in their module.
+.PHONY: locale.Configure
+locale.Configure:
+	sudo bash .nix/configure-locale-arch.sh
 
 .PHONY: nix.Profile
-nix.Profile: $(GCE_LOCALE_PREREQUISITE)
+nix.Profile:
 	nix --extra-experimental-features "nix-command flakes" profile $(NIX_PROFILE_ACTION) "$(NIX_PROFILE_REF)"
 
 # `make test` is the mandatory Git-hook verification entrypoint.

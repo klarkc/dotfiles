@@ -103,7 +103,7 @@ else
   fi
 fi
 # Shared Arch locale prerequisite for pt-BR GUI and en-US interactive shells.
-bash "$home/.nix/servidor-hj-mesmo/configure-locale.sh"
+bash "$home/.nix/configure-locale-arch.sh"
 # The original dotfiles includes all user services and XMonad configuration.
 # RDP uses a conditional session wrapper, not the physical Lemurs login.
 # XRDP will install its own startwm.sh; replace it only AFTER package installation.

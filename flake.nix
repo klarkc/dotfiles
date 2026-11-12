@@ -367,8 +367,8 @@
                 }
                 ''
                   bash ${./.nix/tests/solo098-make-profile-test.sh} ${./.}
-                  bash ${./.nix/tests/solo098-locale-contract.sh} ${./.}
-                  bash -n ${./.nix/servidor-hj-mesmo/configure-locale.sh}
+                  bash ${./.nix/tests/locale-contract.sh} ${./.}
+                  bash -n ${./.nix/configure-locale-arch.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/guest-bootstrap.sh}

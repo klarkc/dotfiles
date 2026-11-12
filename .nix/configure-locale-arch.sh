@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Arch host locale prerequisites, shared by first bootstrap and make GCE=1.
+# Shared Arch host locale prerequisites for all dotfiles profiles.
 # Idempotent: keep all other locale.gen entries, user files and Nix untouched.
 set -euo pipefail
 
-if (( EUID != 0 )); then
-  echo 'Run as root with sudo bash .../configure-locale.sh' >&2
+if ((EUID != 0)); then
+  echo 'Run as root with sudo bash .nix/configure-locale-arch.sh' >&2
   exit 2
 fi
 if [[ ! -f /etc/locale.gen ]]; then

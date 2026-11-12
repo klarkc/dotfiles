@@ -140,12 +140,25 @@ Para conferir só a seleção do perfil, sem executar instalação: `make -n GCE
 
 Alguns alvos originais precisam de dependências do usuário (como `npm`, `gsettings`, `xfconf-query`, `vim` e `tmux`) e baixam temas de URLs upstream sem pinning imutável; esse risco precisa de revisão antes de repetir em produção e os passos não devem rodar enquanto houver outras instalações. A ausência dessas dependências não autoriza remover funcionalidades do dotfiles, instalar CUDA ou trocar o tema. Se faltar algo, diagnosticar primeiro e corrigir os requisitos de host/Makefile em commit testado.
 
-O `make GCE=1` passa a reutilizar `.nix/servidor-hj-mesmo/configure-locale.sh` com `sudo` para gerar `en_US.UTF-8` e `pt_BR.UTF-8` no Arch e definir o idioma padrão como `pt_BR.UTF-8`. A sessão gráfica XMonad também exporta `LANG=pt_BR.UTF-8` e `LANGUAGE=pt_BR:pt` para aplicativos e ativação D-Bus, com teclado `br(abnt2)` e CapsLock como Escape. Apenas shells Bash interativos usam `LANG=en_US.UTF-8` e `LANGUAGE=en_US:en`, sem `LC_ALL`; aplicativos lançados diretamente desses shells herdam inglês. Não confundir idioma do host, do terminal e da sessão gráfica.
+A política de idioma **não depende de GCE**. Tanto `make` quanto `make GCE=1` executam o alvo compartilhado `locale.Configure`, que chama `.nix/configure-locale-arch.sh` com sudo para gerar `en_US.UTF-8` e `pt_BR.UTF-8` e definir `pt_BR.UTF-8` como padrão do Arch. Em distribuições NixOS, gerar esses locales declarativamente em `i18n`, sem executar o helper Arch; esta documentação ainda cobre o host Arch temporário.
 
-Após aplicar a revisão CI-verde no checkout, executar `make GCE=1` como usuário normal e abrir novas sessões SSH e XRDP. Verificação somente leitura:
+Na sessão gráfica, `.local/bin/xmonad-session` e `.config/environment.d/10-locale.conf` fornecem `LANG=pt_BR.UTF-8` e `LANGUAGE=pt_BR:pt` para aplicativos e serviços de usuário. O teclado XMonad é `br(abnt2)`, com CapsLock como Escape. No Bash interativo, `.bashrc` troca apenas para `LANG=en_US.UTF-8` e `LANGUAGE=en_US:en`, sem definir `LC_ALL`. Aplicativos gráficos abertos pelo terminal herdam inglês; executados pelo XMonad, usam português.
+
+Após aplicar um SHA validado e executar `make GCE=1` **como usuário normal**, abra novas sessões SSH e XRDP. Use estas verificações somente de leitura:
 
 ```bash
-locale -a | grep -E '^(en_US|pt_BR)[.]utf8
+locale -a
+localectl status
+locale
+# Na sessão XMonad, consulte só as variáveis de idioma do processo:
+pid="$(pgrep -u "$USER" -x xmonad | head -n 1)"
+if [ -n "$pid" ]; then
+  tr '\\0' '\\n' <"/proc/$pid/environ" | grep -E '^(LANG|LANGUAGE)='
+fi
+setxkbmap -query
+```
+
+O primeiro bootstrap da VM foi realizado antes do novo helper; o marcador `/var/lib/solo098-guest-installed` impede reexecutar todo o bootstrap. Aplique a configuração via `make GCE=1` após revisar o código e reconciliar o checkout e os metadados; não reexecute o bootstrap inteiro. A geração dos locales não resolve o OpenGL do XRDP: testar Mesa/llvmpipe antes de considerar patches de aplicativos. O login Google/Drive e a recuperação de `~/.profile_override` continuam sendo feitos pelo Enpass na GUI; não armazenar segredos no repositório.
 
 ### Lições do primeiro deploy em 2026-11-12
 

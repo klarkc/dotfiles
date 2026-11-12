@@ -118,7 +118,7 @@ Do not also run `nix profile install .` or plain `make` on this VM. The guest bo
 
 Graphical XMonad sessions (physical X11 and XRDP) use `pt_BR.UTF-8`, with `br(abnt2)` and CapsLock as Escape. Interactive Bash terminals (SSH, Alacritty) use `en_US.UTF-8`. The shared `.local/bin/xmonad-session` and `.bashrc` define these policies without exporting `LC_ALL`. GUI apps launched manually from an English terminal inherit English unless started with the Portuguese locale explicitly.
 
-On the Arch GCE host, `guest-bootstrap.sh` and `make GCE=1` use the same idempotent `configure-locale.sh` to generate both UTF-8 locales and set the host graphical default to Portuguese. The running VM is unchanged until the new checkout is reviewed and applied. See the [rebuild runbook](.nix/servidor-hj-mesmo/RUNBOOK.md) for verification.
+On every Arch profile, the normal `make` and `make GCE=1` execute the shared `.nix/configure-locale-arch.sh` target to generate both UTF-8 locales and set the host desktop default to Portuguese. User services inherit the same GUI locale from `.config/environment.d/10-locale.conf`. The GCE flag only changes infrastructure-related package selection. NixOS requires the equivalent system locale policy in its NixOS module instead of an imperative Arch script. The existing GCE VM is unchanged until the new checkout is reviewed and applied. See the [rebuild runbook](.nix/servidor-hj-mesmo/RUNBOOK.md) for verification.
 
 #### Verification (`make test`)
 

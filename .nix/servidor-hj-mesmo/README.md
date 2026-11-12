@@ -65,7 +65,7 @@ There is **one** Makefile. Use `make GCE=1` on `solo098` after the pinned guest 
 
 The shared XMonad session exports `pt_BR.UTF-8` and `LANGUAGE=pt_BR:pt` to the graphical desktop, with `br(abnt2)` and CapsLock-as-Escape on both X11 and XRDP. Interactive Bash terminals, including SSH and Alacritty, use `en_US.UTF-8` and `LANGUAGE=en_US:en` without exporting `LC_ALL`. Applications started explicitly from a terminal inherit English unless launched with a different locale.
 
-The Arch guest bootstrap and `make GCE=1` reuse one root-only `configure-locale.sh` to generate both glibc locales and set the host graphical default to `pt_BR.UTF-8`, without app-specific patches. The existing VM was installed before this helper and is not changed automatically. See [RUNBOOK.md](./RUNBOOK.md) for post-bootstrap application and verification.
+The locale policy is global across all dotfiles profiles. Both plain `make` and `make GCE=1` use the shared root-only Arch helper `.nix/configure-locale-arch.sh` to generate the UTF-8 locales; `.config/environment.d/10-locale.conf` selects Portuguese for user services. The `GCE=1` flag only chooses CPU-only packages. NixOS must generate the same locales declaratively through `i18n`, not by running the Arch helper. The existing GCE VM predates this helper and is not changed automatically. See [RUNBOOK.md](./RUNBOOK.md) for post-bootstrap application and verification.
 
 ## Guest bootstrap and acceptance
 
