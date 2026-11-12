@@ -142,7 +142,6 @@ Alguns alvos originais precisam de dependências do usuário (como `npm`, `gsett
 
 O `make` atual não configura por si só `pt_BR.UTF-8`, layouts de teclado ABNT2 ou OpenGL da sessão XRDP. Testar locale e Alacritty separadamente. A preferência é Mesa/llvmpipe e configuração de host, **não** patches dos aplicativos; incompatibilidades específicas XRDP/GCE são último recurso. O login Google/Drive e a recuperação de `~/.profile_override` acontecem pelo Enpass na GUI, sem colocar segredos no repositório.
 
-
 ### Lições do primeiro deploy em 2026-11-12
 
 - CLI Cloud Storage: --public-access-prevention é flag booleana; não usar =enforced. Script atualizado usa --soft-delete-duration=0 no staging.
