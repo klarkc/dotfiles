@@ -29,6 +29,7 @@ grep -Fq 'export LANG=pt_BR.UTF-8' .local/bin/xmonad-session
 grep -Fq 'export LANGUAGE=pt_BR:pt' .local/bin/xmonad-session
 grep -Fq 'setxkbmap -layout br -variant abnt2 -option caps:escape' .local/bin/xmonad-session
 grep -Fq 'localectl set-locale LANG=pt_BR.UTF-8' .nix/configure-locale-arch.sh
+grep -Fq 'localectl set-x11-keymap br pc105 abnt2 caps:escape' .nix/configure-locale-arch.sh
 grep -Fq 'bash "$home/.nix/configure-locale-arch.sh"' .nix/servidor-hj-mesmo/guest-bootstrap.sh
 grep -Fq 'all: $(GCE_HOST_PREREQUISITE) locale.Configure nix.Profile' Makefile
 grep -Fq 'sudo bash .nix/configure-locale-arch.sh' Makefile
