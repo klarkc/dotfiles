@@ -55,6 +55,8 @@ grep -Fq 'sudo bash .nix/configure-locale-arch.sh' Makefile
 test ! -e .config/environment.d/10-locale.conf
 ! grep -Fq 'dbus-update-activation-environment --systemd' .local/bin/xmonad-session
 awk '/systemctl --user import-environment/{capture=1} capture && /LANG|LANGUAGE/{exit 1} capture && /\|\| true/{exit 0}' .local/bin/xmonad-session
-grep -Fq '("M-C-<Return>", spawn "xterm")' .config/xmonad/xmonad.hs
+grep -Fq 'terminal = "~/.local/bin/terminal-fallback"' .config/xmonad/xmonad.hs
+grep -Fq '("M-S-<Return>", spawn "~/.local/bin/terminal-fallback")' .config/xmonad/xmonad.hs
+! grep -Fq '("M-C-<Return>", spawn "xterm")' .config/xmonad/xmonad.hs
 grep -Fq 'man-db man-pages less groff texinfo xterm' .nix/servidor-hj-mesmo/host-packages.sh
 echo 'PASS: shared en-US terminals, pt-BR GUI, ABNT2 and host locale setup'

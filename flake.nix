@@ -368,6 +368,7 @@
                 ''
                   bash ${./.nix/tests/solo098-make-profile-test.sh} ${./.}
                   bash ${./.nix/tests/locale-contract.sh} ${./.}
+                  bash ${./.nix/tests/terminal-fallback-test.sh} ${./.}
                   bash -n ${./.nix/configure-locale-arch.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}

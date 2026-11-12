@@ -1,0 +1,8 @@
+#!/bin/sh
+# Shared XMonad terminal launcher: Alacritty is preferred, xterm is only a
+# fallback if Alacritty is missing or exits with failure.
+# Do NOT exec Alacritty: we need its exit status for the fallback.
+if command -v alacritty >/dev/null 2>&1; then
+  alacritty "$@" && exit 0
+fi
+exec xterm
