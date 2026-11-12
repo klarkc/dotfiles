@@ -74,7 +74,7 @@ tmux.TpmInstall: .tmux/plugins/tpm $(GCE_HOST_PREREQUISITE)
 
 .PHONY: vim.PluginInstall
 vim.PluginInstall: .vim/autoload/plug.vim $(GCE_HOST_PREREQUISITE)
-	vim +PluginInstall +qall
+	vim -c 'PlugInstall --sync' -c 'qa!'
 
 .PHONY: git.Config
 git.Config:

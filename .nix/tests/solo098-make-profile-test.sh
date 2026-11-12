@@ -36,4 +36,17 @@ if make -Bn GCE=invalid nix.Profile >/dev/null 2>&1; then
   echo 'Invalid GCE flag was accepted' >&2
   exit 1
 fi
-echo 'PASS: standard and GCE Makefile profile contracts'
+# vim-plug declares :PlugInstall, never :PluginInstall. A synchronous command
+# must finish downloads before Vim exits. This check is offline and bounded.
+vim_target="$(make -Bn GCE=1 SKIP_NIX_PROFILE=1 vim.PluginInstall)"
+[[ $vim_target == *"vim -c 'PlugInstall --sync' -c 'qa!'"* ]] || {
+  echo 'Vim target does not use vim-plug synchronous installation' >&2
+  exit 1
+}
+[[ $vim_target != *'vim +PluginInstall'* ]] || {
+  echo 'Obsolete Vim plugin command remains in Makefile' >&2
+  exit 1
+}
+grep -Fq 'call plug#begin(' .vimrc
+grep -Fq 'call plug#end()' .vimrc
+echo 'PASS: standard and GCE Makefile profile and Vim bootstrap contracts'
