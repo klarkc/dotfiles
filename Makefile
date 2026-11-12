@@ -4,20 +4,32 @@ ICONS=.icons
 # CPU-only GCE/XRDP host. This flag selects only the Nix profile; all common
 # dotfiles setup targets (themes, icons, Vim, tmux, Git, npm) remain enabled.
 GCE ?= 0
+SKIP_NIX_PROFILE ?= 0
 ifeq ($(GCE),1)
 NIX_PROFILE_REF := .\#solo098-gce
 NIX_PROFILE_ACTION := add
+GCE_HOST_PREREQUISITE := gce.HostPackages
 else ifeq ($(GCE),0)
 NIX_PROFILE_REF := .
 NIX_PROFILE_ACTION := install
 else
 $(error GCE must be 0 or 1)
 endif
+ifneq ($(filter 0 1,$(SKIP_NIX_PROFILE)),$(SKIP_NIX_PROFILE))
+$(error SKIP_NIX_PROFILE must be 0 or 1)
+endif
 
 .PHONY: all
-all: locale.Configure nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: $(GCE_HOST_PREREQUISITE) locale.Configure nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
 
-.themes/Nordic:
+# Only the temporary GCE/Arch host needs this explicit host-package layer;
+# all other shared targets retain their original behavior.
+.PHONY: gce.HostPackages
+gce.HostPackages:
+	sudo bash .nix/servidor-hj-mesmo/host-packages.sh
+
+.themes/Nordic: $(GCE_HOST_PREREQUISITE)
+	mkdir -p .themes
 	curl -L -s https://github.com/EliverLara/Nordic/releases/latest/download/Nordic.tar.xz | tar -xJC .themes
 	gsettings set org.gnome.desktop.interface gtk-theme "Nordic"
 	gsettings set org.gnome.desktop.wm.preferences theme "Nordic"
@@ -30,7 +42,7 @@ all: locale.Configure nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstal
 	xfconf-query -c xsettings -p /Net/ThemeName -s "Default"
 	rm -Rf .themes/Nordic
 
-$(ICONS)/Papirus:
+$(ICONS)/Papirus: $(GCE_HOST_PREREQUISITE)
 	curl -L -s https://git.io/papirus-icon-theme-install | DESTDIR=$(ICONS) sh
 	-mkdir .papirus-nord
 	curl -L -s https://github.com/Adapta-Projects/Papirus-Nord/releases/latest/download/Papirus-Nord.tar.xz | tar -xJC .papirus-nord
@@ -57,11 +69,11 @@ $(ICONS)/Papirus/clean:
 	git clone https://github.com/tmux-plugins/tpm .tmux/plugins/tpm
 
 .PHONY: tmux.TpmInstall
-tmux.TpmInstall: .tmux/plugins/tpm
+tmux.TpmInstall: .tmux/plugins/tpm $(GCE_HOST_PREREQUISITE)
 	.tmux/plugins/tpm/scripts/install_plugins.sh
 
 .PHONY: vim.PluginInstall
-vim.PluginInstall: .vim/autoload/plug.vim
+vim.PluginInstall: .vim/autoload/plug.vim $(GCE_HOST_PREREQUISITE)
 	vim +PluginInstall +qall
 
 .PHONY: git.Config
@@ -72,7 +84,7 @@ git.Config:
 	git config --global init.defaultBranch main
 
 .PHONY: npm.Config
-npm.Config:
+npm.Config: $(GCE_HOST_PREREQUISITE)
 	npm config set prefix "${HOME}/.npm-packages"
 
 .PHONY: xmonad.Config
@@ -90,7 +102,11 @@ locale.Configure:
 
 .PHONY: nix.Profile
 nix.Profile:
+ifeq ($(SKIP_NIX_PROFILE),1)
+	@echo 'nix.Profile: skipped (existing profile preserved)'
+else
 	nix --extra-experimental-features "nix-command flakes" profile $(NIX_PROFILE_ACTION) "$(NIX_PROFILE_REF)"
+endif
 
 # `make test` is the mandatory Git-hook verification entrypoint.
 # It always runs `nix flake check` (static config + offline self-tests).

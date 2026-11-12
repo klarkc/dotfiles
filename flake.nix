@@ -372,6 +372,7 @@
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/guest-bootstrap.sh}
+                  bash -n ${./.nix/servidor-hj-mesmo/host-packages.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/enpass-x11/PKGBUILD}
                   bash -n ${./.nix/servidor-hj-mesmo/xrdp-session.sh}
                   export GNUPGHOME="$TMPDIR/gnupg"

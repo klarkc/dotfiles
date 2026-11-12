@@ -131,12 +131,12 @@ Executar somente após CI verde no SHA escolhido, revisão do Makefile e atualiz
 
 ```bash
 cd /home/klarkc
-make -n GCE=1
-make GCE=1
+make -n GCE=1 SKIP_NIX_PROFILE=1
+make GCE=1 SKIP_NIX_PROFILE=1
 systemctl --user daemon-reload
 ```
 
-Para conferir só a seleção do perfil, sem executar instalação: `make -n GCE=1 nix.Profile`. A opção `GCE=0` (ou nenhuma flag) conserva a instalação histórica: `nix profile install .`. O modo `GCE=1` usa `nix profile add .#solo098-gce`; não cria outro Makefile e não muda os targets comuns. A instalação do perfil Nix já foi feita no bootstrap inicial, mas as tarefas de interface não foram. **O pós-bootstrap do primeiro deploy ainda não foi executado/validado**.
+Para conferir só a seleção do perfil, sem executar instalação: `make -n GCE=1 nix.Profile`. A opção `GCE=0` (ou nenhuma flag) conserva a instalação histórica: `nix profile install .`. O modo `GCE=1` usa `nix profile add .#solo098-gce`; não cria outro Makefile e não muda os targets comuns. A instalação do perfil Nix já foi feita no bootstrap inicial, mas as tarefas de interface não foram. `SKIP_NIX_PROFILE=1` evita reconstruir ZeroClaw/duplicar o perfil, preservando o Nix já instalado. O helper `.nix/servidor-hj-mesmo/host-packages.sh`, compartilhado com o bootstrap futuro, faz `pacman -Syu --needed` para instalar `nodejs`, `npm`, `tmux`, `xfconf`, `mesa` e `mesa-utils`. Atualização do Arch pode afetar serviços em uso: salvar trabalho, revisar a transação e validar XRDP posteriormente. O Mesa/llvmpipe é provido pelo host; não aplicar overrides OpenGL sem diagnóstico real. **O pós-bootstrap do primeiro deploy ainda não foi executado/validado**.
 
 Alguns alvos originais precisam de dependências do usuário (como `npm`, `gsettings`, `xfconf-query`, `vim` e `tmux`) e baixam temas de URLs upstream sem pinning imutável; esse risco precisa de revisão antes de repetir em produção e os passos não devem rodar enquanto houver outras instalações. A ausência dessas dependências não autoriza remover funcionalidades do dotfiles, instalar CUDA ou trocar o tema. Se faltar algo, diagnosticar primeiro e corrigir os requisitos de host/Makefile em commit testado.
 

@@ -107,12 +107,13 @@ systemctl --user daemon-reload
 Use the same Makefile with the `GCE=1` flag. This installs the flake's CPU-only `solo098-gce` profile instead of the default (which includes vLLM), while retaining the usual theme, icon, Vim, tmux, Git and npm setup targets:
 
 ```bash
-make -n GCE=1  # preview only
-make GCE=1     # run as the normal user, not root
+make -n GCE=1                 # preview only
+make GCE=1 SKIP_NIX_PROFILE=1  # post-bootstrap on an existing VM
+# For a new machine lacking the Nix profile, run make GCE=1
 systemctl --user daemon-reload
 ```
 
-Do not also run `nix profile install .` or plain `make` on this VM. The guest bootstrap already installed `.#solo098-gce`; use the flagged Makefile to complete the remaining user configuration after reviewing its upstream theme downloads and ensuring the required commands exist. The original bootstrap did not execute `make`. This GCE flag does not enable NVIDIA, CUDA, Sunshine or local vLLM, and is not a license to patch app behavior for XRDP. Full rebuild and manual recovery instructions are in [the solo098 runbook](.nix/servidor-hj-mesmo/RUNBOOK.md).
+Do not also run `nix profile install .` or plain `make` on this VM. The guest bootstrap already installed `.#solo098-gce`; `SKIP_NIX_PROFILE=1` preserves it to avoid repeating the expensive ZeroClaw build. The GCE host dependency target installs `nodejs`, `npm`, `tmux`, `xfconf`, `mesa`, and `mesa-utils` using a full Arch package sync/upgrade, providing `xfconf-query` and `glxinfo` without NVIDIA or application patches. Review the pacman transaction and upstream theme downloads before running. The flag affects only Nix profile installation, not themes or locales. The original bootstrap did not execute `make`. This GCE flag does not enable NVIDIA, CUDA, Sunshine or local vLLM, and is not a license to patch app behavior for XRDP. Full rebuild and manual recovery instructions are in [the solo098 runbook](.nix/servidor-hj-mesmo/RUNBOOK.md).
 
 #### Locale and keyboard policy
 
