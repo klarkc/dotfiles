@@ -7,6 +7,12 @@ export BASH_ENV
 # If not running interactively, don't do anything
 [[ $- != *i* ]] && return
 
+# Interactive terminal locale: English; XMonad/graphical apps use Portuguese.
+# LC_ALL must not mask the shell's language selection.
+unset LC_ALL LC_MESSAGES
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US:en
+
 # set a fancy git prompt (non-color, unless we know we "want" color)
 source /usr/share/git/completion/git-prompt.sh
 export GIT_PS1_SHOWDIRTYSTATE=true

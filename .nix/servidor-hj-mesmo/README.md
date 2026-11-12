@@ -61,6 +61,12 @@ The Cloud Shell creates a local SSH key; the only material inserted into guest `
 
 There is **one** Makefile. Use `make GCE=1` on `solo098` after the pinned guest bootstrap and a CI-green checkout. This selects `nix profile add .#solo098-gce` (CPU-only, no CUDA/vLLM) while keeping the original themes, icons, Vim, tmux, Git, and npm targets. Plain `make` remains the original/default profile and is **not** appropriate on GCE. `make -n GCE=1` previews the commands; do not execute until the checkout/metadata are reconciled and external theme downloads/dependencies reviewed. The original 2026-11-12 bootstrap did **not** run make, and desktop appearance/localization remain unverified. See [RUNBOOK.md](./RUNBOOK.md) for the full post-bootstrap procedure.
 
+## Locale policy (graphical pt-BR, terminal en-US)
+
+The shared XMonad session exports `pt_BR.UTF-8` and `LANGUAGE=pt_BR:pt` to the graphical desktop, with `br(abnt2)` and CapsLock-as-Escape on both X11 and XRDP. Interactive Bash terminals, including SSH and Alacritty, use `en_US.UTF-8` and `LANGUAGE=en_US:en` without exporting `LC_ALL`. Applications started explicitly from a terminal inherit English unless launched with a different locale.
+
+The Arch guest bootstrap and `make GCE=1` reuse one root-only `configure-locale.sh` to generate both glibc locales and set the host graphical default to `pt_BR.UTF-8`, without app-specific patches. The existing VM was installed before this helper and is not changed automatically. See [RUNBOOK.md](./RUNBOOK.md) for post-bootstrap application and verification.
+
 ## Guest bootstrap and acceptance
 
 After boot, check the serial console, tunnel port 22 through IAP, log in as `klarkc`, and set a private password with `sudo passwd klarkc`. Then review/run:

@@ -114,6 +114,12 @@ systemctl --user daemon-reload
 
 Do not also run `nix profile install .` or plain `make` on this VM. The guest bootstrap already installed `.#solo098-gce`; use the flagged Makefile to complete the remaining user configuration after reviewing its upstream theme downloads and ensuring the required commands exist. The original bootstrap did not execute `make`. This GCE flag does not enable NVIDIA, CUDA, Sunshine or local vLLM, and is not a license to patch app behavior for XRDP. Full rebuild and manual recovery instructions are in [the solo098 runbook](.nix/servidor-hj-mesmo/RUNBOOK.md).
 
+#### Locale and keyboard policy
+
+Graphical XMonad sessions (physical X11 and XRDP) use `pt_BR.UTF-8`, with `br(abnt2)` and CapsLock as Escape. Interactive Bash terminals (SSH, Alacritty) use `en_US.UTF-8`. The shared `.local/bin/xmonad-session` and `.bashrc` define these policies without exporting `LC_ALL`. GUI apps launched manually from an English terminal inherit English unless started with the Portuguese locale explicitly.
+
+On the Arch GCE host, `guest-bootstrap.sh` and `make GCE=1` use the same idempotent `configure-locale.sh` to generate both UTF-8 locales and set the host graphical default to Portuguese. The running VM is unchanged until the new checkout is reviewed and applied. See the [rebuild runbook](.nix/servidor-hj-mesmo/RUNBOOK.md) for verification.
+
 #### Verification (`make test`)
 
 `make test` is the standard verification entrypoint for this repo. It runs `nix flake check` (static config + no-network self-tests) followed by every `.local/bin/*-smoke-test` script (out-of-band live checks that require network and user secrets).

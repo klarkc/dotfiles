@@ -6,8 +6,18 @@ export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-xmonad}"
 export DESKTOP_SESSION="${DESKTOP_SESSION:-xmonad}"
 export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}"
 
+# Shared XMonad GUI locale, for physical X11 and XRDP.
+unset LC_ALL LC_MESSAGES
+export LANG=pt_BR.UTF-8
+export LANGUAGE=pt_BR:pt
+
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
   exec dbus-run-session -- "$0" "$@"
+fi
+
+# Standard ABNT2 layout and CapsLock-as-Escape, independent of XRDP.
+if command -v setxkbmap >/dev/null 2>&1; then
+  setxkbmap -layout br -variant abnt2 -option caps:escape >/dev/null 2>&1 || true
 fi
 
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
@@ -19,7 +29,9 @@ if command -v dbus-update-activation-environment >/dev/null 2>&1; then
     XDG_SESSION_DESKTOP \
     DESKTOP_SESSION \
     XDG_SESSION_TYPE \
-    XDG_RUNTIME_DIR || true
+    XDG_RUNTIME_DIR \
+    LANG \
+    LANGUAGE || true
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -31,7 +43,9 @@ if command -v systemctl >/dev/null 2>&1; then
     XDG_SESSION_DESKTOP \
     DESKTOP_SESSION \
     XDG_SESSION_TYPE \
-    XDG_RUNTIME_DIR || true
+    XDG_RUNTIME_DIR \
+    LANG \
+    LANGUAGE || true
 fi
 
 start_notification_daemon() {

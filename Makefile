@@ -7,6 +7,7 @@ GCE ?= 0
 ifeq ($(GCE),1)
 NIX_PROFILE_REF := .\#solo098-gce
 NIX_PROFILE_ACTION := add
+GCE_LOCALE_PREREQUISITE := gce.Locale
 else ifeq ($(GCE),0)
 NIX_PROFILE_REF := .
 NIX_PROFILE_ACTION := install
@@ -82,8 +83,13 @@ xmonad.Config: .local/bin/xmonad-session
 xmonad.LemursInstall: .local/bin/xmonad-session
 	install -Dm755 $< /etc/lemurs/wms/xmonad
 
+# GCE's OS locale prerequisite uses the same helper as guest-bootstrap.
+.PHONY: gce.Locale
+gce.Locale:
+	sudo bash .nix/servidor-hj-mesmo/configure-locale.sh
+
 .PHONY: nix.Profile
-nix.Profile:
+nix.Profile: $(GCE_LOCALE_PREREQUISITE)
 	nix --extra-experimental-features "nix-command flakes" profile $(NIX_PROFILE_ACTION) "$(NIX_PROFILE_REF)"
 
 # `make test` is the mandatory Git-hook verification entrypoint.
