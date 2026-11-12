@@ -5,7 +5,7 @@ ICONS=.icons
 # dotfiles setup targets (themes, icons, Vim, tmux, Git, npm) remain enabled.
 GCE ?= 0
 ifeq ($(GCE),1)
-NIX_PROFILE_REF := .#solo098-gce
+NIX_PROFILE_REF := .\#solo098-gce
 NIX_PROFILE_ACTION := add
 else ifeq ($(GCE),0)
 NIX_PROFILE_REF := .
