@@ -51,7 +51,7 @@ Only run after `Test` CI is green at the _exact_ branch SHA, an up-to-date provi
 bash .nix/servidor-hj-mesmo/provision-gce.sh --apply
 ```
 
-It checks the signed checksum, downloads/verifies the full image, converts to sparse raw disk and imports a custom GCE image, then creates a private VPC, Cloud NAT, IAP-only firewalls and the 256 GiB VM. The official Arch image has `cloud-init`, not the Google guest agent. The image and guest login are **not yet validated on GCE**. If the boot or cloud-init fails, stop and investigate; do not guess credentials.
+It checks the signed checksum, downloads/verifies the full image, converts to sparse raw disk and imports a custom GCE image, then creates a private VPC, Cloud NAT, IAP-only firewalls and the 256 GiB VM. The official Arch image has `cloud-init`, not the Google guest agent. Actual GCE boot, `cloud-init`, Btrfs root expansion and SSH login through IAP **were verified 2026-11-12**. XRDP/XMonad, Brave/Enpass UI and Desktop Commander end-to-end acceptance remain pending. If the boot or cloud-init fails, stop and investigate; do not guess credentials.
 
 The Cloud Shell records the exact CI-tested dotfiles SHA in non-secret VM metadata (`solo098-dotfiles-sha`). Guest bootstrap refuses a newer or divergent checkout, preventing installation of untested branch changes. If the branch advances after provisioning, stop and reconcile explicitly rather than bypassing the SHA guard.
 
@@ -79,4 +79,6 @@ Acceptance: real RDP XMonad login and reconnect, non-GPU terminal/window manager
 
 ## Windows control
 
-The Windows `solo098-control.ps1` is distributed separately. It uses `gcloud.cmd` to start/stop the VM and creates a local IAP tunnel for `mstsc`. Closing RDP does not stop the GCE instance. No Cloudflare is involved in that connection.
+The canonical script is **`.nix/servidor-hj-mesmo/solo098-control.ps1`** (versioned in this repository; not installed on Windows automatically). It requires Windows PowerShell 5.1+, `gcloud.cmd`, the user's Google Cloud authorization and `mstsc.exe`. Menu: **C** (ensure NAT + VM are running, open an IAP tunnel on localhost:13389 and run MSTSC), **D** (stop the VM, then delete the NAT), **S** (exit). Flags: `-Conectar`, `-Desligar`, `-InstalarAtalho`. The shortcut is named `Workstation GCE`. RDP and IAP never require a public VM IP or Cloudflare. **Closing RDP does not stop the VM or delete NAT**; choose D explicitly. The script is prepared but **not yet tested on the user's Windows machine**.
+
+For first-time provisioning, interrupted creation, signed-image validation, SSH/IAP, rescue procedures and Windows usage, read [RUNBOOK.md](./RUNBOOK.md).
