@@ -13,7 +13,18 @@ if ! command -v pacman >/dev/null 2>&1; then
 fi
 
 # Full sync+upgrade avoids Arch partial upgrades. --needed is idempotent.
+# Interactive make prompts for approval; bootstrap explicitly opts into
+# noninteractive mode only after authorized first-boot provisioning.
+pacman_flags=()
+case "${1:-}" in
+  '') ;;
+  --non-interactive) pacman_flags=(--noconfirm) ;;
+  *)
+    echo 'Only --non-interactive is supported.' >&2
+    exit 2
+    ;;
+esac
 # Bump note: keep these tools aligned with Makefile targets and RDP smoke
 # checks when adding dependencies to the guest desktop.
-pacman -Syu --noconfirm --needed \
+pacman -Syu --needed "${pacman_flags[@]}" \
   nodejs npm tmux xfconf mesa mesa-utils
