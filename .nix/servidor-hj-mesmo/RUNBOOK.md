@@ -146,17 +146,20 @@ Na sessão gráfica, `.local/bin/xmonad-session` e `.config/environment.d/10-loc
 
 Após aplicar um SHA validado e executar `make GCE=1` **como usuário normal**, abra novas sessões SSH e XRDP. Use estas verificações somente de leitura:
 
-```bash
+````bash
 locale -a
 localectl status
+
 locale
+
 # Na sessão XMonad, consulte só as variáveis de idioma do processo:
+
 pid="$(pgrep -u "$USER" -x xmonad | head -n 1)"
 if [ -n "$pid" ]; then
   tr '\\0' '\\n' <"/proc/$pid/environ" | grep -E '^(LANG|LANGUAGE)='
 fi
 setxkbmap -query
-```
+````
 
 O primeiro bootstrap da VM foi realizado antes do novo helper; o marcador `/var/lib/solo098-guest-installed` impede reexecutar todo o bootstrap. Aplique a configuração via `make GCE=1` após revisar o código e reconciliar o checkout e os metadados; não reexecute o bootstrap inteiro. A geração dos locales não resolve o OpenGL do XRDP: testar Mesa/llvmpipe antes de considerar patches de aplicativos. O login Google/Drive e a recuperação de `~/.profile_override` continuam sendo feitos pelo Enpass na GUI; não armazenar segredos no repositório.
 
@@ -167,11 +170,11 @@ O primeiro bootstrap da VM foi realizado antes do novo helper; o marcador `/var/
 - O primeiro login SSH pediu senha porque --plain não repassava a chave. O login por -i, sem senha, funcionou.
 - xorgxrdp 0.10.5 passou no SHA256, mas o makepkg não possuía a chave PGP 03993B4065E7193B. Importar sob klarkc (sem sudo), conferir fingerprint principal 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB e subchave 18AB838A907167745914871903993B4065E7193B; jamais usar --skippgpcheck. Hoje ainda há etapa manual e pin AUR dependente de revisão upstream.
 
-```bash
+````bash
 gpg --keyserver hkps://keyserver.ubuntu.com \
   --recv-keys 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
 gpg --fingerprint --fingerprint 61ECEABBF2BB40E3A35DF30A9F72CDBC01BF10EB
-```
+````
 
 - O primeiro bootstrap usou o pacote nix 2.35.6-1 do Arch e falhou porque /nix/store não existia. Foi substituído no commit CI-verde fa0fc9608ad6044149325841273762961831e189 por Determinate Nix. Durante a migração real, o operador removeu apenas pacman/nix, preservou /etc/nix sob /root/solo098-arch-nix-backup, confirmou que /nix continha somente diretórios e socket residuais (0 bytes), e identificou dez usuários nixbld01..10 e grupo nixbld GID 968. A limpeza foi controlada por testes de IDs/processos e remoção direcionada: nunca apagar /nix às cegas nem assumir que todas as instalações futuras terão o mesmo estado.
 - O commit fa0fc960 usa Determinate Nix installer v3.24.2, SHA256 do binário x86_64-linux 22ed14ee1b24d100d388f1fc245e3062bd5982433d159cffa6dec34c0eb15dab. O bootstrap requer /nix/receipt.json, /nix/store e versão identificada como Determinate Nix, depois nix profile add .#solo098-gce.
