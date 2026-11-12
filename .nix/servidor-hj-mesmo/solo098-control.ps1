@@ -193,7 +193,7 @@ function Connect-Rdp {
       & taskkill.exe /PID $tunnel.Id /T /F 2>$null | Out-Null
     }
   }
-  Write-Host 'Sessao RDP encerrada. A VM permanece RUNNING e faturando. Escolha D para desligar.'
+  Write-Host 'Sessao RDP encerrada. A VM pode continuar RUNNING e faturando. Use -Desligar apenas como fallback externo.'
 }
 
 # Legacy emergency stop remains available as -Desligar. The normal UX never
