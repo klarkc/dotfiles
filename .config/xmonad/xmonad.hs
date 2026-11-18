@@ -76,7 +76,8 @@ myConfig =
         spawn "pgrep -x picom >/dev/null || if [ \"$SOLO098_GCE_RDP\" = 1 ]; then picom --backend xrender; else picom; fi"
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
-        spawn "/opt/enpass/Enpass -minimize"
+        -- Enpass 6.12 needs a desktop hint to pick the system dark theme under XMonad.
+        spawn "env XDG_CURRENT_DESKTOP=GNOME /opt/enpass/Enpass -minimize"
         -- spawn "blueman-applet"
         -- spawn "solaar -w hidden -b regular"
         -- spawn "steam-runtime -silent"

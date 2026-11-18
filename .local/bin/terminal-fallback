@@ -1,8 +1,7 @@
 #!/bin/sh
-# Shared XMonad terminal launcher: Alacritty is preferred, xterm is only a
-# fallback if Alacritty is missing or exits with failure.
-# Do NOT exec Alacritty: we need its exit status for the fallback.
+# XMonad terminal launcher: use Alacritty when it works, otherwise WezTerm.
+# WezTerm renders in software on XRDP, without GPU acceleration or tabs.
 if command -v alacritty >/dev/null 2>&1; then
   alacritty "$@" && exit 0
 fi
-exec xterm
+exec wezterm start --always-new-process "$@"
