@@ -156,3 +156,30 @@ Future klarkc/os port must package this original behavior declaratively,
 without copying browser profiles, signing-bypass preferences, or a proprietary
 XPI. Never press original ChatQueue 1.0.1 "Resume queue" for broker recurring
 jobs: its afterReply=false reset is unchanged.
+
+### Firefox headless local E2E (separate profile, no ChatGPT login)
+
+Use explicit make firefox.ChatQueueLocalE2E from the source root.
+This target builds our ignored LAB-only userscript from original source and
+uses flake-pinned Nix Geckodriver + Selenium ephemerally. It starts a fresh,
+headless Firefox with a temporary profile, hosts only a synthetic conversation
+fixture on 127.0.0.1, injects the LAB adapter in memory with a loopback-only
+origin and deliberately shorter timing, then closes the browser and server.
+It does **not** install into Violentmonkey, load the user's browser profile,
+visit ChatGPT, or touch any real agent chat. The original 360-second
+production cooldown remains unchanged.
+
+Verified acceptance scenarios in Firefox: two distinct conversation tabs,
+independently configured harmless LAB messages, two sends/replies per tab,
+next send strictly after observed terminal reply plus the LAB cooldown,
+STOP after the second, and reload during an outstanding reply causing
+REVIEW with no duplicate send. In the initial headless test, Firefox refused
+execCommand("insertText") in a background tab; the original LAB adapter
+now uses a constrained, empty-composer DOM input fallback before it fails
+closed. This input fallback **must be separately tested against the actual
+ChatGPT editor** in a controlled authenticated test chat before deployment.
+
+The headless local E2E proves Firefox behavior against the synthetic page,
+not real ChatGPT UI compatibility, account/model binding, signed Violentmonkey
+import, or four-agent heartbeat liveness. Never infer broker GO from this
+target. No new scheduler or heartbeats are automatically enabled.

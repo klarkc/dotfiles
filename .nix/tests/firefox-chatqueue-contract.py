@@ -47,6 +47,18 @@ assert 'firefox.ChatQueueLocalBuild:' in make
 assert 'build-chatqueue-local.mjs --check' in make
 assert 'chatqueue-local-controller.test.mjs' in make
 assert 'chatqueue-local-browser.test.mjs' in make
+assert 'firefox.ChatQueueLocalE2E: firefox.ChatQueueLocalBuild' in make
+assert 'firefox.ChatQueueLocalE2E' not in make.split('all:',1)[1].split('\n',1)[0]
+assert 'firefox.ChatQueueLocalE2E' not in make.split('test: ',1)[1].split('\n',1)[0]
+browser_e2e = root / '.nix/tests/chatqueue-firefox-e2e.py'
+assert browser_e2e.is_file()
+e2e_text = browser_e2e.read_text()
+assert '127.0.0.1' in e2e_text
+assert 'https://chatgpt.com' in e2e_text
+assert 'driver.quit()' in e2e_text
+assert 'NoSuchWindow' not in e2e_text
+assert 'LAB_COOLDOWN_MS = 3_000' in e2e_text
+assert 'BASE_COOLDOWN = 360_000' in e2e_text
 assert (root / '.nix/firefox/chatqueue-local-controller.mjs').is_file()
 assert (root / '.nix/firefox/chatqueue-local-browser.js').is_file()
 assert (root / '.nix/firefox/build-chatqueue-local.mjs').is_file()

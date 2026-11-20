@@ -156,6 +156,13 @@ firefox.RecurrenceTest:
 firefox.ChatQueueLocalBuild:
 	@node .nix/firefox/build-chatqueue-local.mjs
 
+# Opt-in real Firefox headless E2E against local 127.0.0.1 fixture only.
+# Geckodriver and Selenium are ephemeral, pinned to this flake's nixpkgs.
+# Does not access ChatGPT, operational Firefox, or agent conversations.
+.PHONY: firefox.ChatQueueLocalE2E
+firefox.ChatQueueLocalE2E: firefox.ChatQueueLocalBuild
+	@nix shell --impure --expr 'let flake = builtins.getFlake (toString ./.); pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; }; in [ pkgs.geckodriver (pkgs.python3.withPackages (ps: [ ps.selenium ])) ]' --command python3 .nix/tests/chatqueue-firefox-e2e.py
+
 .PHONY: bashrc.test
 bashrc.test:
 	bash .local/bin/herdr-tmux-autostart-test

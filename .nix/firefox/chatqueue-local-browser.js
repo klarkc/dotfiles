@@ -117,7 +117,23 @@
 				box.dispatchEvent(new Event("input", { bubbles: true }));
 			} else {
 				const inserted = document.execCommand("insertText", false, content);
-				if (!inserted) throw new Error("Browser refused text entry");
+				if (!inserted) {
+					// Firefox may reject execCommand on an unfocused background tab.
+					// Change only this empty, isolated LAB composer, then emit input.
+					// A real app may still reject it; the verified send-button gate
+					// below must fail closed if its editor state was not updated.
+					if (normalized(box.innerText ?? box.textContent))
+						throw new Error("Refusing to replace existing draft");
+					box.textContent = content;
+					box.dispatchEvent(
+						new InputEvent("input", {
+							bubbles: true,
+							composed: true,
+							inputType: "insertText",
+							data: content,
+						}),
+					);
+				}
 			}
 			await sleep(400);
 			const actual = normalized(box.innerText ?? box.value ?? box.textContent);
