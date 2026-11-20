@@ -113,3 +113,46 @@ properly signed Firefox extension or the already signed Violentmonkey host,
 with E2E evidence for four chats and restart/ambiguity semantics. Do not
 repack ChatQueue 1.0.1 or weaken Firefox signature enforcement. No cron,
 ChatGPT Tasks or independent unapproved broker scheduler is introduced.
+
+### In-house LAB-only browser integration (2026-11-20)
+
+New original files under klarkc/dotfiles:
+
+- .nix/firefox/chatqueue-local-controller.mjs: durable PREPARED-before-click
+  state, independent fresh preflight, exclusive per-conversation browser lock,
+  fail-closed REVIEW on post-click uncertainty and six-minute cooldown after
+  independently observed assistant completion.
+- .nix/firefox/chatqueue-local-browser.js: Violentmonkey adapter with
+  site-specific DOM inspection, one-click delivery and reply observation.
+- .nix/firefox/build-chatqueue-local.mjs: deterministic local build of
+  .nix/firefox/chatqueue-local.user.js, entirely from our own source.
+  The generated script is Git-ignored, regenerated locally on demand and
+  **not imported automatically**.
+- .nix/tests/chatqueue-local-controller.test.mjs and
+  .nix/tests/chatqueue-local-browser.test.mjs: node:test contract tests.
+- make firefox.ChatQueueLocalBuild regenerates the script;
+  make firefox.RecurrenceTest verifies the checked-in output and all tests.
+
+**This is NOT an operational cutover**. The generated userscript is
+0.1.0-lab and intentionally has no production/agent enable command:
+
+- It has no live credentials, no external fetch and no ChatQueue XPI changes.
+- A new page import sets STOP=true and starts no timer or send.
+- Only a deliberate Violentmonkey menu interaction can configure a harmless
+  CQLOCAL LAB: message. Other prompts are rejected and LAB runs are capped
+  at two occurrences; there is no operational Scheduler GO.
+- The signed upstream ChatQueue queue **must remain PAUSED**. The new
+  script is not imported into the operational Firefox profile by Make.
+- All four permanent broker heartbeats remain PAUSED/NO_GO. The bridge uses
+  DOM heuristics, not a proven production-grade terminal signal; it requires
+  isolated Firefox E2E with long generations, tabs/locks, restart during
+  PREPARED and after click, identity/account/model validation and unknown
+  effects before any live use.
+
+We must not call the extension vendor. Any future transition of the scheduler
+to a standalone, locally maintained implementation also needs matching broker
+governance and explicit staged activation. The three legacy gates remain OFF.
+Future klarkc/os port must package this original behavior declaratively,
+without copying browser profiles, signing-bypass preferences, or a proprietary
+XPI. Never press original ChatQueue 1.0.1 "Resume queue" for broker recurring
+jobs: its afterReply=false reset is unchanged.

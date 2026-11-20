@@ -147,3 +147,6 @@
 !/.local/lib/web-search-router/README.md
 !/.local/lib/web-search-router/searxng-settings.yml
 /.local/lib/web-search-router/__pycache__/
+
+# Generated, original ChatQueue Local LAB userscript. Build explicitly via Make.
+/.nix/firefox/chatqueue-local.user.js

@@ -43,6 +43,21 @@ assert 'firefox.RecurrenceTest' in make
 assert 'node --test .nix/tests/chatqueue-recurrence-core.test.mjs' in make
 assert (root / '.nix/firefox/chatqueue-recurrence-core.mjs').is_file()
 assert (root / '.nix/tests/chatqueue-recurrence-core.test.mjs').is_file()
+assert 'firefox.ChatQueueLocalBuild:' in make
+assert 'build-chatqueue-local.mjs --check' in make
+assert 'chatqueue-local-controller.test.mjs' in make
+assert 'chatqueue-local-browser.test.mjs' in make
+assert (root / '.nix/firefox/chatqueue-local-controller.mjs').is_file()
+assert (root / '.nix/firefox/chatqueue-local-browser.js').is_file()
+assert (root / '.nix/firefox/build-chatqueue-local.mjs').is_file()
+assert '/.nix/firefox/chatqueue-local.user.js' in (root / '.gitignore').read_text()
+lab = (root / '.nix/firefox/chatqueue-local-browser.js').read_text()
+assert 'const MAX_CYCLES = 2' in lab
+assert 'const LAB_PREFIX = "CQLOCAL LAB:"' in lab
+assert 'await write("STOP", true)' in lab
+assert 'recurrenceE2EPassed: true, // LAB test path ONLY' in lab
+assert 'firefox.ChatQueueLocalBuild' not in make.split('all:',1)[1].split('\n',1)[0]
+assert 'firefox.RecurrenceTest' in make.split('test: ',1)[1].split('\n',1)[0]
 assert 'No vendor contact' in readme
 assert 'PAUSED / NO_GO' in readme
 print('PASS: Firefox defaults, no Picom, signed ChatQueue and non-sending selector shim')
