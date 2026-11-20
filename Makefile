@@ -5,11 +5,9 @@ ICONS=.icons
 GCE ?= 0
 SKIP_NIX_PROFILE ?= 0
 ifeq ($(GCE),1)
-NIX_PROFILE_REF := .\#solo098-gce
-NIX_PROFILE_ACTION := add
+NIX_PROFILE_MODE := gce
 else ifeq ($(GCE),0)
-NIX_PROFILE_REF := .
-NIX_PROFILE_ACTION := install
+NIX_PROFILE_MODE := default
 else
 $(error GCE must be 0 or 1)
 endif
@@ -125,7 +123,7 @@ nix.Profile:
 ifeq ($(SKIP_NIX_PROFILE),1)
 	@echo 'nix.Profile: skipped (existing profile preserved)'
 else
-	nix --extra-experimental-features "nix-command flakes" profile $(NIX_PROFILE_ACTION) "$(NIX_PROFILE_REF)"
+	@bash .nix/profile-ensure.sh "$(NIX_PROFILE_MODE)"
 endif
 
 # `make test` is the mandatory Git-hook verification entrypoint.

@@ -539,3 +539,13 @@ lrzip -d -o - ~/.backup/archive.lrz     # produces .tar on stdout
 lrzip -d ~/.backup/archive.lrz          # produces archive.tar
 mkdir -p restored && tar -xf archive.tar -C restored
 ```
+
+### Repeatable Nix profile bootstrap
+
+`make GCE=1 nix.Profile` now upgrades the existing CPU-only `solo098-gce`
+profile in place, or installs it when absent. The helper
+`.nix/profile-ensure.sh` validates the profile JSON, refuses duplicate
+installs and foreign profile sources, and never overwrites a different
+profile element. The normal `make nix.Profile` follows the analogous default
+profile path. An offline mocked-Nix test covers new installs, upgrades and
+fail-closed behavior without changing the installed profile.
