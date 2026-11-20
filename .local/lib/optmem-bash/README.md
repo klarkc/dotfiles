@@ -92,3 +92,14 @@ with the exact approved legacy source digest and count. Neither MCP nor IPC
 exposes this operation. Existing initialized empty stages still work normally.
 This is not authorization to import the canonical or production LOG; the
 prototype remains restricted to isolated private synthetic fixture paths.
+
+## Reproducible test dependency (2026-11-20)
+
+The isolated acceptance tests require the original upstream `memo` CLI at
+`~/.local/state/optmem-prototype-2026-10-08/memo`. It is deliberately not
+tracked in Git. Run `make optmem.PrototypeMemoInstall` (also included in `make
+all`) to download the reviewed upstream commit `1fb164cf39028047781f72ac3bb1e5a691c1dcb0`
+with pinned SHA-256 `3dc120d01be3115ef6267eab4103e7909fc830d6227b549f20991ba999ee9ffb`.
+Existing mismatching artifacts are refused; no production memory, activation
+marker, writer or service is created. Subsequent `make test` smokes work with
+isolated fixtures and the exact reviewed upstream implementation.

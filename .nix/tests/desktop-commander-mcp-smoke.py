@@ -15,7 +15,20 @@ import time
 from pathlib import Path
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+try:
+    # MCP SDK >= 2 uses a context manager yielding two transport streams.
+    from mcp.client.streamable_http import streamable_http_client as _http_client
+except ImportError:
+    # MCP SDK 1 uses the unseparated name and adds session ID metadata.
+    from mcp.client.streamable_http import streamablehttp_client as _http_client
+
+
+@asynccontextmanager
+async def http_streams(url):
+    async with _http_client(url) as streams:
+        if not isinstance(streams, tuple) or len(streams) not in (2, 3):
+            raise RuntimeError("unexpected MCP HTTP transport stream shape")
+        yield streams[0], streams[1]
 
 
 RUNTIME = sys.argv[1]
@@ -28,6 +41,13 @@ def require(condition, message):
         raise AssertionError(message)
 
 
+def tool_failed(result):
+    # MCP SDK >= 2 renames the Pydantic field from isError to is_error.
+    if hasattr(result, "is_error"):
+        return result.is_error
+    return tool_failed(result)
+
+
 async def wait_ready(child):
     deadline = time.monotonic() + 20
     last_error = None
@@ -35,7 +55,7 @@ async def wait_ready(child):
         if child.poll() is not None:
             raise AssertionError("MCP server exited before becoming ready")
         try:
-            async with streamablehttp_client(URL) as (read_stream, write_stream, _):
+            async with http_streams(URL) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     if child.poll() is not None:
@@ -49,8 +69,8 @@ async def wait_ready(child):
 
 @asynccontextmanager
 async def connected():
-    transport = streamablehttp_client(URL)
-    async with transport as (read_stream, write_stream, _):
+    transport = http_streams(URL)
+    async with transport as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             yield session
@@ -140,31 +160,31 @@ async def run_smoke(workspace, outside):
             require(essential <= names, "essential DesktopCommander tools are missing")
 
             read = await call(session, "read_file", {"path": str(workspace / "read-me.txt")})
-            require(not read.isError and "initial contents" in str(read.content), "read_file failed")
+            require(not tool_failed(read) and "initial contents" in str(read.content), "read_file failed")
             written = await call(session, "write_file", {
                 "path": str(workspace / "written.txt"), "content": "written contents\n",
             })
-            require(not written.isError, "write_file failed")
+            require(not tool_failed(written), "write_file failed")
             edited = await call(session, "edit_block", {
                 "file_path": str(workspace / "written.txt"),
                 "old_string": "written contents", "new_string": "edited contents",
             })
-            require(not edited.isError, "edit_block failed")
+            require(not tool_failed(edited), "edit_block failed")
             edited_read = await call(session, "read_file", {"path": str(workspace / "written.txt")})
-            require(not edited_read.isError and "edited contents" in str(edited_read.content),
+            require(not tool_failed(edited_read) and "edited contents" in str(edited_read.content),
                     "edited contents were not readable via MCP")
             require((workspace / "written.txt").read_text(encoding="utf-8") == "edited contents\n",
                     "edited contents were not persisted to disk")
             listing = await call(session, "list_directory", {"path": str(workspace)})
-            require(not listing.isError and "written.txt" in str(listing.content), "list_directory failed")
+            require(not tool_failed(listing) and "written.txt" in str(listing.content), "list_directory failed")
 
             denied = await call(session, "read_file", {"path": str(outside / "private.txt")})
-            require(denied.isError, "read outside allowedDirectories was not denied")
+            require(tool_failed(denied), "read outside allowedDirectories was not denied")
 
             blocked = await call(session, "start_process", {
                 "command": "sudo -n true", "timeout_ms": 1000,
             })
-            require(blocked.isError, "default blocked command policy did not reject sudo")
+            require(tool_failed(blocked), "default blocked command policy did not reject sudo")
 
             started = await call(session, "start_process", {
                 "command": "python3 -u -c 'import sys,time; print(\"stdout-initial\", flush=True); print(\"stderr-initial\", file=sys.stderr, flush=True); time.sleep(3); print(\"stdout-final\", flush=True); print(\"stderr-final\", file=sys.stderr, flush=True); sys.exit(7)'",
@@ -172,7 +192,7 @@ async def run_smoke(workspace, outside):
             })
             started_text = "\n".join(getattr(item, "text", "") for item in started.content)
             pid_match = re.search(r"Process started with PID (\d+)", started_text)
-            require(not started.isError and pid_match is not None, "start_process did not return a process PID")
+            require(not tool_failed(started) and pid_match is not None, "start_process did not return a process PID")
             pid = int(pid_match.group(1))
 
         # Reconnect and accumulate output; each offset=0 poll consumes new lines.
@@ -183,7 +203,7 @@ async def run_smoke(workspace, outside):
                 output = await call(session, "read_process_output", {
                     "pid": pid, "timeout_ms": 1000, "offset": 0,
                 })
-            require(not output.isError, "read_process_output failed")
+            require(not tool_failed(output), "read_process_output failed")
             new_text = "\n".join(getattr(item, "text", "") for item in output.content)
             collected += "\n" + new_text
             if "exit code 7" in collected:
@@ -199,7 +219,7 @@ async def run_smoke(workspace, outside):
         await wait_ready(process)
         async with connected() as session:
             after_restart = await call(session, "read_file", {"path": str(workspace / "read-me.txt")})
-            require(not after_restart.isError and "initial contents" in str(after_restart.content),
+            require(not tool_failed(after_restart) and "initial contents" in str(after_restart.content),
                     "read_file failed after server restart")
     finally:
         if process is not None:

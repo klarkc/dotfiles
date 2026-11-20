@@ -9,6 +9,7 @@ packages=(
   wget unzip htop jq ripgrep fd fzf file which rsync
   xorg-xmessage xorg-xev xorg-xprop xorg-xwininfo
   xdg-utils xdg-user-dirs desktop-file-utils shared-mime-info
+  firefox
   noto-fonts ttf-dejavu
 )
 

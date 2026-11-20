@@ -113,11 +113,21 @@ make GCE=1 SKIP_NIX_PROFILE=1  # post-bootstrap on an existing VM
 systemctl --user daemon-reload
 ```
 
+The current CPU-only GCE desktop uses Firefox by default, not Brave. The
+privileged `host-packages.sh` installs the Firefox package. `make all` verifies
+signed ChatQueue and Violentmonkey add-ons and opens their official Mozilla
+pages when absent; Firefox requires the operator to approve installation. After
+approving both, run `make firefox.ChatQueueImport` in a graphical terminal to
+open the local compatibility userscript installer, confirm it in Violentmonkey,
+then verify a test chat (see [Firefox setup](.nix/firefox/README.md)). This
+manual consent step is deliberately separate from unattended bootstrap. Picom
+is disabled in XMonad for this CPU-only XRDP session.
+
 Do not also run `nix profile install .` or plain `make` on this VM. The guest bootstrap already installed `.#solo098-gce`; `SKIP_NIX_PROFILE=1` preserves it to avoid repeating the expensive ZeroClaw build. Host packages are installed in a separate privileged stage **before make** (`sudo bash .nix/servidor-hj-mesmo/host-packages.sh`), and the locales/ABNT2 are provisioned separately (`sudo bash .nix/configure-locale-arch.sh`). `make` never runs sudo, pacman or locale-gen: `host.Verify` checks host requirements as an ordinary user and fails with corrective instructions. Review third-party theme downloads before installing the user configuration. The flag affects only Nix profile installation, not themes or locales. The original bootstrap did not execute `make`. This GCE flag does not enable NVIDIA, CUDA, Sunshine or local vLLM, and is not a license to patch app behavior for XRDP. Full rebuild and manual recovery instructions are in [the solo098 runbook](.nix/servidor-hj-mesmo/RUNBOOK.md).
 
 #### Locale and keyboard policy
 
-The system, SSH and non-graphical services use `en_US.UTF-8`. Graphical XMonad sessions (physical X11 and XRDP) use `pt_BR.UTF-8`, with `br(abnt2)` and CapsLock as Escape. XMonad's single `Mod+Shift+Enter` terminal shortcut tries Alacritty first and automatically falls back to xterm only if Alacritty is missing or exits with an error; no separate shortcut is required. Interactive Bash terminals (SSH, Alacritty) use `en_US.UTF-8`. The shared `.local/bin/xmonad-session` and `.bashrc` define these policies without exporting `LC_ALL`. GUI apps launched manually from an English terminal inherit English unless started with the Portuguese locale explicitly.
+The system, SSH and non-graphical services use `en_US.UTF-8`. Graphical XMonad sessions (physical X11 and XRDP) use `pt_BR.UTF-8`, with `br(abnt2)` and CapsLock as Escape. XMonad's single `Mod+Shift+Enter` terminal shortcut tries Alacritty first and automatically falls back to WezTerm only if Alacritty is missing or exits with an error; no separate shortcut is required. Interactive Bash terminals (SSH, Alacritty) use `en_US.UTF-8`. The shared `.local/bin/xmonad-session` and `.bashrc` define these policies without exporting `LC_ALL`. GUI apps launched manually from an English terminal inherit English unless started with the Portuguese locale explicitly.
 
 On every Arch profile, generate both UTF-8 locales, set the host default to English and select ABNT2 through the shared privileged helper **before** `make`. Both plain `make` and `make GCE=1` verify it without altering the host. Only XMonad's process tree and graphical D-Bus activation use Portuguese; unrelated systemd user services keep English. The GCE flag only changes infrastructure-related package selection. NixOS requires the equivalent system locale policy in its NixOS module instead of an imperative Arch script. The existing GCE VM is unchanged until the new checkout is reviewed and applied. See the [rebuild runbook](.nix/servidor-hj-mesmo/RUNBOOK.md) for verification.
 
@@ -207,7 +217,16 @@ Use `BITBUCKET_READ_BACKEND=rovo` or `rest` to force a backend for diagnosis (de
 
 The `codex` executable remains in the Nix profile **only** to perform or renew ChatGPT web OAuth login. It is not configured as a separate coding agent, MCP client, reviewer, or smoke-test target. The tracked `.codex/config.toml` and Codex-specific Atlassian MCP have been retired. Preserve the private runtime `~/.codex/auth.json`: it is still consumed by OpenCode's OAuth import wrapper.
 
-`opencode` uses OpenCode's native auth store at `~/.local/share/opencode/auth.json`. The wrapped `opencode` command lazily syncs Codex OAuth before launch when `~/.codex/auth.json` exists and is newer than the OpenCode auth file, or when the OpenCode auth file does not exist yet.
+The Nix profile pins **OpenCode 2.3.0** through a separate reviewed Nixpkgs
+revision to preserve the MCP first-step tool-registration fix. The development
+shell uses that same wrapped binary so full commit hooks test the release they
+will install. OpenCode 2.x maintains its own credential registry; verify
+stored authentication with `opencode auth list --format json` and inspect
+**only** provider/method metadata, never tokens. For backward compatibility,
+the wrapper can still import Codex OAuth into the legacy private auth file
+`~/.local/share/opencode/auth.json`; that file is not the authoritative 2.x
+credential registry, and the importer does not replace interactive OpenCode
+OAuth login for new installations.
 
 Run the sync explicitly after authenticating Codex or when rotating accounts:
 

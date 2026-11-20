@@ -45,13 +45,52 @@ def fail(message: str) -> None:
     raise SystemExit("coding-agents-smoke-test: FAIL: " + message)
 
 
+def registered_openai_oauth(data: object) -> bool:
+    """OpenCode 2.x auth list returns metadata, not bearer tokens."""
+    if not isinstance(data, list):
+        return False
+    for provider in data:
+        if not isinstance(provider, dict) or provider.get("id") != "openai":
+            continue
+        connections = provider.get("connections")
+        if not isinstance(connections, list):
+            continue
+        if any(
+            isinstance(connection, dict)
+            and connection.get("type") == "credential"
+            and connection.get("method") == "oauth"
+            for connection in connections
+        ):
+            return True
+    return False
+
+
 def token_available() -> bool:
+    """Accept validated OAuth metadata from both OpenCode 1.x and 2.x."""
     path = Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser() / "opencode/auth.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8")).get("openai", {})
-    except (OSError, ValueError, TypeError):
+        if data.get("type") == "oauth" and bool(data.get("access")):
+            return True
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+
+    # Newer OpenCode stores auth in a credential registry, not auth.json.
+    # Query only provider/connection metadata. Never print token material.
+    try:
+        proc = subprocess.run(
+            ["opencode", "auth", "list", "--format", "json"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            timeout=15, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return False
-    return data.get("type") == "oauth" and bool(data.get("access"))
+    if proc.returncode:
+        return False
+    try:
+        return registered_openai_oauth(json.loads(proc.stdout))
+    except ValueError:
+        return False
 
 
 def choose_model(config: dict) -> str:
@@ -169,8 +208,40 @@ def session_ids(output: str) -> list[str]:
     return sorted(found)
 
 
+def opencode_runtime_args(help_text: str) -> list[str]:
+    """Select a supported private run mode; never ignore unknown CLI flags."""
+    if "--pure" in help_text:
+        return ["--pure"]  # OpenCode 1.x standalone session semantics.
+    if "--standalone" in help_text:
+        return ["--standalone"]  # OpenCode 2.x private server.
+    fail("OpenCode CLI lacks both --pure and --standalone")
+
+
+def opencode_runtime_args_live(env: dict) -> list[str]:
+    try:
+        proc = subprocess.run(
+            ["opencode", "run", "--help"],
+            stdin=subprocess.DEVNULL, text=True, capture_output=True,
+            timeout=12, env=env, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("could not inspect OpenCode CLI options")
+    if proc.returncode:
+        fail("OpenCode help failed")
+    return opencode_runtime_args(proc.stdout)
+
+
+def opencode_export_cmd(session_id: str, run_args: list[str]) -> list[str]:
+    """OpenCode 2.x moved export to `session export`; require exact session ID."""
+    if run_args == ["--pure"]:
+        return ["opencode", "export", "--pure", session_id]
+    if run_args == ["--standalone"]:
+        return ["opencode", "session", "export", session_id]
+    fail("unrecognized OpenCode isolation mode")
+
+
 def inspect_persisted_proof(stdout: str, env: dict, workspace: str,
-                            repo: str) -> tuple[int | None, bool, list[str]]:
+                            repo: str, run_args: list[str]) -> tuple[int | None, bool, list[str]]:
     """Cross-check stored MCP receipts when CLI JSON events omit tool parts.
 
     A bare model answer or an unrelated/stale session NEVER counts as proof.
@@ -182,7 +253,7 @@ def inspect_persisted_proof(stdout: str, env: dict, workspace: str,
         return None, False, []
     try:
         result = subprocess.run(
-            ["opencode", "export", "--pure", ids[0]],
+            opencode_export_cmd(ids[0], run_args),
             stdin=subprocess.DEVNULL, text=True, capture_output=True,
             timeout=30, env=env, check=False,
         )
@@ -249,6 +320,14 @@ def selftest() -> None:
     test_config = smoke_tool_output_config({"tool_output": {"max_lines": 300, "max_bytes": 16000}})
     if test_config["tool_output"]["max_bytes"] < 262144:
         fail("selftest: PR output may be truncated before evidence verification")
+    oauth = [{"id": "openai", "connections": [{"type": "credential", "method": "oauth"}]}]
+    non_oauth = [{"id": "openai", "connections": [{"type": "credential", "method": "api"}]}]
+    if not registered_openai_oauth(oauth):
+        fail("selftest: OpenCode 2.x OAuth metadata not recognized")
+    if registered_openai_oauth(non_oauth) or registered_openai_oauth([{"id": "other", "connections": oauth[0]["connections"]}]):
+        fail("selftest: accepted non-OpenAI or non-OAuth credentials")
+    if registered_openai_oauth({"openai": True}) or registered_openai_oauth(None):
+        fail("selftest: accepted malformed credential registry")
     if model_timeout_seconds("openai/gpt-5.6-sol") != 180:
         fail("selftest: remote model timeout changed")
     if model_timeout_seconds("vllm/qwen3.8-27b") != 1200:
@@ -257,6 +336,27 @@ def selftest() -> None:
         fail("selftest: Ollama timeout too short")
     if model_timeout_seconds("vllm/qwen3.8-27b", "42") != 42:
         fail("selftest: explicit timeout was ignored")
+    v2 = v2_smoke_config({}, {"bitbucket_read": {"type": "local", "command": ["test"], "enabled": True},
+                            "unrelated": {"type": "local", "command": ["test"], "enabled": False}},
+                         "check", "openai/gpt-5.6-sol", [TOOL])
+    if sorted(v2["mcp"]["servers"]) != ["bitbucket_read", "unrelated"]:
+        fail("selftest: v2 overrides missing MCP servers")
+    if v2["mcp"]["servers"]["unrelated"].get("disabled") is not True:
+        fail("selftest: unrelated MCP server not explicitly disabled in v2")
+    if v2["mcp"]["servers"]["bitbucket_read"].get("codemode") is not False:
+        fail("selftest: read-only MCP tool not exposed directly in v2")
+    if v2["agents"]["check"]["permissions"][-1] != {"action": TOOL, "resource": "*", "effect": "allow"}:
+        fail("selftest: v2 only-approved-tool policy absent")
+    if v2["agents"]["check"]["permissions"][0]["effect"] != "deny":
+        fail("selftest: v2 fail-closed policy absent")
+    if opencode_runtime_args("Flags: --pure") != ["--pure"]:
+        fail("selftest: old CLI pure mode not detected")
+    if opencode_runtime_args("Flags: --standalone") != ["--standalone"]:
+        fail("selftest: new CLI standalone mode not detected")
+    if opencode_export_cmd("ses_123", ["--pure"]) != ["opencode", "export", "--pure", "ses_123"]:
+        fail("selftest: old CLI export not pinned to selected session")
+    if opencode_export_cmd("ses_123", ["--standalone"]) != ["opencode", "session", "export", "ses_123"]:
+        fail("selftest: new CLI export not pinned to selected session")
     print("coding-agents-smoke-test: offline selftest PASS")
 
 
@@ -276,6 +376,45 @@ def smoke_mcp_config(config: dict, mode: str) -> dict:
         name: {**server, "enabled": name in enabled}
         for name, server in config.get("mcp", {}).items()
     }
+
+
+def v2_smoke_config(config: dict, mcp: dict, agent_name: str,
+                    model: str, allowed_tools: list[str]) -> dict:
+    """OpenCode 2.x nests MCP servers and uses ordered permissions.
+
+    Disable Code Mode for this one bounded read-only tool: the E2E proof
+    requires the actual completed MCP tool event, not indirect execution.
+    """
+    result = dict(config)
+    servers: dict = {}
+    for name, server in mcp.items():
+        item = {k: v for k, v in server.items() if k != "enabled"}
+        # A V1 global MCP entry may be loaded in addition to this isolated
+        # config. Explicitly disable every non-allowlisted server by name;
+        # omitting it does not revoke its registration after config merge.
+        item["disabled"] = not bool(server.get("enabled", False))
+        item["codemode"] = False
+        servers[name] = item
+    result["mcp"] = {"servers": servers}
+    # V1 fields are not honored by OpenCode 2.x. Never rely on these
+    # deprecated maps to deny mutating tools in the test agent.
+    for key in ("agent", "permission", "tools", "default_agent"):
+        result.pop(key, None)
+    deny_all = {"action": "*", "resource": "*", "effect": "deny"}
+    allow = [{"action": tool, "resource": "*", "effect": "allow"}
+             for tool in allowed_tools]
+    result["permissions"] = [deny_all]
+    result["agents"] = {
+        agent_name: {
+            "description": "Read-only PR smoke. Only approved MCP tools.",
+            "mode": "primary",
+            "model": model,
+            "permissions": [deny_all, *allow],
+            "steps": 6,
+        },
+    }
+    result["default_agent"] = agent_name
+    return result
 
 
 def main() -> None:
@@ -310,6 +449,8 @@ def main() -> None:
     if model.startswith("openai/") and not token_available():
         fail("OpenCode OAuth credentials unavailable")
 
+    runtime_args = opencode_runtime_args_live(os.environ.copy())
+
     with tempfile.TemporaryDirectory(prefix="bitbucket-agent-e2e-") as tmp:
         test_config = smoke_tool_output_config(config)
         # Rovo and Atlassian have separate checks; no unrelated MCP (such
@@ -342,10 +483,13 @@ def main() -> None:
             "tools": {"*": False, **allow},
             "permission": permission,
         }
-        test_config["agent"] = agents
-        test_config["default_agent"] = agent_name
-        test_config["tools"] = {"*": False, **allow}
-        test_config["permission"] = permission
+        if runtime_args == ["--standalone"]:
+            test_config = v2_smoke_config(test_config, mcp, agent_name, model, list(allow))
+        else:
+            test_config["agent"] = agents
+            test_config["default_agent"] = agent_name
+            test_config["tools"] = {"*": False, **allow}
+            test_config["permission"] = permission
         config_path = Path(tmp) / "opencode.json"
         config_path.write_text(json.dumps(test_config), encoding="utf-8")
         config_path.chmod(0o600)
@@ -372,7 +516,7 @@ def main() -> None:
         try:
             run = subprocess.run(
                 [
-                    "opencode", "run", "--pure", "--format", "json",
+                    "opencode", "run", *runtime_args, "--format", "json",
                     "--agent", agent_name, "-m", model,
                     "--title", "Bitbucket PR read E2E smoke",
                     prompt,
@@ -387,13 +531,32 @@ def main() -> None:
         except (subprocess.TimeoutExpired, OSError) as exc:
             fail(f"OpenCode run could not complete ({type(exc).__name__})")
         if run.returncode != 0:
-            fail(f"OpenCode run returned status {run.returncode}")
+            # Only report a coarse error category; never expose model output,
+            # HTTP bodies, credentials, callback URLs or a private PR title.
+            details = (run.stderr + "\n" + run.stdout).lower()
+            if "unknown option" in details or "unknown flag" in details:
+                category = "CLI option incompatibility"
+            elif "econnrefused" in details or "connection refused" in details:
+                category = "model endpoint refused connection"
+            elif "unsupported" in details and "vllm/" in details:
+                category = "configured vLLM model unsupported by current OpenCode runtime"
+            elif "model not found" in details or "modelnotfound" in details:
+                category = "configured model unavailable"
+            elif "unauthorized" in details or "status 401" in details:
+                category = "provider authorization failed"
+            elif "status 403" in details or "forbidden" in details:
+                category = "provider permissions rejected"
+            elif "rate limit" in details or "status 429" in details:
+                category = "provider rate limited"
+            else:
+                category = "unclassified (private OpenCode log required)"
+            fail(f"OpenCode run returned status {run.returncode}; {category}")
 
     pr_id, cited, tools = inspect_events(run.stdout, os.environ["BITBUCKET_WORKSPACE"], os.environ["BITBUCKET_REPOSITORY"])
     if not tools or pr_id is None:
         pr_id, cited, tools = inspect_persisted_proof(
             run.stdout, env, os.environ["BITBUCKET_WORKSPACE"],
-            os.environ["BITBUCKET_REPOSITORY"],
+            os.environ["BITBUCKET_REPOSITORY"], runtime_args,
         )
     if not tools or pr_id is None:
         fail("no completed Bitbucket PR MCP tool event with real PR data")

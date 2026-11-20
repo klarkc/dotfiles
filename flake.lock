@@ -279,6 +279,22 @@
         "type": "github"
       }
     },
+    "opencode-nixpkgs": {
+      "locked": {
+        "lastModified": 1795095985,
+        "narHash": "sha256-DOTZsOOoEtOY0ysY9L6JzyDHZm4lGBr6P1bt1mFXcRw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "19cfded70b91ca0981373973c5b1efffdd4d6647",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "19cfded70b91ca0981373973c5b1efffdd4d6647",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "alacritty-ligatures-src": "alacritty-ligatures-src",
@@ -291,6 +307,7 @@
         "nix-fast-build": "nix-fast-build",
         "nixGL": "nixGL",
         "nixpkgs": "nixpkgs",
+        "opencode-nixpkgs": "opencode-nixpkgs",
         "sherpa-onnx-bin": "sherpa-onnx-bin",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils",

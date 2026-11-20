@@ -18,7 +18,26 @@ $(error SKIP_NIX_PROFILE must be 0 or 1)
 endif
 
 .PHONY: all
-all: host.Verify nix.Profile xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config
+all: host.Verify nix.Profile optmem.PrototypeMemoInstall xmonad.Config vim.PluginInstall tmux.TpmInstall .themes/Nordic $(ICONS)/Papirus git.Config npm.Config firefox.Default firefox.ChatQueueInstall
+
+# Read-only bootstrap prerequisite for isolated OptMem tests. This downloads a
+# digest-locked upstream script but never activates OptMem or writes a memory.
+.PHONY: optmem.PrototypeMemoInstall
+optmem.PrototypeMemoInstall:
+	@bash .nix/optmem-memo-install.sh
+
+# Rootless desktop configuration. ChatQueue installation is an opt-in Firefox
+# confirmation; the signed upstream package is never repacked in this repo.
+.PHONY: firefox.Default firefox.ChatQueueInstall firefox.ChatQueueImport
+firefox.Default:
+	@bash .nix/firefox/setup.sh default
+
+firefox.ChatQueueInstall:
+	@bash .nix/firefox/setup.sh chatqueue
+
+# One-time interactive consent; do not run on every `make all`.
+firefox.ChatQueueImport:
+	@bash .nix/firefox/setup.sh import
 
 # Privileged Arch host setup must run before make, never as a make recipe:
 #   sudo bash .nix/configure-locale-arch.sh

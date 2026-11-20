@@ -1,4 +1,7 @@
-{ pkgs }:
+{
+  pkgs,
+  opencodePackage ? pkgs.opencode,
+}:
 
 let
   opencodeCodexAuthImport = pkgs.callPackage ./opencode-codex-auth-tools.nix { };
@@ -14,8 +17,8 @@ let
   '';
 in
 pkgs.symlinkJoin {
-  name = "${pkgs.opencode.name}-with-codex-auth";
-  paths = [ pkgs.opencode ];
+  name = "${opencodePackage.name}-with-codex-auth";
+  paths = [ opencodePackage ];
   nativeBuildInputs = [ pkgs.makeWrapper ];
 
   postBuild = ''

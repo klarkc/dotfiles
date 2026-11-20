@@ -98,3 +98,22 @@ Use `systemctl poweroff` inside Linux only after saving work. **A systemd shutdo
 The guest bootstrap completed on 2026-11-12 and `nix --version` reports `nix (Determinate Nix 3.24.2) 2.35.3`; `zeroclaw --version` reports 0.8.5. XRDP services, XMonad, Brave and Enpass binaries were verified. Desktop Commander remote `solo098` currently appears **Offline**, though the VM is RUNNING. The MCP runtime and Cloudflare tunnel user-service unit files exist in this repository, but Cloudflare credentials and OAuth enrollment were _not_ provisioned by guest bootstrap. A direct MCP diagnostics call failed; do not claim successful end-to-end Cloudflare connectivity. Read-only SSH diagnostics and safe enrollment requirements are documented in [RUNBOOK.md](./RUNBOOK.md). The private `~/.profile_override` must never be published.
 
 For first-time provisioning, interrupted creation, signed-image validation, SSH/IAP, rescue procedures and Windows usage, read [RUNBOOK.md](./RUNBOOK.md).
+
+## Transitional desktop update (2026-11-18)
+
+The operator chose Firefox instead of Brave for interactive ChatGPT on the
+current Arch solo098 guest. The user Makefile now sets Firefox as the XDG
+default and exposes signed ChatQueue plus a local selector compatibility
+userscript (`make firefox.ChatQueueImport` opens the localhost installer, with manual Firefox confirmation; see `.nix/firefox/README.md`).
+The privileged package prerequisite includes `firefox`, but no existing Brave
+installation is removed. Picom auto-start is disabled in XMonad for CPU-only
+Xorg/XRDP due to operator-observed flicker; other X11 features are preserved.
+This is a temporary Arch implementation; `klarkc/os` must independently port
+it into declarative NixOS, never by copying the Makefile or browser profile.
+A single benign ChatQueue send was verified on Firefox, but per-tab isolation,
+four-agent liveness and a new cloud release are **not verified**. Source
+the OpenCode 2.2.5 MCP first-step race is resolved by a pinned OpenCode
+2.3.0. The 2026-11-20 mandatory full test gate passed on the source worktree,
+including a real read-only Bitbucket tool call. This is **not** proof of
+published dotfiles, a rebuilt GCE host or resumed heartbeats; see
+`.nix/firefox/README.md` for evidence and remaining acceptance criteria.

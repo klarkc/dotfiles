@@ -73,7 +73,7 @@ myConfig =
         spawn "xsetroot -cursor_name left_ptr"
         spawn "pgrep -x dunst >/dev/null || dunst"
         spawn "taffybar"
-        spawn "pgrep -x picom >/dev/null || if [ \"$SOLO098_GCE_RDP\" = 1 ]; then picom --backend xrender; else picom; fi"
+        -- No compositor on CPU-only Xorg/XRDP: Picom causes flicker and overhead.
         spawn "feh --bg-fill --randomize ~/Wallpapers/*"
         spawn "/opt/discord/Discord --start-minimized"
         -- Enpass 6.12 needs a desktop hint to pick the system dark theme under XMonad.

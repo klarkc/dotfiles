@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated regression tests. All filesystem effects stay below this prototype."""
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import hashlib
 import http.server
 import json
@@ -159,11 +160,17 @@ class Tests(unittest.TestCase):
         self.assertEqual(rotate["source_quality"],"uncertain_reload")
         self.assertEqual(app.safe_status(self.state)["loss_or_rotation_events"],1)
     def test_automatic_candidate_uses_real_optmem_and_never_writes(self):
+        # Retention removes observations older than 30 days. Keep the synthetic
+        # three-day provenance current so the test cannot pass/fail by calendar.
+        first_day = datetime.now(timezone.utc).date() - timedelta(days=4)
         self._append("git status",8)
-        app.capture(self.history,self.state,observed_at="2026-10-15T00:00:00+00:00")
-        for day in (16,17,18):
+        app.capture(self.history,self.state,
+                    observed_at=f"{first_day.isoformat()}T00:00:00+00:00")
+        for offset in (1,2,3):
             self._append("git status",2)
-            app.capture(self.history,self.state,observed_at=f"2026-10-{day}T00:00:00+00:00")
+            observed_day = (first_day+timedelta(days=offset)).isoformat()
+            app.capture(self.history,self.state,
+                        observed_at=f"{observed_day}T00:00:00+00:00")
         con=app.open_database(self.state)
         self.assertEqual(app.feature_summaries(con)[0]["live_days"],3)
         con.close()
@@ -297,8 +304,9 @@ class Tests(unittest.TestCase):
         import concurrent.futures
         self._append("git status",40)
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            fresh_day = datetime.now(timezone.utc).date().isoformat()
             results=list(pool.map(lambda _:app.capture(
-                self.history,self.state,observed_at="2026-10-15T01:00:00+00:00"),range(3)))
+                self.history,self.state,observed_at=f"{fresh_day}T01:00:00+00:00"),range(3)))
         self.assertEqual(sum(x["features_admitted_to_private_aggregate"] for x in results),40)
         con=app.open_database(self.state)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM observations").fetchone()[0],40)

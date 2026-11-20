@@ -1,6 +1,10 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # Keep OpenCode 2.3.0 pinned separately; nixpkgs-unstable in this flake
+    # still provides 2.2.5, which races against MCP tools on first requests.
+    # Fixed upstream in #60490; pin a reviewed nixpkgs revision.
+    opencode-nixpkgs.url = "github:NixOS/nixpkgs/19cfded70b91ca0981373973c5b1efffdd4d6647";
     utils.url = "github:ursi/flake-utils";
     nix-fast-build.url = "github:Mic92/nix-fast-build";
     nix-fast-build.inputs.nixpkgs.follows = "nixpkgs";
@@ -170,7 +174,10 @@
               exec "${nixGLNvidiaDrv}/bin/nixGLNvidia-${nvidiaVersion}" "${alacrittyWithLigatures}/bin/alacritty" "$@"
             '';
           };
-          opencodeWithCodexAuth = pkgs.callPackage ./.nix/opencode-with-codex-auth.nix { };
+          opencodePackage = (import inputs.opencode-nixpkgs { inherit system; }).opencode;
+          opencodeWithCodexAuth = pkgs.callPackage ./.nix/opencode-with-codex-auth.nix {
+            inherit opencodePackage;
+          };
           opencodeCodexAuthTools = pkgs.callPackage ./.nix/opencode-codex-auth-tools.nix { };
           zeroclawWithLandlock = pkgs.rustPlatform.buildRustPackage {
             pname = "zeroclaw";
@@ -340,6 +347,20 @@
         {
           formatter = treefmtEval.config.build.wrapper;
           checks = {
+            # Guard against reintroducing the OpenCode 2.2.5 MCP first-step race.
+            opencode-mcp-version = pkgs.runCommand "opencode-mcp-version" { } ''
+              # The OpenCode binary initializes its user log directory even
+              # for --version; redirect it into the writable Nix build tree.
+              export HOME="$TMPDIR"
+              export XDG_DATA_HOME="$TMPDIR/opencode-data"
+              export XDG_CONFIG_HOME="$TMPDIR/opencode-config"
+              actual="$(${opencodePackage}/bin/opencode --version)"
+              if [ "$actual" != "opencode v2.3.0" ]; then
+                echo "Unexpected pinned OpenCode version: $actual" >&2
+                exit 1
+              fi
+              touch "$out"
+            '';
             formatting = treefmtEval.config.build.check self;
             pre-commit-check = pre-commit-check;
             private-runtime-config =
@@ -360,6 +381,7 @@
                 {
                   nativeBuildInputs = [
                     pkgs.bash
+                    pkgs.python3
                     pkgs.gnupg
                     pkgs.gawk
                     pkgs.gnumake
@@ -369,6 +391,8 @@
                   bash ${./.nix/tests/solo098-make-profile-test.sh} ${./.}
                   bash ${./.nix/tests/locale-contract.sh} ${./.}
                   bash ${./.nix/tests/terminal-fallback-test.sh} ${./.}
+                  python3 -B ${./.nix/tests/firefox-chatqueue-contract.py} ${./.}
+                  bash -n ${./.nix/firefox/setup.sh}
                   bash -n ${./.nix/configure-locale-arch.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/preflight.sh}
                   bash -n ${./.nix/servidor-hj-mesmo/provision-gce.sh}
@@ -685,6 +709,9 @@
               bash .local/bin/git-hook-fusion-history-install
             '';
             buildInputs = pre-commit-check.enabledPackages ++ [
+              # Smoke E2E must use the same pinned OpenCode as the profile,
+              # even before updating the installed user environment.
+              opencodeWithCodexAuth
               treefmtEval.config.build.wrapper
               desktopCommanderMcpRuntime
               pkgs.python3
@@ -695,6 +722,7 @@
             ];
           };
 
+          packages.opencode-with-codex-auth = opencodeWithCodexAuth;
           packages.default = pkgs.buildEnv {
             name = "klarkc-dotfiles_profile";
             paths = profileCommonPaths ++ [ vllmRuntime ];
