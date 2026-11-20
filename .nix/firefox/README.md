@@ -89,3 +89,27 @@ mode `0777` belongs to a normal symbolic link whose target is mode `0644`;
 the observed path/target ownership is `nobody`, not root. Do **not** try to
 fix this by chmod of the symlink. Verify root ownership and source packaging
 before privileged repair. Preserve Git pre-push gates and history safeguards.
+
+### Operator decision: own all ChatQueue adaptations (2026-11-20)
+
+No vendor contact or external maintenance request. The **source of truth** for
+our compatibility fixes and future recurrence logic is `klarkc/dotfiles`, with
+backport requirements and readiness recorded in `klarkc/broker`. Transfer to
+`klarkc/os` is **future work only**, after its own review and tests. Never copy
+the proprietary XPI, Mozilla profile, cookies, or login secrets into Git.
+
+Our own `.nix/firefox/chatqueue-recurrence-core.mjs` now models safe recurrence.
+Run `make firefox.RecurrenceTest` for deterministic, offline contract tests.
+It requires **360 seconds after independently observed final reply**, not
+360 seconds after `sent`; it fails closed on restart, uncertain effects,
+identity mismatch, no prior terminal and missing manual authorization.
+The pure model is **not connected to ChatQueue or Violentmonkey yet**, and
+therefore it does **not** repair the signed extension's background scheduler.
+The four production jobs remain **PAUSED / NO_GO**. Do not use the existing
+ChatQueue 1.0.1 repeating jobs for broker agents (it resets `afterReply`).
+
+A production adaptation must be original and versioned here, integrated via a
+properly signed Firefox extension or the already signed Violentmonkey host,
+with E2E evidence for four chats and restart/ambiguity semantics. Do not
+repack ChatQueue 1.0.1 or weaken Firefox signature enforcement. No cron,
+ChatGPT Tasks or independent unapproved broker scheduler is introduced.

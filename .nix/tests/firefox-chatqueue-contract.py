@@ -39,4 +39,10 @@ assert "self.path != '/chatqueue-compat.user.js'" in setup
 assert 'trap cleanup EXIT' in setup
 assert 'if [[ ! -t 0' in setup
 assert 'make firefox.ChatQueueImport' in readme
+assert 'firefox.RecurrenceTest' in make
+assert 'node --test .nix/tests/chatqueue-recurrence-core.test.mjs' in make
+assert (root / '.nix/firefox/chatqueue-recurrence-core.mjs').is_file()
+assert (root / '.nix/tests/chatqueue-recurrence-core.test.mjs').is_file()
+assert 'No vendor contact' in readme
+assert 'PAUSED / NO_GO' in readme
 print('PASS: Firefox defaults, no Picom, signed ChatQueue and non-sending selector shim')

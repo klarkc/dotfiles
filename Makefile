@@ -143,7 +143,12 @@ endif
 # require `SMOKE_TESTS_ENABLED=true make test` to prevent an unrelated
 # network service from blocking every Git commit.
 .PHONY: test
-test: flake.check bashrc.test smoke
+test: flake.check bashrc.test firefox.RecurrenceTest smoke
+
+# Own source-only recurrence model; no browser jobs or external sends.
+.PHONY: firefox.RecurrenceTest
+firefox.RecurrenceTest:
+	@node --test .nix/tests/chatqueue-recurrence-core.test.mjs
 
 .PHONY: bashrc.test
 bashrc.test:
