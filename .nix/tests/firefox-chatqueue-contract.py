@@ -77,11 +77,28 @@ assert 'Current user turn disappeared or was superseded' in lab
 assert 'LAB paused during uncertain reply' in lab
 assert 'lastTurnHasCompletionAction=' in lab
 assert 'button[data-testid="send-button"]' in lab
-assert 'document.querySelectorAll("form[data-chatgpt-composer]").length === 1' in lab
+assert '...document.querySelectorAll("form[data-chatgpt-composer]")' in lab
+assert 'return active.length === 1 ? active[0] : null' in lab
+assert '[data-virtualized-turn]' in lab
+assert '[data-user-message-bubble]' in lab
+assert '[data-conversation-role="assistant"]' in lab
+assert 'manualSeedReady()' in lab
+assert 'Assistant receipt is not in sent user turn' in lab
+assert 'const sample = normalized(text).slice(0, 40)' not in lab
 assert "composer().querySelectorAll" not in lab
 assert 'location.pathname' in lab
 assert 'new chat not yet persisted' in (root / '.nix/firefox/README.md').read_text()
 assert 'send.addEventListener("click", () => form.requestSubmit())' in e2e_text
+assert 'run_preflight_denial_case' in e2e_text
+assert 'ambiguous-form-lab' in e2e_text
+assert 'no-manual-seed-lab' in e2e_text
+assert 'unanswered-latest-lab' in e2e_text
+assert 'data-virtualized-turn' in e2e_text
+assert 'data-conversation-role' in e2e_text
+assert 'data-user-message-bubble' in e2e_text
+assert 'users.length === assistants.length' in lab
+assert 'userTurn === assistantTurn' in lab
+assert 'Authenticated Firefox persisted-chat audit after MANUAL LAB_ACK' in readme
 assert 'toggleSend();' in e2e_text
 assert 'firefox.ChatQueueLocalBuild' not in make.split('all:',1)[1].split('\n',1)[0]
 assert 'firefox.RecurrenceTest' in make.split('test: ',1)[1].split('\n',1)[0]

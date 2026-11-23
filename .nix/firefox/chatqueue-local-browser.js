@@ -38,9 +38,37 @@
 		!el.hidden &&
 		el.getAttribute?.("aria-hidden") !== "true" &&
 		(typeof el.getClientRects !== "function" || el.getClientRects().length > 0);
-	const messageNodes = (role) => [
-		...document.querySelectorAll('[data-message-author-role="' + role + '"]'),
-	];
+	// Live Firefox ChatGPT uses virtualized turns; generic old role nodes are absent.
+	// Global user bubbles are duplicated, so only inspect bubbles inside a turn.
+	const messageNodes = (role) => {
+		const legacy = [
+			...document.querySelectorAll('[data-message-author-role="' + role + '"]'),
+		].filter(visible);
+		const modern = [];
+		for (const turn of document.querySelectorAll("[data-virtualized-turn]")) {
+			if (!visible(turn)) continue;
+			if (role === "user") {
+				const bubbles = [
+					...turn.querySelectorAll("[data-user-message-bubble]"),
+				].filter(
+					(el) =>
+						visible(el) &&
+						!el.parentElement?.closest("[data-user-message-bubble]"),
+				);
+				if (bubbles.length === 1) modern.push(bubbles[0]);
+			} else if (role === "assistant") {
+				const headings = [
+					...turn.querySelectorAll('[data-conversation-role="assistant"]'),
+				];
+				if (headings.length !== 1) continue;
+				const group = headings[0].closest("div.group.flex.flex-col");
+				if (group && turn.contains(group) && visible(group)) modern.push(group);
+			}
+		}
+		// Mixed dialects are ambiguous. Never silently select one.
+		if (legacy.length && modern.length) return [];
+		return legacy.length ? legacy : modern;
+	};
 	const stopButton = () =>
 		[
 			...document.querySelectorAll(
@@ -60,7 +88,13 @@
 		);
 		return visible(receipt) && !receipt.disabled;
 	};
-	const composer = () => document.querySelector("form[data-chatgpt-composer]");
+	const composer = () => {
+		const active = [
+			...document.querySelectorAll("form[data-chatgpt-composer]"),
+		].filter(visible);
+		// Live ChatGPT also renders an invisible duplicate form.
+		return active.length === 1 ? active[0] : null;
+	};
 	const composeBox = () =>
 		composer()?.querySelector(
 			'[contenteditable="true"][role="textbox"],[contenteditable="true"],textarea',
@@ -84,23 +118,36 @@
 			return null;
 		return btn;
 	};
-	const userMessageSeen = (text) => {
-		const sample = normalized(text).slice(0, 40);
-		return messageNodes("user").some((node) =>
-			normalized(node.innerText ?? node.textContent).includes(sample),
-		);
-	};
 	const accountReady = () =>
 		!document.querySelector(
 			'[data-testid="login-button"],a[href*="/auth/login"]',
 		);
+	const manualSeedReady = () => {
+		const users = messageNodes("user");
+		const assistants = messageNodes("assistant");
+		const user = users.at(-1);
+		const assistant = assistants.at(-1);
+		const userTurn = user?.closest?.("[data-virtualized-turn]");
+		const assistantTurn = assistant?.closest?.("[data-virtualized-turn]");
+		return (
+			!!user &&
+			!!assistant &&
+			users.length === assistants.length &&
+			!(!userTurn && assistantTurn) &&
+			!(!assistantTurn && userTurn) &&
+			(!userTurn || userTurn === assistantTurn) &&
+			normalized(user.innerText ?? user.textContent).startsWith(LAB_PREFIX) &&
+			completedTurnWitness(assistant)
+		);
+	};
 	const targetReady = () =>
 		location.origin + location.pathname === url &&
 		!stopButton() &&
 		accountReady() &&
-		document.querySelectorAll("form[data-chatgpt-composer]").length === 1 &&
+		!!composer() &&
 		!!composeBox() &&
-		!normalized(composeBox()?.innerText ?? composeBox()?.value);
+		!normalized(composeBox()?.innerText ?? composeBox()?.value) &&
+		manualSeedReady();
 
 	async function withLock(name, callback) {
 		if (!locks?.request) throw new Error("Firefox LockManager unavailable");
@@ -202,6 +249,14 @@
 						!!normalized(el.innerText ?? el.textContent),
 				);
 				const latest = next.at(-1);
+				// An earlier turn's visible Copy button must never certify this send.
+				const userTurn = sentUser.closest?.("[data-virtualized-turn]");
+				const replyTurn = latest?.closest?.("[data-virtualized-turn]");
+				if (
+					latest &&
+					((userTurn && userTurn !== replyTurn) || (!userTurn && replyTurn))
+				)
+					throw new Error("Assistant receipt is not in sent user turn");
 				const text = normalized(latest?.innerText ?? latest?.textContent);
 				if (latest && !stopButton() && completedTurnWitness(latest)) {
 					if (text !== prev) {
@@ -300,6 +355,10 @@
 				!!(await read("STOP")) +
 				"; cycles=" +
 				(state?.cycle ?? 0) +
+				"; activeComposerUnique=" +
+				!!composer() +
+				"; manualSeedReady=" +
+				manualSeedReady() +
 				"; editorPresent=" +
 				!!composeBox() +
 				"; sendReady=" +

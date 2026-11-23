@@ -40,16 +40,32 @@ body {font:16px sans-serif; margin:20px} form {margin-top:10px}
 article {padding:6px; margin:4px; background:#efefef}
 </style></head><body>
 <h1>Local test only — no ChatGPT or browser profile data</h1>
-<div id="messages"></div>
-<form data-chatgpt-composer>
+<div id="messages">
+<div data-virtualized-turn>
+  <div data-user-message-bubble>CQLOCAL LAB: Manual seed.</div>
+  <div class="group flex flex-col">
+    <h4 data-conversation-role="assistant">Assistant</h4>
+    <p>LAB_ACK</p>
+    <button type="button" aria-label="Copiar">Copiar</button>
+  </div>
+</div>
+</div>
+<!-- The authenticated page has a second bubble OUTSIDE the current turn. -->
+<div data-user-message-bubble style="position:absolute; left:-9999px">
+  CQLOCAL LAB: Manual seed.
+</div>
+<form data-chatgpt-composer hidden>
+  <div contenteditable="true" role="textbox"></div>
+</form>
+<form id="active-composer" data-chatgpt-composer>
 <div contenteditable="true" role="textbox" aria-label="Test composer"></div>
 <!-- Like ChatGPT: no Send button exists until a draft is composed. -->
 </form>
 <button type="button" id="stop" data-testid="stop-button" style="display:none">Stop</button>
 <script>
 (() => {
-  const form = document.querySelector("form");
-  const input = document.querySelector("[contenteditable]");
+  const form = document.querySelector("#active-composer");
+  const input = form.querySelector("[contenteditable]");
   const stop = document.querySelector("#stop");
   const box = document.querySelector("#messages");
   const send = document.createElement("button");
@@ -67,6 +83,21 @@ article {padding:6px; margin:4px; background:#efefef}
   };
   input.addEventListener("input", toggleSend);
   const id = location.pathname.split("/").pop();
+  if (id.includes("ambiguous-form")) {
+    document.querySelector("form[hidden]").hidden = false;
+  }
+  if (id.includes("no-manual-seed")) {
+    document.querySelector("#messages").replaceChildren();
+  }
+  if (id.includes("unanswered-latest")) {
+    const pending = document.createElement("div");
+    pending.setAttribute("data-virtualized-turn", "");
+    const unpaired = document.createElement("div");
+    unpaired.setAttribute("data-user-message-bubble", "");
+    unpaired.textContent = "CQLOCAL LAB: latest unanswered user message.";
+    pending.appendChild(unpaired);
+    box.appendChild(pending);
+  }
   const delayMs = id.includes("restart") ? 20000 : 800;
   const key = "FIXTURE_EVENTS:" + location.pathname;
   window.__fixture = {
@@ -77,10 +108,13 @@ article {padding:6px; margin:4px; background:#efefef}
     if (stop.style.display !== "none") return;
     const body = input.innerText.trim();
     if (!body.startsWith("CQLOCAL LAB:")) return;
-    const row = document.createElement("article");
-    row.setAttribute("data-message-author-role", "user");
+    const turn = document.createElement("div");
+    turn.setAttribute("data-virtualized-turn", "");
+    const row = document.createElement("div");
+    row.setAttribute("data-user-message-bubble", "");
     row.textContent = body;
-    box.appendChild(row);
+    turn.appendChild(row);
+    box.appendChild(turn);
     input.textContent = "";
     toggleSend();
     stop.style.display = "block";
@@ -89,17 +123,23 @@ article {padding:6px; margin:4px; background:#efefef}
     previous.push({ type: "send", at: sentAt, body: body });
     localStorage.setItem(key, JSON.stringify(previous));
     setTimeout(() => {
-      const answer = document.createElement("article");
-      answer.setAttribute("data-message-author-role", "assistant");
-      answer.textContent = "LAB_ACK";
+      const answer = document.createElement("div");
+      answer.className = "group flex flex-col";
+      const role = document.createElement("h4");
+      role.setAttribute("data-conversation-role", "assistant");
+      role.textContent = "assistant";
+      answer.appendChild(role);
+      const text = document.createElement("p");
+      text.textContent = "LAB_ACK";
+      answer.appendChild(text);
       if (!id.includes("no-receipt")) {
         const receipt = document.createElement("button");
         receipt.type = "button";
-        receipt.setAttribute("data-testid", "cq-local-terminal-receipt");
-        receipt.textContent = "Completed";
+        receipt.setAttribute("aria-label", "Copiar");
+        receipt.textContent = "Copiar";
         answer.appendChild(receipt);
       }
-      box.appendChild(answer);
+      turn.appendChild(answer);
       stop.style.display = "none";
       const previous = window.__fixture.events;
       previous.push({ type: "reply", at: Date.now(), body: "LAB_ACK" });
@@ -357,6 +397,31 @@ def run_no_receipt_case(driver: webdriver.Firefox, port: int, bundle: str) -> No
     driver.switch_to.window(original_tab)
 
 
+def run_preflight_denial_case(
+    driver: webdriver.Firefox, port: int, bundle: str, path: str
+) -> None:
+    original_tab = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    driver.get("http://127.0.0.1:" + str(port) + "/c/" + path)
+    boot(driver, bundle)
+    configure(driver, "coordinator")
+    arm(driver)
+    WebDriverWait(driver, 8).until(
+        lambda d: d.execute_script(
+            "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + "
+            "location.origin + location.pathname + ':STOP') || 'false');"
+        ) is True
+    )
+    assert count_events(driver, "send") == 0
+    print(
+        "PASS: REAL Firefox headless - denied " + path +
+        " without sending; STOP restored",
+        flush=True,
+    )
+    driver.close()
+    driver.switch_to.window(original_tab)
+
+
 def run_manual_pause_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
     original_tab = driver.current_window_handle
     driver.switch_to.new_window("tab")
@@ -402,6 +467,9 @@ def main() -> int:
         run_two_tab_case(driver, port, bundle)
         run_restart_case(driver, port, bundle)
         run_no_receipt_case(driver, port, bundle)
+        run_preflight_denial_case(driver, port, bundle, "ambiguous-form-lab")
+        run_preflight_denial_case(driver, port, bundle, "no-manual-seed-lab")
+        run_preflight_denial_case(driver, port, bundle, "unanswered-latest-lab")
         run_manual_pause_case(driver, port, bundle)
         print("PASS: isolated browser E2E; no ChatGPT, account, profile or broker agents accessed", flush=True)
         return 0

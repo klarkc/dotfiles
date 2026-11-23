@@ -157,8 +157,19 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 	const menus = [];
 	const timers = [];
 	const clicks = [];
-	const users = [],
-		assistants = [];
+	const seededReceipt = {
+		disabled: false,
+		hidden: false,
+		getAttribute: () => null,
+		getClientRects: () => [1],
+	};
+	const users = [{ innerText: "CQLOCAL LAB: Manual seed." }],
+		assistants = [
+			{
+				innerText: "LAB_ACK",
+				querySelector: () => seededReceipt,
+			},
+		];
 	let clock = 0,
 		nextTimer = 1,
 		nextUUID = 1;
@@ -188,6 +199,8 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 		},
 	};
 	const form = {
+		getClientRects: () => [1],
+		getAttribute: () => null,
 		querySelector: () => docBox,
 		querySelectorAll: () => (docBox.innerText ? [send] : []),
 	};

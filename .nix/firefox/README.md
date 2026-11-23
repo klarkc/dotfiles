@@ -243,3 +243,53 @@ harmless, non-sensitive message in this separate new chat so it receives a
 real /c/<conversation-id> URL. No broker agent tab, heartbeat job or legacy
 ChatQueue queue may be used for that manual setup. The following DOM inspection
 must again be read-only before any LAB send is attempted; do not infer a GO.
+
+### Authenticated Firefox persisted-chat audit after MANUAL LAB_ACK (2026-11-23)
+
+The operator created a separate LAB chat by manually sending exactly one
+harmless "CQLOCAL LAB:" prompt and receiving "LAB_ACK". The main Firefox
+profile was then inspected using read-only DevTools DOM queries on this
+persisted /c/ conversation. No messages were generated or sent by the LAB
+adapter; no user script was installed or activated.
+
+The actual post-reply DOM differs substantially from the empty / home page:
+
+- Initially **two** form[data-chatgpt-composer] elements were observed:
+  one invisible with getClientRects().length == 0 and one visible/active
+  with an empty editor. At a later read-only check the hidden duplicate
+  had disappeared, leaving ONE form. The selector must choose exactly
+  one **visible** composer and refuse any ambiguity; it cannot depend on
+  a fixed total form count. The empty active composer has no Send button.
+- Legacy [data-message-author-role="user" or "assistant"] elements are
+  ABSENT. Role headings instead use data-conversation-role ("user" and
+  "assistant"), while data-virtualized-turn bounds the visible turn.
+  The assistant role heading belongs to a div.group.flex.flex-col that also
+  contains one visible Copy action.
+- The page contains **two** [data-user-message-bubble] elements with the
+  same harmless LAB seed: one is outside the actual turn and one is inside
+  it. Do not find user messages globally. The original user was scoped to
+  the virtualized turn; the assistant Copy action was scoped to its own
+  heading/group in that same turn.
+- One copy-turn action is visually present; its actual accessible label is
+  "Copiar" (the bridge also supports "Copy"). No Stop action was visible.
+  These facts show a completed _manual_ reply, NOT that Copy appears only
+  after all kinds of streaming/long-running responses. Its terminal status
+  remains a conservative heuristic until a supervised long-reply E2E test.
+
+The original LAB bridge now supports both the legacy loopback markup and
+these live role/turn markers, requires a benign **manually completed seed**
+before it can arm, chooses only one visible composer, rejects duplicate
+or mixed role layouts, and demands that the latest user message and last
+assistant reply are in the SAME modern turn before preflight can pass.
+The send is still gated on a unique active candidate AFTER drafting and has
+not been tested with a filled authenticated editor. The reply check rejects
+a Copy action belonging to an earlier/different turn.
+
+The isolated Firefox E2E now emulates two forms, a duplicate non-turn user
+bubble, data-virtualized-turn, an assistant role heading, and a localized
+Copiar action. Its negative cases require REVIEW without second send if
+Copy is absent from the new reply despite being present on the seed, and
+prevent the first send when there are two visible composers, no seed, or a
+newer unanswered user turn. This is still NOT an authenticated automated
+E2E; the script remains SOURCE ONLY, STOP=true, original XPI unchanged,
+four permanent agents paused, runtime NO_GO.
