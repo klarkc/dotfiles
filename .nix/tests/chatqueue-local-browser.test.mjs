@@ -96,6 +96,15 @@ test("non-chat pages get no menus and no automatic send", async () => {
 	assert.equal(s.values.size, 0);
 	assert.equal(s.timers.length, 0);
 });
+test("new unpersisted ChatGPT home route is not eligible for LAB", async () => {
+	const s = sandbox("/");
+	s.run();
+	await flush();
+	assert.equal(s.menus.length, 0);
+	assert.equal(s.values.size, 0);
+	assert.equal(s.timers.length, 0);
+});
+
 test("configuring benign LAB text never sends or starts a timer", async () => {
 	const s = sandbox();
 	s.run();
@@ -180,7 +189,7 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 	};
 	const form = {
 		querySelector: () => docBox,
-		querySelectorAll: () => [send],
+		querySelectorAll: () => (docBox.innerText ? [send] : []),
 	};
 	const DocDate = class extends Date {
 		static now() {
@@ -213,6 +222,7 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 				return selector === "form[data-chatgpt-composer]" ? form : null;
 			},
 			querySelectorAll(selector) {
+				if (selector === "form[data-chatgpt-composer]") return [form];
 				if (selector.includes('author-role="user"')) return users;
 				if (selector.includes('author-role="assistant"')) return assistants;
 				return [];

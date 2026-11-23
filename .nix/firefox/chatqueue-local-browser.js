@@ -66,8 +66,13 @@
 			'[contenteditable="true"][role="textbox"],[contenteditable="true"],textarea',
 		);
 	const sendButton = () => {
+		// The authenticated ChatGPT editor has NO submit button when blank:
+		// it appears only after composing a draft. Accept either a uniquely
+		// identified send button or a native form submit, never voice/dictation.
 		const options = [
-			...(composer()?.querySelectorAll('button[type="submit"]') || []),
+			...(composer()?.querySelectorAll(
+				'button[data-testid="send-button"],button[type="submit"]',
+			) || []),
 		];
 		if (options.length !== 1) return null;
 		const btn = options[0];
@@ -93,8 +98,7 @@
 		location.origin + location.pathname === url &&
 		!stopButton() &&
 		accountReady() &&
-		!!composer() &&
-		composer().querySelectorAll('button[type="submit"]').length === 1 &&
+		document.querySelectorAll("form[data-chatgpt-composer]").length === 1 &&
 		!!composeBox() &&
 		!normalized(composeBox()?.innerText ?? composeBox()?.value);
 
@@ -298,8 +302,8 @@
 				(state?.cycle ?? 0) +
 				"; editorPresent=" +
 				!!composeBox() +
-				"; sendUnique=" +
-				(composer()?.querySelectorAll('button[type="submit"]').length === 1) +
+				"; sendReady=" +
+				!!sendButton() +
 				"; stopPresent=" +
 				stopButton() +
 				"; assistantTurnCount=" +

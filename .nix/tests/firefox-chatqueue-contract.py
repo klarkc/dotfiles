@@ -76,6 +76,13 @@ assert 'No corroborated terminal reply before deadline' in lab
 assert 'Current user turn disappeared or was superseded' in lab
 assert 'LAB paused during uncertain reply' in lab
 assert 'lastTurnHasCompletionAction=' in lab
+assert 'button[data-testid="send-button"]' in lab
+assert 'document.querySelectorAll("form[data-chatgpt-composer]").length === 1' in lab
+assert "composer().querySelectorAll" not in lab
+assert 'location.pathname' in lab
+assert 'new chat not yet persisted' in (root / '.nix/firefox/README.md').read_text()
+assert 'send.addEventListener("click", () => form.requestSubmit())' in e2e_text
+assert 'toggleSend();' in e2e_text
 assert 'firefox.ChatQueueLocalBuild' not in make.split('all:',1)[1].split('\n',1)[0]
 assert 'firefox.RecurrenceTest' in make.split('test: ',1)[1].split('\n',1)[0]
 assert 'No vendor contact' in readme

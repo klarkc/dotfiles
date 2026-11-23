@@ -43,7 +43,7 @@ article {padding:6px; margin:4px; background:#efefef}
 <div id="messages"></div>
 <form data-chatgpt-composer>
 <div contenteditable="true" role="textbox" aria-label="Test composer"></div>
-<button type="submit" aria-label="Send test">Send test</button>
+<!-- Like ChatGPT: no Send button exists until a draft is composed. -->
 </form>
 <button type="button" id="stop" data-testid="stop-button" style="display:none">Stop</button>
 <script>
@@ -52,6 +52,20 @@ article {padding:6px; margin:4px; background:#efefef}
   const input = document.querySelector("[contenteditable]");
   const stop = document.querySelector("#stop");
   const box = document.querySelector("#messages");
+  const send = document.createElement("button");
+  send.type = "button";
+  send.setAttribute("data-testid", "send-button");
+  send.setAttribute("aria-label", "Send test");
+  send.textContent = "Send test";
+  send.addEventListener("click", () => form.requestSubmit());
+  const toggleSend = () => {
+    if (input.innerText.trim()) {
+      if (!send.isConnected) form.appendChild(send);
+    } else if (send.isConnected) {
+      send.remove();
+    }
+  };
+  input.addEventListener("input", toggleSend);
   const id = location.pathname.split("/").pop();
   const delayMs = id.includes("restart") ? 20000 : 800;
   const key = "FIXTURE_EVENTS:" + location.pathname;
@@ -68,6 +82,7 @@ article {padding:6px; margin:4px; background:#efefef}
     row.textContent = body;
     box.appendChild(row);
     input.textContent = "";
+    toggleSend();
     stop.style.display = "block";
     const sentAt = Date.now();
     const previous = window.__fixture.events;

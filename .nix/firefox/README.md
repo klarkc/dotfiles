@@ -209,3 +209,37 @@ no completion receipt (must end REVIEW, no retry) and a manual pause while
 awaiting an answer (REVIEW, no retry). The loopback deadline is shortened
 only in memory for test speed; the source keeps its original two-hour
 terminal-observation bound and the 360-second cooldown.
+
+### Authenticated Firefox read-only DOM audit (2026-11-23)
+
+In the operator-created, empty ChatGPT chat on the primary Firefox profile,
+DevTools read-only queries (without typing into or sending from the editor)
+confirmed the following:
+
+- Browser route: / (new chat not yet persisted as a /c/<id> conversation).
+- Exactly one form[data-chatgpt-composer], with a
+  DIV[contenteditable=true][role=textbox] and the Portuguese accessible label
+  Pergunte ao ChatGPT.
+- Initially zero form buttons with type=submit, zero visible Stop buttons
+  and zero assistant turns. Existing form controls are type=button for
+  attachment, model selection, dictation and starting voice mode.
+- Therefore requiring a send button in targetReady() before composing is
+  incorrect. The LAB bridge now checks only the unique empty composer during
+  preflight, and resolves a unique send candidate after composing.
+  Recognized post-draft candidates are a button with data-testid=send-button
+  or type=submit, subject to visibility/disabled checks. We did not assert
+  either post-draft selector is present in the real ChatGPT UI, because no
+  draft was entered during the read-only audit.
+
+The Firefox loopback E2E fixture now starts with no send button and adds a
+button[type=button][data-testid=send-button] only after a text-input event.
+This checks the pre-compose/post-compose separation with two browser tabs,
+without modifying the signed ChatQueue extension or authenticated page.
+
+Important: the LAB userscript deliberately matches /c/* only. The empty
+/ home route is not an eligible LAB target. To validate the authenticated
+composer and completion witness, the operator must first manually send a
+harmless, non-sensitive message in this separate new chat so it receives a
+real /c/<conversation-id> URL. No broker agent tab, heartbeat job or legacy
+ChatQueue queue may be used for that manual setup. The following DOM inspection
+must again be read-only before any LAB send is attempted; do not infer a GO.
