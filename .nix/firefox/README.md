@@ -183,3 +183,29 @@ The headless local E2E proves Firefox behavior against the synthetic page,
 not real ChatGPT UI compatibility, account/model binding, signed Violentmonkey
 import, or four-agent heartbeat liveness. Never infer broker GO from this
 target. No new scheduler or heartbeats are automatically enabled.
+
+### Completion proof: fail closed if a response is only apparently idle
+
+The LAB controller no longer treats a message that is unchanged for six seconds
+and has no visible Stop button as sufficient terminal evidence. It now needs
+a **new assistant turn with a visible, enabled end-of-turn action**, such as
+a turn-scoped Copy button (English/Portuguese). Only the local synthetic fixture
+provides the special cq-local-terminal-receipt marker. A missing/ambiguous
+action results in REVIEW at the bounded deadline, never a second send.
+The next message is also blocked if the exact user turn disappears or another
+user message supersedes it, and manual Pause during an uncertain response
+moves the run into REVIEW rather than continuing its wait.
+
+The opt-in Status (no send) menu reports only structural facts: composer
+presence, a unique send button, Stop visibility, assistant turn count and
+whether the most recent assistant turn exposes a completion action.
+It does not read/copy chat text, cookies, credentials or model prompts.
+**This is still heuristic**: even a Copy button may not be an authoritative
+completion signal on the live ChatGPT UI. The actual authenticated page must
+be audited read-only before any live test sends or operational cutover.
+
+The loopback Firefox E2E additionally checks a stable assistant message with
+no completion receipt (must end REVIEW, no retry) and a manual pause while
+awaiting an answer (REVIEW, no retry). The loopback deadline is shortened
+only in memory for test speed; the source keeps its original two-hour
+terminal-observation bound and the 360-second cooldown.

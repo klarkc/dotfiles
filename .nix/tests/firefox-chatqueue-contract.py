@@ -58,6 +58,9 @@ assert 'https://chatgpt.com' in e2e_text
 assert 'driver.quit()' in e2e_text
 assert 'NoSuchWindow' not in e2e_text
 assert 'LAB_COOLDOWN_MS = 3_000' in e2e_text
+assert 'LAB_TERMINAL_DEADLINE_MS = 8_000' in e2e_text
+assert 'run_no_receipt_case' in e2e_text
+assert 'run_manual_pause_case' in e2e_text
 assert 'BASE_COOLDOWN = 360_000' in e2e_text
 assert (root / '.nix/firefox/chatqueue-local-controller.mjs').is_file()
 assert (root / '.nix/firefox/chatqueue-local-browser.js').is_file()
@@ -68,6 +71,11 @@ assert 'const MAX_CYCLES = 2' in lab
 assert 'const LAB_PREFIX = "CQLOCAL LAB:"' in lab
 assert 'await write("STOP", true)' in lab
 assert 'recurrenceE2EPassed: true, // LAB test path ONLY' in lab
+assert 'completedTurnWitness(latest)' in lab
+assert 'No corroborated terminal reply before deadline' in lab
+assert 'Current user turn disappeared or was superseded' in lab
+assert 'LAB paused during uncertain reply' in lab
+assert 'lastTurnHasCompletionAction=' in lab
 assert 'firefox.ChatQueueLocalBuild' not in make.split('all:',1)[1].split('\n',1)[0]
 assert 'firefox.RecurrenceTest' in make.split('test: ',1)[1].split('\n',1)[0]
 assert 'No vendor contact' in readme

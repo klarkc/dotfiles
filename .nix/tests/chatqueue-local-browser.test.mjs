@@ -166,7 +166,15 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 		click() {
 			clicks.push(clock);
 			users.push({ innerText: docBox.innerText });
-			assistants.push({ innerText: "LAB_ACK_" + clicks.length });
+			assistants.push({
+				innerText: "LAB_ACK_" + clicks.length,
+				querySelector: () => ({
+					disabled: false,
+					hidden: false,
+					getAttribute: () => null,
+					getClientRects: () => [1],
+				}),
+			});
 			docBox.innerText = "";
 		},
 	};
@@ -266,4 +274,31 @@ test("synthetic browser DOM: two sends only, each after a terminal + cooldown", 
 	assert.equal(state.cycle, 2);
 	assert.equal(state.phase, "COOLDOWN");
 	assert.equal([...store].find(([key]) => key.endsWith(":STOP"))?.[1], true);
+});
+
+test("LAB Status reports only DOM structural booleans, no message content", async () => {
+	const s = sandbox();
+	s.run();
+	await flush();
+	await s.runMenu("Status (no send)");
+	assert.equal(s.alerts.length, 1);
+	assert.match(s.alerts[0], /lastTurnHasCompletionAction=false/);
+	assert.match(s.alerts[0], /assistantTurnCount=0/);
+	assert.doesNotMatch(s.alerts[0], /CQLOCAL LAB: Respond/);
+	assert.equal(s.timers.length, 0);
+});
+test("ARM with unverified editor refuses scheduling and restores STOP", async () => {
+	const s = sandbox();
+	s.context.navigator.locks = {
+		async request(_name, _opts, fn) {
+			return fn({ name: "local-test-lock" });
+		},
+	};
+	s.run();
+	await flush();
+	s.responses.push("coordinator", "CQLOCAL LAB: harmless.");
+	await s.runMenu("Configure LAB");
+	await s.runMenu("Arm LAB");
+	assert.equal([...s.values].find(([k]) => k.endsWith(":STOP"))?.[1], true);
+	assert.equal(s.timers.length, 0);
 });

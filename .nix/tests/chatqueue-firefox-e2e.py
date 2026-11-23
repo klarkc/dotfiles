@@ -29,6 +29,7 @@ BUNDLE = ROOT / "chatqueue-local.user.js"
 BASE_COOLDOWN = 360_000
 LAB_COOLDOWN_MS = 3_000
 LAB_STABILITY_MS = 1_000
+LAB_TERMINAL_DEADLINE_MS = 8_000
 SELENIUM_TIMEOUT = 18
 
 PAGE = """
@@ -76,6 +77,13 @@ article {padding:6px; margin:4px; background:#efefef}
       const answer = document.createElement("article");
       answer.setAttribute("data-message-author-role", "assistant");
       answer.textContent = "LAB_ACK";
+      if (!id.includes("no-receipt")) {
+        const receipt = document.createElement("button");
+        receipt.type = "button";
+        receipt.setAttribute("data-testid", "cq-local-terminal-receipt");
+        receipt.textContent = "Completed";
+        answer.appendChild(receipt);
+      }
       box.appendChild(answer);
       stop.style.display = "none";
       const previous = window.__fixture.events;
@@ -144,12 +152,14 @@ def render_local_bundle(port: int) -> str:
     old_origin = 'const origin = "https://chatgpt.com";'
     old_cooldown = "const REPLY_COOLDOWN_MS = 360_000;"
     old_stability = "Date.now() - stableSince >= 6000"
-    for needle in (old_origin, old_cooldown, old_stability):
+    old_deadline = "const deadline = Date.now() + 2 * 60 * 60 * 1000;"
+    for needle in (old_origin, old_cooldown, old_stability, old_deadline):
         if bundle.count(needle) != 1:
             raise AssertionError("Source changed; explicit fixture patch must be reviewed")
     bundle = bundle.replace(old_origin, 'const origin = "http://127.0.0.1:' + str(port) + '";')
     bundle = bundle.replace(old_cooldown, 'const REPLY_COOLDOWN_MS = ' + str(LAB_COOLDOWN_MS) + ';')
     bundle = bundle.replace(old_stability, "Date.now() - stableSince >= " + str(LAB_STABILITY_MS))
+    bundle = bundle.replace(old_deadline, "const deadline = Date.now() + " + str(LAB_TERMINAL_DEADLINE_MS) + ";")
     return bundle
 
 
@@ -281,6 +291,7 @@ def run_two_tab_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
 
 
 def run_restart_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
+    original_tab = driver.current_window_handle
     driver.switch_to.new_window("tab")
     url = "http://127.0.0.1:" + str(port) + "/c/restart-lab"
     driver.get(url)
@@ -303,6 +314,49 @@ def run_restart_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
     ) is True
     print("PASS: REAL Firefox headless — reload during answer freezes REVIEW with original send, no replay", flush=True)
     driver.close()
+    driver.switch_to.window(original_tab)
+
+
+def run_no_receipt_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
+    original_tab = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    url = "http://127.0.0.1:" + str(port) + "/c/no-receipt-lab"
+    driver.get(url)
+    boot(driver, bundle)
+    configure(driver, "coordinator")
+    arm(driver)
+    WebDriverWait(driver, 12).until(lambda d: count_events(d, "send") == 1)
+    WebDriverWait(driver, 12).until(lambda d: count_events(d, "reply") == 1)
+    # Even though the text becomes stable and the Stop button disappears,
+    # without a corroborating terminal receipt there must be NO second send.
+    WebDriverWait(driver, LAB_TERMINAL_DEADLINE_MS / 1000 + 6).until(
+        lambda d: phase(d) == "REVIEW"
+    )
+    assert count_events(driver, "send") == 1, "Unsafe retry without terminal receipt"
+    assert driver.execute_script(
+        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + "
+        "location.origin + location.pathname + ':STOP'));"
+    ) is True
+    print("PASS: REAL Firefox headless — text stable and Stop hidden but no receipt => REVIEW, zero retries", flush=True)
+    driver.close()
+    driver.switch_to.window(original_tab)
+
+
+def run_manual_pause_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
+    original_tab = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    url = "http://127.0.0.1:" + str(port) + "/c/restart-pause-lab"
+    driver.get(url)
+    boot(driver, bundle)
+    configure(driver, "coordinator")
+    arm(driver)
+    WebDriverWait(driver, 12).until(lambda d: count_events(d, "send") == 1)
+    menu(driver, "Pause LAB")
+    WebDriverWait(driver, 10).until(lambda d: phase(d) == "REVIEW")
+    assert count_events(driver, "send") == 1, "Pause must not trigger retry"
+    print("PASS: REAL Firefox headless — manual pause during answer => REVIEW, zero retries", flush=True)
+    driver.close()
+    driver.switch_to.window(original_tab)
 
 
 def main() -> int:
@@ -332,6 +386,8 @@ def main() -> int:
         driver.set_page_load_timeout(20)
         run_two_tab_case(driver, port, bundle)
         run_restart_case(driver, port, bundle)
+        run_no_receipt_case(driver, port, bundle)
+        run_manual_pause_case(driver, port, bundle)
         print("PASS: isolated browser E2E; no ChatGPT, account, profile or broker agents accessed", flush=True)
         return 0
     finally:

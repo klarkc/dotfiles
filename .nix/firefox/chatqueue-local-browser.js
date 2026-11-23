@@ -47,6 +47,19 @@
 				'button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="Parar"],button[aria-label*="Interromper"]',
 			),
 		].some(visible);
+	// Never equate a six-second text pause with response completion.
+	// In ChatGPT this is deliberately conservative: if the current assistant
+	// turn exposes no corroborating end-of-turn action, fail closed in REVIEW.
+	// The cq-local-terminal-receipt marker exists ONLY in our loopback fixture.
+	const completedTurnWitness = (turn) => {
+		if (!turn?.querySelector) return false;
+		const receipt = turn.querySelector(
+			'[data-testid="copy-turn-action-button"],' +
+				'button[aria-label="Copy"],button[aria-label="Copiar"],' +
+				'[data-testid="cq-local-terminal-receipt"]',
+		);
+		return visible(receipt) && !receipt.disabled;
+	};
 	const composer = () => document.querySelector("form[data-chatgpt-composer]");
 	const composeBox = () =>
 		composer()?.querySelector(
@@ -153,9 +166,8 @@
 				const newUser = messageNodes("user").find(
 					(item) =>
 						!priorUsers.has(item) &&
-						normalized(item.innerText ?? item.textContent).includes(
-							normalized(content).slice(0, 40),
-						),
+						normalized(item.innerText ?? item.textContent) ===
+							normalized(content),
 				);
 				if (newUser) {
 					sentUser = newUser;
@@ -173,6 +185,13 @@
 			while (Date.now() < deadline) {
 				if (location.origin + location.pathname !== url)
 					throw new Error("Chat switched during reply");
+				if (await read("STOP"))
+					throw new Error("LAB paused during uncertain reply");
+				if (
+					sentUser?.isConnected === false ||
+					messageNodes("user").at(-1) !== sentUser
+				)
+					throw new Error("Current user turn disappeared or was superseded");
 				const next = messageNodes("assistant").filter(
 					(el) =>
 						!beforeAssistant.has(el) &&
@@ -180,7 +199,7 @@
 				);
 				const latest = next.at(-1);
 				const text = normalized(latest?.innerText ?? latest?.textContent);
-				if (latest && !stopButton()) {
+				if (latest && !stopButton() && completedTurnWitness(latest)) {
 					if (text !== prev) {
 						prev = text;
 						stableSince = Date.now();
@@ -195,7 +214,7 @@
 				}
 				await sleep(500);
 			}
-			throw new Error("No terminal reply proof after 2-hour limit");
+			throw new Error("No corroborated terminal reply before deadline");
 		},
 	};
 	const controller = makeLocalController({
@@ -276,7 +295,17 @@
 				"; stopped=" +
 				!!(await read("STOP")) +
 				"; cycles=" +
-				(state?.cycle ?? 0),
+				(state?.cycle ?? 0) +
+				"; editorPresent=" +
+				!!composeBox() +
+				"; sendUnique=" +
+				(composer()?.querySelectorAll('button[type="submit"]').length === 1) +
+				"; stopPresent=" +
+				stopButton() +
+				"; assistantTurnCount=" +
+				messageNodes("assistant").length +
+				"; lastTurnHasCompletionAction=" +
+				completedTurnWitness(messageNodes("assistant").at(-1)),
 		);
 	});
 	menu("Configure LAB here (no send)", async () => {
@@ -330,18 +359,23 @@
 			return;
 		currentRole = config.agentId;
 		await write("STOP", false);
-		const gates = {
-			manualGo: true,
-			threeLegacyGatesOff: true,
-			exclusiveScheduler: true,
-			targetVerified: targetReady(),
-			accountVerified: accountReady(),
-			bootstrapSameChatVerified: true, // LAB only, not broker certification.
-			noOtherGeneration: !stopButton(),
-			recurrenceE2EPassed: true, // LAB test path ONLY, not an operational claim.
-		};
-		await controller.arm(currentRole, gates);
-		await schedule();
+		try {
+			const gates = {
+				manualGo: true,
+				threeLegacyGatesOff: true,
+				exclusiveScheduler: true,
+				targetVerified: targetReady(),
+				accountVerified: accountReady(),
+				bootstrapSameChatVerified: true, // LAB only, not broker certification.
+				noOtherGeneration: !stopButton(),
+				recurrenceE2EPassed: true, // LAB test path ONLY, not an operational claim.
+			};
+			await controller.arm(currentRole, gates);
+			await schedule();
+		} catch (error) {
+			await write("STOP", true);
+			throw error;
+		}
 	});
 	menu("Pause LAB immediately", async () => {
 		await write("STOP", true);
