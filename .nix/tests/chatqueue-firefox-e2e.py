@@ -359,6 +359,84 @@ def run_duplicate_tab_case(driver: webdriver.Firefox, port: int, bundle: str) ->
     print("PASS: duplicate same-conversation tab revokes older lease, preserves attempt in REVIEW, zero replay", flush=True)
 
 
+def run_pause_click_order_case(driver: webdriver.Firefox, port: int, bundle: str, click_first: bool) -> None:
+    original = driver.current_window_handle
+    tag = "click-first" if click_first else "pause-first"
+    url = f"http://127.0.0.1:{port}/c/restart-fence-{tag}"
+    driver.switch_to.new_window("tab")
+    driver.get(url)
+    boot(driver, bundle)
+    first = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    driver.get(url)
+    boot(driver, bundle)
+    second = driver.current_window_handle
+    # The duplicate is booted before arm, so its boot cannot be mistaken
+    # for the Pause under test. Log only fixture-local acknowledgement.
+    driver.execute_script("""
+        const alert = window.alert;
+        window.alert = v => {
+          alert(v);
+          if (String(v).includes("LAB paused")) localStorage.setItem("FIXTURE_PAUSE_ACK:"+location.pathname,String(Date.now()));
+        };
+    """)
+    driver.switch_to.window(first)
+    configure(driver, "coordinator")
+    # Insert a deterministic barrier at the actual short fence acquisition
+    # for PREPARED. Real Firefox LockManager still serializes both documents.
+    driver.execute_script("""
+        const clickFirst=arguments[0], native=navigator.locks.request.bind(navigator.locks);
+        const key='CQLOCAL_V1:'+location.origin+location.pathname+':STATE:coordinator';
+        navigator.locks.request=(name,options,callback)=>{
+          const state=JSON.parse(localStorage.getItem(key)||'null');
+          if(name.endsWith(":chatqueue-local-send-fence")&&state?.phase==="PREPARED"&&!window.__fenceBarrierUsed){
+            window.__fenceBarrierUsed=true;
+            const wait=()=>new Promise(resolve=>{window.__fenceBlocked=true;window.__releaseFence=resolve;});
+            if(clickFirst)return native(name,options,async lock=>{await wait();return callback(lock);});
+            return wait().then(()=>native(name,options,callback));
+          }
+          return native(name,options,callback);
+        };
+    """, click_first)
+    arm(driver)
+    WebDriverWait(driver, 15).until(lambda d: d.execute_script("return window.__fenceBlocked===true;"))
+    assert count_events(driver, "send")==0
+    original_attempt=driver.execute_script(
+        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:'+location.origin+location.pathname+':STATE:coordinator')).attemptId;"
+    )
+    assert original_attempt
+    driver.switch_to.window(second)
+    menu(driver, "Pause LAB")
+    ack=lambda d:d.execute_script("return Number(localStorage.getItem('FIXTURE_PAUSE_ACK:'+location.pathname)||0);")
+    if click_first:
+        # The fence is held by the sender; Pause cannot falsely acknowledge.
+        time.sleep(0.5)
+        assert not ack(driver), "Pause acknowledged before sender released fence"
+        assert count_events(driver, "send")==0
+    else:
+        WebDriverWait(driver, 10).until(ack)
+        assert count_events(driver, "send")==0
+    driver.switch_to.window(first)
+    driver.execute_script("window.__releaseFence();")
+    WebDriverWait(driver, 15).until(lambda d: phase(d)=="REVIEW")
+    pause_ack=WebDriverWait(driver, 10).until(ack)
+    sends=[e for e in events(driver) if e["type"]=="send"]
+    if click_first:
+        assert len(sends)==1 and sends[0]["at"]<=pause_ack, "Click happened after acknowledged Pause"
+    else:
+        assert len(sends)==0, "Click after earlier acknowledged Pause"
+    assert driver.execute_script(
+        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:'+location.origin+location.pathname+':STATE:coordinator')).attemptId;"
+    )==original_attempt
+    assert driver.execute_script("return JSON.parse(localStorage.getItem('CQLOCAL_V1:'+location.origin+location.pathname+':STOP'));") is True
+    driver.switch_to.window(second)
+    driver.close()
+    driver.switch_to.window(first)
+    driver.close()
+    driver.switch_to.window(original)
+    print(f"PASS: two-tab real Firefox fence order {tag}; acknowledgement/click ordered, attempt preserved, no replay",flush=True)
+
+
 def run_restart_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
     original_tab = driver.current_window_handle
     driver.switch_to.new_window("tab")
@@ -480,6 +558,8 @@ def main() -> int:
         driver.set_page_load_timeout(20)
         run_four_tab_case(driver, port, bundle)
         run_duplicate_tab_case(driver, port, bundle)
+        run_pause_click_order_case(driver, port, bundle, False)
+        run_pause_click_order_case(driver, port, bundle, True)
         run_restart_case(driver, port, bundle)
         run_no_receipt_case(driver, port, bundle)
         run_preflight_denial_case(driver, port, bundle, "ambiguous-form-lab")

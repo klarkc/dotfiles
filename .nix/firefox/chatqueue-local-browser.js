@@ -42,17 +42,54 @@
 			stopped !== false
 		);
 	}
+	// Short fence shared across documents. The conversation lock may be
+	// held through a long reply; the fence never waits for reply completion.
+	// Acquire conversation lock -> fence, never hold fence while acquiring
+	// the conversation lock. Pause acknowledgement comes AFTER revocation
+	// under the same fence used for click and timer publication.
+	async function withFence(callback) {
+		if (!locks?.request) throw new Error("Firefox LockManager unavailable");
+		return await locks.request(
+			url + ":chatqueue-local-send-fence",
+			{ mode: "exclusive" },
+			async (lock) => {
+				if (!lock) throw new Error("Send fence unavailable");
+				return await callback();
+			},
+		);
+	}
 	async function revoke() {
 		armLease = null;
 		clearTimer();
-		await write("PAUSE_EPOCH", crypto.randomUUID());
-		await write("STOP", true);
+		const revokeState = async () => {
+			armLease = null;
+			clearTimer();
+			const epoch = crypto.randomUUID();
+			await write("PAUSE_EPOCH", epoch);
+			await write("STOP", true);
+			if (
+				(await read("PAUSE_EPOCH")) !== epoch ||
+				(await read("STOP")) !== true
+			)
+				throw new Error("Pause readback uncertain");
+		};
+		if (!locks?.request) {
+			await revokeState();
+			throw new Error("Pause requested, but send-fence proof unavailable");
+		}
+		await withFence(revokeState);
 	}
 	async function stopOwn(lease) {
 		if (armLease !== lease) return;
 		armLease = null;
 		clearTimer();
-		if ((await read("ARM_ID")) === lease.id) await write("STOP", true);
+		await withFence(async () => {
+			if (
+				(await read("ARM_ID")) === lease.id &&
+				(await read("PAUSE_EPOCH")) === lease.epoch
+			)
+				await write("STOP", true);
+		});
 	}
 	let beforeAssistant = new Set();
 	let sentUser = null;
@@ -246,26 +283,32 @@
 				throw new Error("Composer text verification failed");
 		},
 		deliver: async (agent, content) => {
-			if (!(await configMatches(agent, content)) || (await paused()))
-				throw new Error("Configuration changed or LAB paused before click");
-			if (
-				stopButton() ||
-				location.origin + location.pathname !== url ||
-				!accountReady()
-			)
-				throw new Error("Conversation changed or model busy");
-			const box = composeBox();
-			if (
-				!box ||
-				normalized(box.innerText ?? box.value ?? box.textContent) !==
-					normalized(content)
-			)
-				throw new Error("Composer changed before click");
-			const btn = sendButton();
-			if (!btn) throw new Error("Send button ambiguous or unavailable");
-			beforeAssistant = new Set(messageNodes("assistant"));
-			const priorUsers = new Set(messageNodes("user"));
-			btn.click(); // Exactly once, AFTER durable PREPARED.
+			const priorUsers = await withFence(async () => {
+				if (!(await configMatches(agent, content)) || (await paused()))
+					throw new Error("Configuration changed or LAB paused before click");
+				if (
+					stopButton() ||
+					location.origin + location.pathname !== url ||
+					!accountReady()
+				)
+					throw new Error("Conversation changed or model busy");
+				const box = composeBox();
+				if (
+					!box ||
+					normalized(box.innerText ?? box.value ?? box.textContent) !==
+						normalized(content)
+				)
+					throw new Error("Composer changed before click");
+				const btn = sendButton();
+				if (!btn) throw new Error("Send button ambiguous or unavailable");
+				beforeAssistant = new Set(messageNodes("assistant"));
+				const users = new Set(messageNodes("user"));
+				// No await between final checks and this one click. A Pause
+				// in another document cannot acknowledge until this fence
+				// is released; if it acquired first, paused() rejects.
+				btn.click();
+				return users;
+			});
 			for (let n = 0; n < 50; n++) {
 				await sleep(500);
 				const newUser = messageNodes("user").find(
@@ -345,50 +388,55 @@
 		}
 	};
 	async function schedule(ms = 1500, lease = armLease) {
-		if (!lease || armLease !== lease || (await paused())) return;
-		clearTimer();
-		timer = setTimeout(async () => {
-			timer = null;
-			if (armLease !== lease || (await paused())) return;
-			const config = await read("CONFIG");
-			if (
-				!config?.lab ||
-				config.target !== url ||
-				config.agentId !== currentRole
-			)
-				return;
-			if (armLease !== lease || (await paused())) return;
-			const state = await read("STATE:" + currentRole);
-			if (!state || state.cycle >= MAX_CYCLES) {
-				await stopOwn(lease);
-				return;
-			}
-			try {
-				const res = await controller.tick(
-					currentRole,
-					config.text,
-					"lab-" + crypto.randomUUID(),
-				);
-				if (res?.status === "COOLDOWN") {
-					const latest = await read("STATE:" + currentRole);
-					if (latest?.cycle >= MAX_CYCLES) await stopOwn(lease);
-					else
-						await schedule(
-							Math.max(2000, res.nextEligibleAt - Date.now()),
-							lease,
-						);
-				} else if (
-					res?.status === "SKIP_NOT_READY" ||
-					res?.status === "NOT_DUE"
-				) {
-					await schedule(30000, lease);
-				} else {
+		if (!lease || armLease !== lease) return;
+		await withFence(async () => {
+			if (armLease !== lease || (await paused()) || armLease !== lease) return;
+			clearTimer();
+			const handle = setTimeout(async () => {
+				if (timer === handle) timer = null;
+				if (armLease !== lease || (await paused()) || armLease !== lease)
+					return;
+				const config = await read("CONFIG");
+				if (
+					!config?.lab ||
+					config.target !== url ||
+					config.agentId !== currentRole
+				)
+					return;
+				if (armLease !== lease || (await paused())) return;
+				const state = await read("STATE:" + currentRole);
+				if (!state || state.cycle >= MAX_CYCLES) {
 					await stopOwn(lease);
+					return;
 				}
-			} catch {
-				await stopOwn(lease); // never automatically retry ambiguous failures
-			}
-		}, ms);
+				try {
+					const res = await controller.tick(
+						currentRole,
+						config.text,
+						"lab-" + crypto.randomUUID(),
+					);
+					if (res?.status === "COOLDOWN") {
+						const latest = await read("STATE:" + currentRole);
+						if (latest?.cycle >= MAX_CYCLES) await stopOwn(lease);
+						else
+							await schedule(
+								Math.max(2000, res.nextEligibleAt - Date.now()),
+								lease,
+							);
+					} else if (
+						res?.status === "SKIP_NOT_READY" ||
+						res?.status === "NOT_DUE"
+					) {
+						await schedule(30000, lease);
+					} else {
+						await stopOwn(lease);
+					}
+				} catch {
+					await stopOwn(lease); // never automatically retry ambiguous failures
+				}
+			}, ms);
+			timer = handle;
+		});
 	}
 	const menu = (text, handler) =>
 		GM_registerMenuCommand("ChatQueue Local " + VERSION + " - " + text, () => {
@@ -519,25 +567,28 @@
 			const next = authorizeFirstTick(state, gates, Date.now());
 			try {
 				await write("STATE:" + config.agentId, next);
-				const lease = { epoch, id: crypto.randomUUID() };
-				await write("ARM_ID", lease.id);
-				// Pause may run while the READY write or ARM_ID write is pending.
-				// Never publish permission for a superseded pause epoch.
-				if ((await read("PAUSE_EPOCH")) !== epoch) {
-					await write("STATE:" + config.agentId, recoverAfterRestart(next));
-					await write("STOP", true);
-					return false;
-				}
-				armLease = lease;
-				await write("STOP", false);
-				if (await paused()) {
-					armLease = null;
-					await write("STATE:" + config.agentId, recoverAfterRestart(next));
-					await write("STOP", true);
-					return false;
-				}
-				currentRole = config.agentId;
-				return lease;
+				return await withFence(async () => {
+					const lease = { epoch, id: crypto.randomUUID() };
+					if (
+						(await read("PAUSE_EPOCH")) !== epoch ||
+						(await read("STOP")) !== true
+					) {
+						await write("STATE:" + config.agentId, recoverAfterRestart(next));
+						await write("STOP", true);
+						return false;
+					}
+					await write("ARM_ID", lease.id);
+					armLease = lease;
+					await write("STOP", false);
+					if (await paused()) {
+						armLease = null;
+						await write("STATE:" + config.agentId, recoverAfterRestart(next));
+						await write("STOP", true);
+						return false;
+					}
+					currentRole = config.agentId;
+					return lease;
+				});
 			} catch (error) {
 				armLease = null;
 				await write("STOP", true);

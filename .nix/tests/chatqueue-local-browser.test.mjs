@@ -23,18 +23,27 @@ function sandbox(pathname = "/c/example-chat-123") {
 	let confirms = true;
 	let nextUUID = 1;
 	const held = new Set();
+	const waiters = new Map();
 	const responses = [];
 	const context = {
 		location: { origin: "https://chatgpt.com", pathname },
 		navigator: {
 			locks: {
-				async request(name, _opts, fn) {
-					if (held.has(name)) return fn(null);
+				async request(name, opts, fn) {
+					if (held.has(name)) {
+						if (opts.ifAvailable) return fn(null);
+						await new Promise((resolve) => {
+							const pending = waiters.get(name) ?? [];
+							pending.push(resolve);
+							waiters.set(name, pending);
+						});
+					}
 					held.add(name);
 					try {
 						return await fn({ name });
 					} finally {
 						held.delete(name);
+						waiters.get(name)?.shift()?.();
 					}
 				},
 			},
@@ -370,8 +379,7 @@ test("configure never resets prepared, awaiting or review attempt even when paus
 	}
 });
 
-test("Pause during durable READY write wins over the older Arm", async () => {
-	const s = sandbox();
+function readyDom(s) {
 	const receipt = {
 		disabled: false,
 		getAttribute: () => null,
@@ -391,6 +399,11 @@ test("Pause during durable READY write wins over the older Arm", async () => {
 			return [{ querySelector: () => receipt }];
 		return [];
 	};
+}
+
+test("Pause during durable READY write wins over the older Arm", async () => {
+	const s = sandbox();
+	readyDom(s);
 	s.run();
 	await flush();
 	s.responses.push("coordinator", "CQLOCAL LAB: Original.");
@@ -418,6 +431,66 @@ test("Pause during durable READY write wins over the older Arm", async () => {
 		[...s.values].find(([k]) => k.endsWith(":STATE:coordinator"))[1].phase,
 		"PAUSED",
 	);
+});
+
+test("Pause during ARM_ID or STOP publication revokes the older arm", async () => {
+	for (const stage of ["ARM_ID", "STOP"]) {
+		const s = sandbox();
+		readyDom(s);
+		s.run();
+		await flush();
+		s.responses.push("coordinator", "CQLOCAL LAB: Original.");
+		await s.runMenu("Configure LAB");
+		const write = s.context.GM_setValue;
+		let raced = false;
+		s.context.GM_setValue = async (key, value) => {
+			write(key, value);
+			if (
+				!raced &&
+				key.endsWith(":" + stage) &&
+				(stage !== "STOP" || value === false)
+			) {
+				raced = true;
+				s.menus.find((m) => m.name.includes("Pause LAB")).callback();
+				await flush();
+			}
+		};
+		await s.runMenu("Arm LAB");
+		await flush();
+		await flush();
+		assert.equal(raced, true);
+		assert.equal([...s.values].find(([k]) => k.endsWith(":STOP"))[1], true);
+		assert.equal(s.timers.length, 0);
+		assert.ok(s.alerts.some((a) => a.includes("LAB paused")));
+	}
+});
+
+test("Pause between scheduling read and timer creation leaves no new timer", async () => {
+	const s = sandbox();
+	readyDom(s);
+	s.run();
+	await flush();
+	s.responses.push("coordinator", "CQLOCAL LAB: Original.");
+	await s.runMenu("Configure LAB");
+	const read = s.context.GM_getValue;
+	let openStopReads = 0;
+	let raced = false;
+	s.context.GM_getValue = async (key, fallback) => {
+		const value = read(key, fallback);
+		if (key.endsWith(":STOP") && value === false && ++openStopReads === 2) {
+			raced = true;
+			s.menus.find((m) => m.name.includes("Pause LAB")).callback();
+			await flush();
+		}
+		return value;
+	};
+	await s.runMenu("Arm LAB");
+	await flush();
+	await flush();
+	assert.equal(raced, true);
+	assert.equal(s.timers.length, 0);
+	assert.equal([...s.values].find(([k]) => k.endsWith(":STOP"))[1], true);
+	assert.ok(s.alerts.some((a) => a.includes("LAB paused")));
 });
 
 test("occupied conversation lock cannot reconfigure, arm or schedule", async () => {

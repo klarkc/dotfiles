@@ -396,3 +396,26 @@ The live authenticated LAB tests above apply to the older source, not
 this delta. No permanent agent chat, real account/model identity, or
 production bootstrap/gate has been certified by these loopback fixtures.
 The userscript remains LAB-only and is not installed by the test target.
+
+### Independent QA remediation: acknowledged Pause versus click
+
+QualityManager's manual read-only review of e8592fb identified an
+unserialized Pause/click interval, stale timer publication, and missing
+interleaving coverage. A short per-conversation Web Locks fence now
+serializes the final click, Pause/boot revocation, arm publication, and
+timer creation. The longer conversation lock can span a reply; the
+short fence does not. Pause acknowledgement requires durable readback
+of its revocation. The final lease/DOM checks and click have no intervening
+await. Old timers in another document may still wake, but must fail their
+lease checks; this is not a promise to cancel an already executed click.
+
+Two deterministic two-tab real Firefox loopback cases establish both
+orders: Pause acknowledged first prevents the click; click first
+precedes Pause acknowledgement. Each preserves the original attempt in
+REVIEW and never retries. The 38 Node tests include the ARM_ID/STOP writes
+and scheduling-read interleavings. All four synthetic role tabs and the
+duplicate-document, reload, and refusal cases remain green.
+
+This remediation awaits independent re-review and an authenticated
+signed-host test of this exact source. No operational authorization,
+production prompt, or scheduler activation is implied.
