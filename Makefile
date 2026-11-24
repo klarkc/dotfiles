@@ -149,7 +149,7 @@ test: flake.check bashrc.test firefox.RecurrenceTest smoke
 .PHONY: firefox.RecurrenceTest
 firefox.RecurrenceTest:
 	@node .nix/firefox/build-chatqueue-local.mjs --check
-	@node --test .nix/tests/chatqueue-recurrence-core.test.mjs .nix/tests/chatqueue-local-controller.test.mjs .nix/tests/chatqueue-local-browser.test.mjs
+	@node --test .nix/tests/chatqueue-recurrence-core.test.mjs .nix/tests/chatqueue-local-controller.test.mjs .nix/tests/chatqueue-local-browser.test.mjs .nix/tests/chatqueue-git-policy.test.mjs
 
 # Explicit opt-in, only regenerates original source; never imports/starts a job.
 .PHONY: firefox.ChatQueueLocalBuild

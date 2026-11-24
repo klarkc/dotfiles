@@ -419,3 +419,35 @@ duplicate-document, reload, and refusal cases remain green.
 This remediation awaits independent re-review and an authenticated
 signed-host test of this exact source. No operational authorization,
 production prompt, or scheduler activation is implied.
+
+### Read-only Git policy evidence (not operational authorization)
+
+The standalone source `chatqueue-git-policy.mjs` is an offline-testable,
+read-only admission evidence reader. It checks the exact configured origin,
+reads both remote HEADs before and after the four pinned policy blobs,
+and requires literal flags, the four identities and all three legacy gates
+OFF. Missing objects, unavailable reads, drift, paused roles, old queue
+permission or a LAB runtime fail closed. It does not fetch or mutate Git,
+serve a local endpoint, persist a credential, install, arm, schedule or send
+anything; it is deliberately **not** in the LAB userscript bundle.
+
+For an explicitly authorized manual read-only check, supply the absolute
+path of the already available broker Git checkout, one permanent role and
+the exact trusted SSH/HTTPS origin via `CHATQUEUE_BROKER_ORIGIN`. Example
+(synthetic paths only; store real private values in the existing private
+configuration, never tracked files):
+
+```sh
+CHATQUEUE_BROKER_ORIGIN=git@example.invalid:example/broker.git \
+  node .nix/firefox/chatqueue-git-policy.mjs /example/broker coordinator
+```
+
+`NO_GO` exits 2; `GIT_POLICY_PASS_ONLY` exits 0 and still has
+`runtimeAuthorized: false`. A matching Git snapshot is necessary evidence,
+not a manual GO, account/model/route/document or bootstrap proof, a runtime
+lease, a proof of completed provider effects, or an atomic guard against
+later Git changes. The eventual send path must acquire fresh evidence at
+its own admission and final pre-click boundaries, reconcile attempts, and
+independently enforce pause/identity. No periodic checker or new scheduler
+is created. The existing signed LAB source and all live browser jobs remain
+unchanged. Offline tests run with `make firefox.RecurrenceTest`.
