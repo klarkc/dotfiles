@@ -485,3 +485,88 @@ The Node tests use ephemeral loopback requests with synthetic data. They
 cover no request/no reads, authentication, input bounds, host/method/path,
 redaction, fail-closed results and concurrency. Run the existing
 firefox.RecurrenceTest target.
+
+### Broker operational integration (preactivation source, NO_GO)
+
+The operational bundle is separate from the LAB bundle and from the original
+signed ChatQueue extension. It combines the existing recurrence controller,
+the local Git evidence bridge, a strict client, and a Firefox DOM adapter.
+Building it never installs an extension, starts a listener, arms a role, or
+changes the broker. There is no second ticker, service autostart, or timer
+until an explicitly admitted signed-menu action.
+
+- Four exact, distinct conversation paths in one project, one permanent role
+  per path; exact visible model label; unique idle composer and terminal latest
+  turn. Arming also requires an exact assistant bootstrap marker in the chat.
+  Account/workspace and original-queue retirement are operator attestations,
+  not inferred from absence of a login link. A visible model label is not an
+  independently authenticated model identifier.
+- The trusted compiler reads the canonical prompt document by pinned Git blob
+  at an explicitly checked remote main HEAD. The bridge now returns that
+  document's blob and the role's prompt SHA-256 within the same two-HEAD
+  evidence read. The client hashes the actual configured text; a changed
+  template, stale evidence, invalid nonce, malformed reply, changed destination,
+  missing gate or NO_GO denies admission. Fresh evidence is obtained on Arm,
+  before preparation, and again immediately before clicking; no remote IO
+  under the short click/Pause fence. This is not an atomic transaction with
+  remote Git. The existing role contract still reconciles provider effects.
+- Each send uses the verbatim canonical template plus one explicitly labeled
+  browser correlation ID, not a provider run_id or operation_id. This is
+  necessary to distinguish identical repeated templates from old virtualized
+  turns. Independent operational QA must review this suffix.
+- Distinct GM storage namespace, durable per-role state and readback, a
+  per-document in-memory lease, shared role lock and short fence. Boot,
+  duplicate document and Pause revoke the lease; startup/reload never arms.
+  PREPARED/AWAITING_REPLY are recovered as REVIEW with the same attempt ID.
+  No retry of an ambiguous send, no overwrite of an existing draft or old
+  role state on a changed binding. REVIEW requires reconciliation before any
+  subsequent arm; there is deliberately no automatic clear/retry menu.
+- The first signed-menu Arm is supervised, exactly one send. Recurrence is
+  separately admitted only after a completed supervised browser attempt and
+  operator attestation of OWN STARTED/terminal Git proof. A browser terminal
+  receipt does not prove those external effects. Cooldown is 360 seconds
+  after the verified terminal response; Pause or missing/denied evidence
+  stops recurrence rather than looping. Four roles use the same passive bridge,
+  serializing policy reads without holding the click fence.
+
+Commands:
+
+    make firefox.ChatQueueOperationalBuild
+    make firefox.RecurrenceTest
+    make firefox.ChatQueueOperationalE2E
+
+The last target uses real isolated headless Firefox with synthetic project
+paths, a local HTTP fixture and GM shims; it does not use the user's profile
+or visit ChatGPT. The Node suite also uses the real loopback bridge against
+synthetic policy. Neither is signed Violentmonkey proof.
+
+Private provisioning (not installation): the existing passive bridge's
+explicit launch creates a private runtime bridge.json. The config compiler
+takes an absolute checkout, pinned main HEAD and absolute generated bridge
+file; it reads trusted CHATQUEUE_BROKER_ORIGIN and CHATQUEUE_BROKER_BINDINGS
+from the private environment. Bindings are a JSON array of four objects with
+agent, path (exact /g/.../c/... route) and modelLabel (exact observed Extra
+alto/High label). Manual private values belong in the existing ignored
+.profile_override; never commit real bindings, capabilities or generated
+config. The compiler writes operational-config.json in the same private
+runtime directory (0600, no overwrite), containing the GM storage object
+CQOP_V1:CONFIG, always reviewed=false. It never prints private values.
+
+    node .nix/firefox/chatqueue-operational-config.mjs /example/broker PINNED_MAIN_SHA /example/private/bridge.json
+
+Provisioning that object into the signed manager's isolated storage requires
+a separately verified extension-native procedure. Do not put capabilities in
+the page DOM, chat, URL, logs, source bundle or Nix store. No live signed
+installation/provisioning is performed by the build or tests. A bridge restart
+invalidates its old ephemeral port/capability; reprovision and manually rearm
+only after checking the paused state and reconciling any pending attempt.
+
+Do not mark reviewed=true or enable operational Git gates until exact-source
+independent QA, signed host evidence (including the real privileged HTTP
+client, cross-document storage/locks and recovery), original job retirement
+and explicit operator GO. Resume one role at a time with supervised Git
+STARTED/terminal verification. The preactivation source and synthetic tests
+are not a live operational GO. The signed LAB and original queue remain
+unchanged. This code does not independently resolve provider UNKNOWN effects,
+automatically rebind a rollover conversation, or prove crash recovery in a
+real signed host; those remain operational verification/reconciliation steps.

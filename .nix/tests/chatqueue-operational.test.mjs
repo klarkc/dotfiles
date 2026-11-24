@@ -1,0 +1,585 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import {
+	AGENTS,
+	REPLY_COOLDOWN_MS,
+	newPausedState,
+} from "../firefox/chatqueue-recurrence-core.mjs";
+import { compileOperationalConfig } from "../firefox/chatqueue-operational-config.mjs";
+import {
+	validateOperationalConfig,
+	parseOperationalTemplates,
+	freshOperationalEvidence,
+	makeOperationalPolicyClient,
+	operationalMessage,
+} from "../firefox/chatqueue-operational-client.mjs";
+import { makeOperationalRuntime } from "../firefox/chatqueue-operational-runtime.mjs";
+import { startPolicyBridge } from "../firefox/chatqueue-policy-bridge.mjs";
+import { collectGitPolicy } from "../firefox/chatqueue-git-policy.mjs";
+
+const names = [
+	"Coordinator",
+	"PlatformManager",
+	"BusinessManager",
+	"QualityManager",
+];
+const doc = AGENTS.map(
+	(id, i) =>
+		"## " +
+		names[i] +
+		"\n\n\`\`\`text\nONE tick ONLY as permanent " +
+		names[i] +
+		" (agent_id=" +
+		id +
+		") in THIS SAME chat; require " +
+		id.toUpperCase() +
+		"_BOOTSTRAP_READY. No lanes.\n\nFollow NON_BLOCKING_HEARTBEATS_V1 + NO_DEADLOCK_V1.\n\nReport exact refs; STOP. ChatQueue triggers the next tick.\n\`\`\`\n",
+).join("\n");
+const oid = createHash("sha1")
+	.update("blob " + Buffer.byteLength(doc) + "\0")
+	.update(doc)
+	.digest("hex");
+const blob = "a".repeat(40);
+const digestFor = (agent) =>
+	createHash("sha256")
+		.update(parseOperationalTemplates(doc)[agent])
+		.digest("hex");
+const token = "b".repeat(64);
+const paths = [
+	"coordination/organization.json",
+	"scheduling/state.json",
+	"scheduling/watchdog-policy.json",
+	"scheduling/runtime.json",
+];
+const config = () =>
+	compileOperationalConfig({
+		markdown: doc,
+		promptBlob: oid,
+		bindings: AGENTS.map((id) => ({
+			agent: id,
+			path: "/g/example-project/c/example-" + id,
+			modelLabel: "6 Extra alto",
+		})),
+		bridge: { port: 12345, capability: token },
+	});
+const permitted = (agent, nonce, now) => ({
+	agent,
+	nonce,
+	status: "GIT_POLICY_PASS_ONLY",
+	runtimeAuthorized: false,
+	reasons: [],
+	promptBlob: oid,
+	promptDigest: digestFor(agent),
+	heads: { main: blob, runtime: blob },
+	blobs: Object.fromEntries(paths.map((p) => [p, blob])),
+	startedAt: now,
+	observedAt: now,
+});
+const attest = {
+	manualGo: true,
+	accountModelVerified: true,
+	originalQueueRetired: true,
+	qaVerified: true,
+	supervisedGitProofVerified: true,
+};
+const defer = () => {
+	let resolve;
+	const promise = new Promise((r) => (resolve = r));
+	return { promise, resolve };
+};
+
+test("canonical templates compile into four exact private bindings, always unreviewed", () => {
+	const c = config();
+	assert.equal(c.reviewed, false);
+	assert.equal(validateOperationalConfig(c), true);
+	const templates = parseOperationalTemplates(doc);
+	for (const b of c.bindings) assert.equal(b.prompt, templates[b.agent]);
+	assert.throws(() => parseOperationalTemplates(doc + "\n" + doc));
+	assert.throws(() =>
+		compileOperationalConfig({
+			markdown: doc,
+			promptBlob: blob,
+			bindings: c.bindings,
+			bridge: c.bridge,
+		}),
+	);
+	assert.equal(
+		validateOperationalConfig({
+			...c,
+			bindings: [...c.bindings.slice(0, 3), c.bindings[0]],
+		}),
+		false,
+	);
+	assert.equal(
+		validateOperationalConfig({
+			...c,
+			bindings: c.bindings.map((b, i) =>
+				i ? b : { ...b, path: "/g/another-project/c/example" },
+			),
+		}),
+		false,
+	);
+	assert.equal(
+		validateOperationalConfig({
+			...c,
+			bindings: c.bindings.map((b, i) =>
+				i ? b : { ...b, modelLabel: "Instant" },
+			),
+		}),
+		false,
+	);
+});
+test("unique correlation preserves canonical prompt verbatim and is not a provider run ID", () => {
+	const b = config().bindings[0],
+		attempt = "cqop-" + randomUUID();
+	const msg = operationalMessage(b, attempt);
+	assert.ok(msg.startsWith(b.prompt + "\n\n"));
+	assert.ok(msg.endsWith(attempt));
+	assert.throws(() => operationalMessage(b, "other"));
+});
+test("fresh evidence requires exact nonce, role, prompt blob, heads/blobs, bounds and evidence-only authority", () => {
+	const now = 100000,
+		nonce = "c".repeat(32),
+		v = permitted("coordinator", nonce, now);
+	const ctx = {
+		agent: "coordinator",
+		nonce,
+		promptBlob: oid,
+		promptDigest: digestFor("coordinator"),
+		requestedAt: now,
+		now,
+	};
+	assert.equal(freshOperationalEvidence(v, ctx), true);
+	for (const patch of [
+		{ nonce: "d".repeat(32) },
+		{ agent: "platformmanager" },
+		{ promptBlob: blob },
+		{ promptDigest: "f".repeat(64) },
+		{ heads: {} },
+		{ blobs: {} },
+		{ runtimeAuthorized: true },
+		{ status: "NO_GO" },
+		{ reasons: ["PRODUCTION_NO_GO"] },
+		{ observedAt: now + 1 },
+		{ startedAt: now - 1 },
+	])
+		assert.equal(freshOperationalEvidence({ ...v, ...patch }, ctx), false);
+	assert.equal(freshOperationalEvidence(v, { ...ctx, now: now + 5001 }), false);
+});
+test("policy client uses authenticated loopback, rejects redirects and errors, never caches evidence", async () => {
+	let calls = 0,
+		now = 1000;
+	const c = config(),
+		nonce = "c".repeat(32);
+	const client = makeOperationalPolicyClient({
+		clock: () => now,
+		randomNonce: () => nonce,
+		request: async (opts) => {
+			calls++;
+			assert.equal(opts.url, "http://127.0.0.1:12345/v1/evidence");
+			assert.equal(opts.anonymous, true);
+			assert.equal(opts.headers.Authorization, "Bearer " + token);
+			assert.deepEqual(JSON.parse(opts.data), { agent: "coordinator", nonce });
+			const finalUrl = calls === 2 ? "http://example.invalid/" : opts.url;
+			if (calls === 3) throw new Error("transport failure");
+			return {
+				status: 200,
+				finalUrl,
+				responseText: JSON.stringify(permitted("coordinator", nonce, now)),
+			};
+		},
+	});
+	assert.ok(await client(c, "coordinator"));
+	assert.equal(await client(c, "coordinator"), null);
+	assert.equal(await client(c, "coordinator"), null);
+	assert.equal(calls, 3);
+});
+test("Git policy optional prompt blob is read within the two HEAD checks", () => {
+	let promptRead = false,
+		headReads = 0;
+	const origin = "git@example.invalid:example/broker.git";
+	const org = {
+		mode: "FOUR_PERMANENT_AGENTS",
+		max_permanent_agents: 4,
+		permanent_agents: AGENTS.map((id) => ({
+			id,
+			heartbeat_authorized: true,
+			heartbeat_active: true,
+		})),
+		activation: {
+			allowed_to_run_heartbeat: true,
+			chatqueue_production_heartbeat_resume_allowed: true,
+			browser_scheduler: "CHATQUEUE_FOR_FIREFOX_ONLY",
+			chatqueue_original_1_0_1_resume_allowed: false,
+			chatqueue_lab_runtime_installed: false,
+		},
+	};
+	const args = {
+		agent: "coordinator",
+		expectedOrigin: origin,
+		readOrigin: () => origin,
+		includePrompt: true,
+		readHeads: () => {
+			headReads++;
+			if (headReads === 2) assert.ok(promptRead);
+			return (
+				blob +
+				"\trefs/heads/main\n" +
+				blob +
+				"\trefs/heads/scheduling-runtime\n"
+			);
+		},
+		readBlob: (_head, path) => {
+			if (path === "scheduling/prompts/permanent-four-agents-chatqueue.md") {
+				promptRead = true;
+				return { blob: oid, text: doc };
+			}
+			return {
+				blob,
+				text: JSON.stringify(path === paths[0] ? org : { enabled: false }),
+			};
+		},
+	};
+	const r = collectGitPolicy(args);
+	assert.equal(r.status, "GIT_POLICY_PASS_ONLY");
+	assert.equal(r.promptBlob, oid);
+	assert.equal(r.promptDigest, digestFor("coordinator"));
+	assert.equal(r.runtimeAuthorized, false);
+	assert.equal(Object.keys(r.blobs).length, 4);
+	assert.equal(
+		collectGitPolicy({ ...args, readBlob: () => null }).status,
+		"NO_GO",
+	);
+});
+test("actual loopback bridge transports prompt pin; client denies NO_GO", async () => {
+	let go = false,
+		reads = 0;
+	const bridge = await startPolicyBridge({
+		capability: token,
+		readPolicy: async (agent) => {
+			reads++;
+			const v = permitted(agent, "c".repeat(32), Date.now());
+			return go ? v : { ...v, status: "NO_GO", reasons: ["PRODUCTION_NO_GO"] };
+		},
+	});
+	try {
+		const c = config();
+		c.bridge.port = bridge.port;
+		const client = makeOperationalPolicyClient({
+			clock: Date.now,
+			randomNonce: () => randomUUID().replace(/-/g, ""),
+			request: async (opts) => {
+				const res = await fetch(opts.url, {
+					method: opts.method,
+					headers: opts.headers,
+					body: opts.data,
+					redirect: "error",
+				});
+				return {
+					status: res.status,
+					finalUrl: res.url,
+					responseText: await res.text(),
+				};
+			},
+		});
+		assert.equal(await client(c, "coordinator"), null);
+		go = true;
+		assert.ok(await client(c, "coordinator"));
+		assert.equal(reads, 2);
+		c.bindings[0].prompt = c.bindings[0].prompt.replace(
+			"No lanes.",
+			"Edited body.",
+		);
+		assert.equal(await client(c, "coordinator"), null);
+		assert.equal(reads, 3);
+	} finally {
+		await bridge.stop();
+	}
+});
+
+function fixture(agent = "coordinator", shared) {
+	const base = shared ?? {
+		data: new Map(),
+		locks: new Map(),
+		config: { ...config(), reviewed: true },
+		now: 1000,
+		clicks: [],
+		timers: new Map(),
+		reads: 0,
+		allow: true,
+	};
+	const path = base.config.bindings.find((b) => b.agent === agent).path;
+	const key = (k) => agent + ":" + k;
+	const copy = (v) => (v === undefined ? null : structuredClone(v));
+	let draft = "",
+		route = true,
+		ready = true,
+		receipt = false;
+	const lock = async (name, ifAvailable, fn) => {
+		const prior = base.locks.get(name);
+		if (prior && ifAvailable) return { status: "SKIP_IN_PROGRESS" };
+		const d = defer();
+		base.locks.set(name, d.promise);
+		try {
+			if (prior) await prior;
+			return await fn();
+		} finally {
+			if (base.locks.get(name) === d.promise) base.locks.delete(name);
+			d.resolve();
+		}
+	};
+	const dom = {
+		ready: (b, text) => route && ready && b.path === path && draft === text,
+		receiptCount: () => (receipt ? 1 : 0),
+		compose: async (content) => {
+			draft = content;
+		},
+		click: (b, content) => {
+			assert.ok(dom.ready(b, content));
+			const s = base.data.get(key("STATE")).state;
+			assert.equal(s.phase, "PREPARED");
+			assert.ok(content.endsWith(s.attemptId));
+			base.clicks.push({ agent, content, at: base.now, id: s.attemptId });
+			draft = "";
+			receipt = true;
+		},
+		waitSent: async () => ({ sent: true }),
+		waitTerminal: async (_b, _c, paused) => {
+			if (await paused()) throw new Error("paused");
+			receipt = false;
+			return { observedFinalAssistantResponse: true, noActiveGeneration: true };
+		},
+	};
+	const readEvidence = async (_cfg, id) => {
+		base.reads++;
+		if (base.readHook) await base.readHook(base.reads);
+		if (!base.allow) return null;
+		const nonce = randomUUID().replace(/-/g, "");
+		return {
+			value: permitted(id, nonce, base.now),
+			context: {
+				agent: id,
+				nonce,
+				promptBlob: oid,
+				promptDigest: digestFor(id),
+				requestedAt: base.now,
+			},
+		};
+	};
+	const runtime = makeOperationalRuntime({
+		agent,
+		path,
+		getConfig: async () => copy(base.config),
+		read: async (k) => copy(base.data.get(key(k))),
+		write: async (k, v) => {
+			if (base.writeHook) await base.writeHook(k, v);
+			base.data.set(key(k), copy(v));
+		},
+		lock,
+		clock: () => base.now,
+		randomId: randomUUID,
+		setTimer: (fn, ms) => {
+			const id = randomUUID();
+			base.timers.set(id, { fn, due: base.now + ms, agent });
+			return id;
+		},
+		cancelTimer: (id) => base.timers.delete(id),
+		readEvidence,
+		dom,
+	});
+	const fire = async () => {
+		const pair = [...base.timers.entries()]
+			.filter(([, t]) => t.agent === agent)
+			.sort((a, b) => a[1].due - b[1].due)[0];
+		assert.ok(pair, "timer expected");
+		const [id, t] = pair;
+		base.timers.delete(id);
+		base.now = Math.max(base.now, t.due);
+		await t.fn();
+	};
+	return {
+		runtime,
+		base,
+		dom,
+		fire,
+		key,
+		path,
+		setRoute: (v) => (route = v),
+		setReady: (v) => (ready = v),
+	};
+}
+
+test("boot inert, unreviewed config, missing GO and real-policy denial do not arm", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	assert.equal(f.base.timers.size, 0);
+	assert.equal(f.base.reads, 0);
+	assert.equal((await f.runtime.status()).phase, "PAUSED");
+	f.base.config.reviewed = false;
+	assert.equal(await f.runtime.arm("supervised", attest), false);
+	f.base.config.reviewed = true;
+	assert.equal(
+		await f.runtime.arm("supervised", { ...attest, manualGo: false }),
+		false,
+	);
+	f.base.allow = false;
+	assert.equal(await f.runtime.arm("supervised", attest), false);
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal(f.base.timers.size, 0);
+});
+test("four independent roles, one supervised tick each, exact durable attempt, no automatic recurrence", async () => {
+	const fs = [fixture()];
+	for (const id of AGENTS.slice(1)) fs.push(fixture(id, fs[0].base));
+	for (const f of fs) {
+		assert.equal(await f.runtime.boot(), true);
+		assert.equal(await f.runtime.arm("supervised", attest), true);
+	}
+	for (const f of fs) {
+		await f.fire();
+		const status = await f.runtime.status();
+		assert.equal(status.phase, "COOLDOWN");
+		assert.equal(status.stopped, true);
+		assert.equal(status.cycle, 1);
+		assert.equal(status.supervised, true);
+	}
+	const base = fs[0].base;
+	assert.equal(base.clicks.length, 4);
+	assert.equal(base.timers.size, 0);
+	assert.equal(base.reads, 12);
+	assert.deepEqual(new Set(base.clicks.map((c) => c.agent)), new Set(AGENTS));
+	assert.equal(new Set(base.clicks.map((c) => c.id)).size, 4);
+});
+test("recurrence requires previous supervised proof and explicit Git attestation; respects reply cooldown", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+	await f.runtime.arm("supervised", attest);
+	await f.fire();
+	assert.equal(
+		await f.runtime.arm("recurrence", {
+			...attest,
+			supervisedGitProofVerified: false,
+		}),
+		false,
+	);
+	assert.equal(await f.runtime.arm("recurrence", attest), true);
+	const first = f.base.clicks[0];
+	await f.fire();
+	await f.fire();
+	assert.equal(f.base.clicks.length, 3);
+	for (let i = 1; i < 3; i++)
+		assert.ok(
+			f.base.clicks[i].at - f.base.clicks[i - 1].at >= REPLY_COOLDOWN_MS,
+		);
+	assert.equal(f.base.timers.size, 1);
+	await f.runtime.pause();
+	assert.equal(f.base.timers.size, 0);
+	assert.equal((await f.runtime.status()).stopped, true);
+	assert.ok(first.id);
+});
+test("fresh final policy denial after PREPARED preserves original attempt, no click/replay", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	f.base.readHook = async (n) => {
+		if (n === 3) f.base.allow = false;
+	};
+	await f.fire();
+	const s = await f.runtime.status();
+	assert.equal(s.phase, "REVIEW");
+	assert.equal(s.stopped, true);
+	assert.ok(s.attemptId);
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal(f.base.timers.size, 0);
+	const dup = fixture("coordinator", f.base);
+	await dup.runtime.boot();
+	assert.equal((await dup.runtime.status()).attemptId, s.attemptId);
+	assert.equal(await dup.runtime.arm("supervised", attest), false);
+});
+test("pause during final remote read fences old lease and preserves PREPARED", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	const entered = defer(),
+		release = defer();
+	f.base.readHook = async (n) => {
+		if (n === 3) {
+			entered.resolve();
+			await release.promise;
+		}
+	};
+	const running = f.fire();
+	await entered.promise;
+	const original = f.base.data.get(f.key("STATE")).state.attemptId;
+	const dup = fixture("coordinator", f.base);
+	await dup.runtime.pause();
+	assert.equal((await dup.runtime.status()).stopped, true);
+	release.resolve();
+	await running;
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal((await f.runtime.status()).phase, "REVIEW");
+	assert.equal((await f.runtime.status()).attemptId, original);
+});
+test("click before pause may have occurred; duplicate reload does not replay or erase attempt", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	const entered = defer(),
+		release = defer();
+	f.dom.waitTerminal = async (_b, _c, paused) => {
+		entered.resolve();
+		await release.promise;
+		if (await paused()) throw new Error("paused");
+		return { observedFinalAssistantResponse: true, noActiveGeneration: true };
+	};
+	const running = f.fire();
+	await entered.promise;
+	const original = f.base.clicks[0].id;
+	const dup = fixture("coordinator", f.base);
+	assert.equal(await dup.runtime.boot(), false);
+	release.resolve();
+	await running;
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal((await dup.runtime.status()).phase, "REVIEW");
+	assert.equal((await dup.runtime.status()).attemptId, original);
+	assert.equal(await dup.runtime.arm("supervised", attest), false);
+});
+test("stale timer, route drift and config replacement cannot click", async () => {
+	for (const scenario of ["stale-timer", "route", "config"]) {
+		const f = fixture();
+		await f.runtime.boot();
+		await f.runtime.arm("supervised", attest);
+		const t = [...f.base.timers.values()][0];
+		if (scenario === "stale-timer") {
+			await f.runtime.pause();
+			await t.fn();
+		} else {
+			if (scenario === "route") f.setRoute(false);
+			else f.base.config = { ...f.base.config, reviewed: false };
+			await f.fire();
+		}
+		assert.equal(f.base.clicks.length, 0, scenario);
+	}
+});
+test("malformed durable state and changed role binding fail closed without erasing evidence", async () => {
+	for (const state of [
+		{ ...newPausedState("coordinator"), cycle: -1 },
+		{ ...newPausedState("coordinator"), attemptId: "unexpected" },
+	]) {
+		const f = fixture();
+		const original = { path: f.path, state };
+		f.base.data.set(f.key("STATE"), structuredClone(original));
+		await assert.rejects(f.runtime.boot());
+		assert.deepEqual(f.base.data.get(f.key("STATE")), original);
+		assert.equal(f.base.clicks.length, 0);
+	}
+	const f = fixture();
+	const original = {
+		path: "/g/example-project/c/old",
+		state: newPausedState("coordinator"),
+	};
+	f.base.data.set(f.key("STATE"), structuredClone(original));
+	await assert.rejects(f.runtime.boot());
+	assert.deepEqual(f.base.data.get(f.key("STATE")), original);
+});

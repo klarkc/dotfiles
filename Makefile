@@ -149,7 +149,8 @@ test: flake.check bashrc.test firefox.RecurrenceTest smoke
 .PHONY: firefox.RecurrenceTest
 firefox.RecurrenceTest:
 	@node .nix/firefox/build-chatqueue-local.mjs --check
-	@node --test .nix/tests/chatqueue-recurrence-core.test.mjs .nix/tests/chatqueue-local-controller.test.mjs .nix/tests/chatqueue-local-browser.test.mjs .nix/tests/chatqueue-git-policy.test.mjs .nix/tests/chatqueue-policy-bridge.test.mjs
+	@node .nix/firefox/build-chatqueue-operational.mjs --check
+	@node --test .nix/tests/chatqueue-recurrence-core.test.mjs .nix/tests/chatqueue-local-controller.test.mjs .nix/tests/chatqueue-local-browser.test.mjs .nix/tests/chatqueue-git-policy.test.mjs .nix/tests/chatqueue-policy-bridge.test.mjs .nix/tests/chatqueue-operational.test.mjs
 
 # Explicit opt-in, only regenerates original source; never imports/starts a job.
 .PHONY: firefox.ChatQueueLocalBuild
@@ -162,6 +163,16 @@ firefox.ChatQueueLocalBuild:
 .PHONY: firefox.ChatQueueLocalE2E
 firefox.ChatQueueLocalE2E: firefox.ChatQueueLocalBuild
 	@nix shell --impure --expr 'let flake = builtins.getFlake (toString ./.); pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; }; in [ pkgs.geckodriver (pkgs.python3.withPackages (ps: [ ps.selenium ])) ]' --command python3 .nix/tests/chatqueue-firefox-e2e.py
+
+# Separate preactivation operational bundle; never installs or arms anything.
+.PHONY: firefox.ChatQueueOperationalBuild
+firefox.ChatQueueOperationalBuild:
+	@node .nix/firefox/build-chatqueue-operational.mjs
+
+# Real isolated browser with synthetic loopback evidence/GM shims.
+.PHONY: firefox.ChatQueueOperationalE2E
+firefox.ChatQueueOperationalE2E: firefox.ChatQueueOperationalBuild
+	@nix shell --impure --expr 'let flake = builtins.getFlake (toString ./.); pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; }; in [ pkgs.geckodriver (pkgs.python3.withPackages (ps: [ ps.selenium ])) ]' --command python3 .nix/tests/chatqueue-operational-firefox-e2e.py
 
 .PHONY: bashrc.test
 bashrc.test:

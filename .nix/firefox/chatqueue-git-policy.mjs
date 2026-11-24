@@ -2,9 +2,11 @@
 // Not a scheduler, lease, manual GO, browser identity check or send authority.
 // No network or filesystem side effects on import. Do not bundle into LAB.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENTS } from "./chatqueue-recurrence-core.mjs";
+import { parseOperationalTemplates } from "./chatqueue-operational-client.mjs";
 
 const refs = ["refs/heads/main", "refs/heads/scheduling-runtime"];
 const paths = [
@@ -13,6 +15,7 @@ const paths = [
 	["main", "scheduling/watchdog-policy.json"],
 	["runtime", "scheduling/runtime.json"],
 ];
+const promptPath = "scheduling/prompts/permanent-four-agents-chatqueue.md";
 const oid = (s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s);
 const object = (s) => s && typeof s === "object" && !Array.isArray(s);
 const deny = (reason) => ({
@@ -105,6 +108,7 @@ export function collectGitPolicy({
 	readOrigin,
 	readHeads,
 	readBlob,
+	includePrompt = false,
 }) {
 	if (!AGENTS.includes(agent)) return deny("UNKNOWN_AGENT");
 	if (!validOrigin(expectedOrigin)) return deny("EXPECTED_ORIGIN_REQUIRED");
@@ -122,6 +126,20 @@ export function collectGitPolicy({
 			documents.push(doc);
 			blobs[path] = item.blob;
 		}
+		let promptBlob, promptDigest;
+		if (includePrompt) {
+			const item = readBlob(before.main, promptPath);
+			if (
+				!oid(item?.blob) ||
+				typeof item.text !== "string" ||
+				!item.text.trim()
+			)
+				throw new Error("Missing pinned prompt document");
+			promptBlob = item.blob;
+			promptDigest = createHash("sha256")
+				.update(parseOperationalTemplates(item.text)[agent])
+				.digest("hex");
+		}
 		const after = parseRemoteHeads(readHeads());
 		if (readOrigin() !== expectedOrigin)
 			return deny("ORIGIN_CHANGED_DURING_READ");
@@ -132,6 +150,7 @@ export function collectGitPolicy({
 			agent,
 			heads: before,
 			blobs,
+			...(includePrompt ? { promptBlob, promptDigest } : {}),
 		};
 	} catch {
 		// No raw exception: provider errors can contain private metadata.
@@ -139,7 +158,12 @@ export function collectGitPolicy({
 	}
 }
 
-export function readGitPolicy({ repo, agent, expectedOrigin }) {
+export function readGitPolicy({
+	repo,
+	agent,
+	expectedOrigin,
+	includePrompt = false,
+}) {
 	if (!isAbsolute(repo ?? "")) return deny("ABSOLUTE_REPO_REQUIRED");
 	const git = (...args) =>
 		execFileSync("git", ["-C", repo, ...args], {
@@ -158,6 +182,7 @@ export function readGitPolicy({ repo, agent, expectedOrigin }) {
 	return collectGitPolicy({
 		agent,
 		expectedOrigin,
+		includePrompt,
 		readOrigin: () => git("remote", "get-url", "origin").trim(),
 		readHeads: () => git("ls-remote", "--exit-code", "origin", ...refs),
 		readBlob: (commit, path) => {
@@ -173,6 +198,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		repo: process.argv[2],
 		agent: process.argv[3],
 		expectedOrigin: process.env.CHATQUEUE_BROKER_ORIGIN,
+		includePrompt: process.env.CHATQUEUE_INCLUDE_PROMPT_BLOB === "1",
 	});
 	process.stdout.write(JSON.stringify(result) + "\n");
 	// Even PASS_ONLY is not permission to click or arm a browser.

@@ -70,6 +70,13 @@ function sanitize(agent, value) {
 	};
 	if (pinned) {
 		result.heads = { main: value.heads.main, runtime: value.heads.runtime };
+		if (oidPattern.test(value.promptBlob ?? ""))
+			result.promptBlob = value.promptBlob;
+		if (
+			typeof value.promptDigest === "string" &&
+			/^[0-9a-f]{64}$/.test(value.promptDigest)
+		)
+			result.promptDigest = value.promptDigest;
 		result.blobs = Object.fromEntries(
 			policyPaths.map((path) => [path, value.blobs[path]]),
 		);
@@ -295,7 +302,11 @@ export async function createPrivatePolicyCache({ runtimeDir, expectedOrigin }) {
 					...refspecs,
 				);
 				const options = {
-					env: { ...env, CHATQUEUE_BROKER_ORIGIN: expectedOrigin },
+					env: {
+						...env,
+						CHATQUEUE_BROKER_ORIGIN: expectedOrigin,
+						CHATQUEUE_INCLUDE_PROMPT_BLOB: "1",
+					},
 					encoding: "utf8",
 					timeout: 45_000,
 					maxBuffer: 1024 * 1024,
