@@ -256,10 +256,10 @@ def menu(driver: webdriver.Firefox, substring: str) -> None:
     )
 
 
-def configure(driver: webdriver.Firefox, role: str) -> None:
+def configure(driver: webdriver.Firefox, role: str, content: str = "CQLOCAL LAB: Respond only LAB_ACK.") -> None:
     driver.execute_script(
         "window.__CQTEST.prompts = [arguments[0], arguments[1]];",
-        role, "CQLOCAL LAB: Respond only LAB_ACK."
+        role, content
     )
     menu(driver, "Configure LAB")
     WebDriverWait(driver, 10).until(
@@ -274,75 +274,89 @@ def arm(driver: webdriver.Firefox) -> None:
     menu(driver, "Arm LAB")
 
 
-def run_two_tab_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
-    a = "http://127.0.0.1:" + str(port) + "/c/a-lab"
-    b = "http://127.0.0.1:" + str(port) + "/c/b-lab"
-    driver.get(a)
-    boot(driver, bundle)
-    configure(driver, "coordinator")
-    a_tab = driver.current_window_handle
-
-    driver.switch_to.new_window("tab")
-    driver.get(b)
-    boot(driver, bundle)
-    configure(driver, "qualitymanager")
-    b_tab = driver.current_window_handle
-
-    # Do not arm both unless all local fixture preflight conditions hold.
-    arm(driver)
-    WebDriverWait(driver, 8).until(lambda d: d.execute_script(
-        "const c=JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':CONFIG') || 'null'); "
-        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STATE:' + c?.agentId) || 'null')?.phase === 'READY';"))
-    print("LAB_DRIVER_QUALITYMANAGER_ARMED", flush=True)
-    driver.switch_to.window(a_tab)
-    arm(driver)
-    WebDriverWait(driver, 8).until(lambda d: d.execute_script(
-        "const c=JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':CONFIG') || 'null'); "
-        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STATE:' + c?.agentId) || 'null')?.phase === 'READY';"))
-    print("LAB_DRIVER_COORDINATOR_ARMED", flush=True)
-
-    for tab in (a_tab, b_tab):
+def run_four_tab_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
+    roles = ("coordinator", "platformmanager", "businessmanager", "qualitymanager")
+    tabs = {}
+    for index, role in enumerate(roles):
+        if index:
+            driver.switch_to.new_window("tab")
+        driver.get(f"http://127.0.0.1:{port}/c/{role}-lab")
+        boot(driver, bundle)
+        configure(driver, role, "CQLOCAL LAB: Synthetic role " + role)
+        tabs[role] = driver.current_window_handle
+    for role, tab in tabs.items():
         driver.switch_to.window(tab)
-        try:
-            WebDriverWait(driver, SELENIUM_TIMEOUT).until(
-                lambda d: count_events(d, "send") >= 2
-            )
-        except Exception:
-            diagnostic = driver.execute_script("""
-              const url = location.origin + location.pathname;
-              return { pathname: location.pathname,
-                events: window.__fixture.events,
-                status: (() => { const cfg = JSON.parse(localStorage.getItem('CQLOCAL_V1:' + url + ':CONFIG') || 'null'); return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + url + ':STATE:' + cfg?.agentId) || 'null'); })(),
-                stop: localStorage.getItem('CQLOCAL_V1:' + url + ':STOP'),
-                config: JSON.parse(localStorage.getItem('CQLOCAL_V1:' + url + ':CONFIG') || 'null'),
-                alerts: window.__CQTEST?.alerts ?? [],
-                buttons: [...document.querySelectorAll('button')].map(b => ({label: b.getAttribute('aria-label'), hidden: b.getClientRects().length === 0}))
-              };
-            """)
-            print("LAB_DIAGNOSTIC:", json.dumps(diagnostic, sort_keys=True), flush=True)
-            raise
-        WebDriverWait(driver, SELENIUM_TIMEOUT).until(
-            lambda d: count_events(d, "reply") >= 2
-        )
+        arm(driver)
+        WebDriverWait(driver, 8).until(lambda d: d.execute_script(
+            "const url = location.origin + location.pathname;"
+            "const c=JSON.parse(localStorage.getItem('CQLOCAL_V1:' + url + ':CONFIG') || 'null');"
+            "const s=JSON.parse(localStorage.getItem('CQLOCAL_V1:' + url + ':STATE:' + c?.agentId) || 'null');"
+            "return c?.agentId === arguments[0] && s?.phase === 'READY';", role))
+    for role, tab in tabs.items():
+        driver.switch_to.window(tab)
+        WebDriverWait(driver, 45).until(lambda d: count_events(d, "reply") >= 2)
         data = events(driver)
         sends = [e for e in data if e["type"] == "send"]
         replies = [e for e in data if e["type"] == "reply"]
         assert len(sends) == len(replies) == 2, "Duplicate or missing send/reply"
-        assert sends[1]["at"] - replies[0]["at"] >= LAB_COOLDOWN_MS, (
-            "Cooldown counted from send rather than terminal reply"
-        )
-        assert all(e["body"].startswith("CQLOCAL LAB:") for e in sends)
+        assert sends[1]["at"] - replies[0]["at"] >= LAB_COOLDOWN_MS
+        assert all(e["body"] == "CQLOCAL LAB: Synthetic role " + role for e in sends)
         WebDriverWait(driver, 10).until(
             lambda d: d.execute_script(
-                "const key = 'CQLOCAL_V1:' + location.origin + location.pathname + ':STOP';"
-                "return JSON.parse(localStorage.getItem(key) || 'false') === true;"
+                "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STOP') || 'false') === true;"
             )
         )
-    print("PASS: REAL Firefox headless on 127.0.0.1 — two tabs, 2 replies each, reply-based cooldown, STOP", flush=True)
-    driver.switch_to.window(b_tab)
+        print(f"PASS: role fixture {role}: 2 sends, 2 terminal replies, isolated content/cooldown/STOP", flush=True)
+    for role in roles[1:]:
+        driver.switch_to.window(tabs[role])
+        driver.close()
+    driver.switch_to.window(tabs[roles[0]])
+    print("PASS: four distinct synthetic role tabs; no real agent conversations", flush=True)
+
+
+def run_duplicate_tab_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
+    original_tab = driver.current_window_handle
+    driver.switch_to.new_window("tab")
+    url = f"http://127.0.0.1:{port}/c/restart-duplicate-lab"
+    driver.get(url)
+    boot(driver, bundle)
+    configure(driver, "coordinator")
+    first = driver.current_window_handle
+    arm(driver)
+    WebDriverWait(driver, 12).until(lambda d: count_events(d, "send") == 1)
+    WebDriverWait(driver, 8).until(lambda d: phase(d) == "AWAITING_REPLY")
+    before = driver.execute_script(
+        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STATE:coordinator')).attemptId;"
+    )
+    assert before
+    driver.switch_to.new_window("tab")
+    driver.get(url)
+    driver.execute_script(BOOTSTRAP, bundle)
+    WebDriverWait(driver, 10).until(
+        lambda d: d.execute_script(
+            "return window.__CQTEST?.menus?.length === 4 && JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STOP') || 'false') === true;"
+        )
+    )
+    # Same URL, same storage, second document. Neither reconfigure nor arm
+    # may supersede the in-flight attempt even though the second DOM is idle.
+    driver.execute_script("window.__CQTEST.prompts = ['coordinator', 'CQLOCAL LAB: Replacement.'];")
+    menu(driver, "Configure LAB")
+    WebDriverWait(driver, 10).until(
+        lambda d: d.execute_script("return window.__CQTEST.alerts.some(a => a.includes('refused'));")
+    )
+    menu(driver, "Arm LAB")
+    WebDriverWait(driver, 12).until(lambda d: phase(d) == "REVIEW")
+    assert count_events(driver, "send") == 1
+    after = driver.execute_script(
+        "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STATE:coordinator')).attemptId;"
+    )
+    assert before == after, "Original uncertain attempt ID was lost"
     driver.close()
-    driver.switch_to.window(a_tab)
-    # Keep one window open; the next test opens an isolated restart tab.
+    driver.switch_to.window(first)
+    assert count_events(driver, "send") == 1
+    driver.close()
+    driver.switch_to.window(original_tab)
+    print("PASS: duplicate same-conversation tab revokes older lease, preserves attempt in REVIEW, zero replay", flush=True)
 
 
 def run_restart_case(driver: webdriver.Firefox, port: int, bundle: str) -> None:
@@ -408,9 +422,9 @@ def run_preflight_denial_case(
     arm(driver)
     WebDriverWait(driver, 8).until(
         lambda d: d.execute_script(
-            "return JSON.parse(localStorage.getItem('CQLOCAL_V1:' + "
-            "location.origin + location.pathname + ':STOP') || 'false');"
-        ) is True
+            "return window.__CQTEST.alerts.some(a => a.includes('operation denied') || a.includes('arm refused')) && "
+            "JSON.parse(localStorage.getItem('CQLOCAL_V1:' + location.origin + location.pathname + ':STOP') || 'false') === true;"
+        )
     )
     assert count_events(driver, "send") == 0
     print(
@@ -464,7 +478,8 @@ def main() -> int:
     try:
         driver = webdriver.Firefox(options=options, service=service)
         driver.set_page_load_timeout(20)
-        run_two_tab_case(driver, port, bundle)
+        run_four_tab_case(driver, port, bundle)
+        run_duplicate_tab_case(driver, port, bundle)
         run_restart_case(driver, port, bundle)
         run_no_receipt_case(driver, port, bundle)
         run_preflight_denial_case(driver, port, bundle, "ambiguous-form-lab")

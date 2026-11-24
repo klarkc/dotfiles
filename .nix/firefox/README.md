@@ -369,3 +369,30 @@ userscript hosting, explicit operator activation, independent QA and the
 governance gates stored in klarkc/broker. No manual operator typing is
 required for further benign isolated tests when a controlled Firefox
 session is already available.
+
+### Pause fencing and four-role loopback regression (2026-11-24)
+
+A deterministic Node fixture reproduced the race in the previous LAB
+source: a Pause during the durable READY write could be overwritten by
+an older Arm, leaving STOP=false and scheduling a timer. The adapter now
+persists a distinct pause epoch, binds each arm to that epoch and an
+individual arm ID, and checks that lease before scheduling, composing,
+clicking, and accepting a terminal reply. Boot and Pause revoke the epoch;
+pending attempt IDs are preserved. A stale arm may not publish permission
+for a superseded epoch. These are LAB guards, not a production authorization
+or a promise of atomic cancellation of a click that has already happened.
+
+Verification uses 36 Node tests, plus opt-in real headless Firefox against
+a temporary loopback-only fixture. Four separate synthetic chats, one for
+each role, receive exactly two messages and two replies with distinct
+role-specific content, cooldown after verified terminal, and STOP.
+Opening a second document of the same chat during AWAITING_REPLY
+invalidates the earlier lease; configuration/arm are refused, the
+original attempt ID survives in REVIEW, and exactly one send remains.
+The negative preflight tests now wait for an actual refusal rather than
+accepting the initial STOP=true as evidence.
+
+The live authenticated LAB tests above apply to the older source, not
+this delta. No permanent agent chat, real account/model identity, or
+production bootstrap/gate has been certified by these loopback fixtures.
+The userscript remains LAB-only and is not installed by the test target.

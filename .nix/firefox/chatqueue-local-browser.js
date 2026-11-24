@@ -26,6 +26,34 @@
 	const locks = navigator.locks;
 	let timer = null;
 	let currentRole = null;
+	// A durable pause epoch is separate from STOP so an older in-flight arm
+	// cannot undo a later Pause. The per-arm identity also fences stale timers.
+	let armLease = null;
+	async function paused() {
+		const lease = armLease;
+		if (!lease) return true;
+		const epoch = await read("PAUSE_EPOCH");
+		const id = await read("ARM_ID");
+		const stopped = await read("STOP");
+		return (
+			armLease !== lease ||
+			epoch !== lease.epoch ||
+			id !== lease.id ||
+			stopped !== false
+		);
+	}
+	async function revoke() {
+		armLease = null;
+		clearTimer();
+		await write("PAUSE_EPOCH", crypto.randomUUID());
+		await write("STOP", true);
+	}
+	async function stopOwn(lease) {
+		if (armLease !== lease) return;
+		armLease = null;
+		clearTimer();
+		if ((await read("ARM_ID")) === lease.id) await write("STOP", true);
+	}
 	let beforeAssistant = new Set();
 	let sentUser = null;
 	const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -218,7 +246,7 @@
 				throw new Error("Composer text verification failed");
 		},
 		deliver: async (agent, content) => {
-			if (!(await configMatches(agent, content)) || (await read("STOP")))
+			if (!(await configMatches(agent, content)) || (await paused()))
 				throw new Error("Configuration changed or LAB paused before click");
 			if (
 				stopButton() ||
@@ -262,7 +290,7 @@
 			while (Date.now() < deadline) {
 				if (location.origin + location.pathname !== url)
 					throw new Error("Chat switched during reply");
-				if (await read("STOP"))
+				if (await paused())
 					throw new Error("LAB paused during uncertain reply");
 				if (
 					sentUser?.isConnected === false ||
@@ -307,7 +335,7 @@
 		write: async (agent, state) => await write("STATE:" + agent, state),
 		withLock,
 		clock: () => Date.now(),
-		paused: async () => !!(await read("STOP")),
+		paused,
 		transport,
 	});
 	const clearTimer = () => {
@@ -316,10 +344,12 @@
 			timer = null;
 		}
 	};
-	async function schedule(ms = 1500) {
+	async function schedule(ms = 1500, lease = armLease) {
+		if (!lease || armLease !== lease || (await paused())) return;
 		clearTimer();
 		timer = setTimeout(async () => {
 			timer = null;
+			if (armLease !== lease || (await paused())) return;
 			const config = await read("CONFIG");
 			if (
 				!config?.lab ||
@@ -327,10 +357,10 @@
 				config.agentId !== currentRole
 			)
 				return;
-			if (await read("STOP")) return;
+			if (armLease !== lease || (await paused())) return;
 			const state = await read("STATE:" + currentRole);
 			if (!state || state.cycle >= MAX_CYCLES) {
-				await write("STOP", true);
+				await stopOwn(lease);
 				return;
 			}
 			try {
@@ -341,18 +371,22 @@
 				);
 				if (res?.status === "COOLDOWN") {
 					const latest = await read("STATE:" + currentRole);
-					if (latest?.cycle >= MAX_CYCLES) await write("STOP", true);
-					else await schedule(Math.max(2000, res.nextEligibleAt - Date.now()));
+					if (latest?.cycle >= MAX_CYCLES) await stopOwn(lease);
+					else
+						await schedule(
+							Math.max(2000, res.nextEligibleAt - Date.now()),
+							lease,
+						);
 				} else if (
 					res?.status === "SKIP_NOT_READY" ||
 					res?.status === "NOT_DUE"
 				) {
-					await schedule(30000);
+					await schedule(30000, lease);
 				} else {
-					await write("STOP", true);
+					await stopOwn(lease);
 				}
 			} catch {
-				await write("STOP", true); // never automatically retry ambiguous failures
+				await stopOwn(lease); // never automatically retry ambiguous failures
 			}
 		}, ms);
 	}
@@ -443,6 +477,8 @@
 		window.alert("Configured LAB-only; no sending until manual Arm LAB.");
 	});
 	menu("Arm LAB after preflight (max 2 sends)", async () => {
+		const epoch = await read("PAUSE_EPOCH");
+		if (typeof epoch !== "string" || !epoch) return;
 		const config = await read("CONFIG");
 		if (
 			!config?.lab ||
@@ -463,6 +499,7 @@
 			// Re-read the binding under the same per-conversation lock as tick.
 			if (
 				(await read("STOP")) !== true ||
+				(await read("PAUSE_EPOCH")) !== epoch ||
 				!(await configMatches(config.agentId, config.text))
 			)
 				return false;
@@ -482,20 +519,44 @@
 			const next = authorizeFirstTick(state, gates, Date.now());
 			try {
 				await write("STATE:" + config.agentId, next);
+				const lease = { epoch, id: crypto.randomUUID() };
+				await write("ARM_ID", lease.id);
+				// Pause may run while the READY write or ARM_ID write is pending.
+				// Never publish permission for a superseded pause epoch.
+				if ((await read("PAUSE_EPOCH")) !== epoch) {
+					await write("STATE:" + config.agentId, recoverAfterRestart(next));
+					await write("STOP", true);
+					return false;
+				}
+				armLease = lease;
 				await write("STOP", false);
+				if (await paused()) {
+					armLease = null;
+					await write("STATE:" + config.agentId, recoverAfterRestart(next));
+					await write("STOP", true);
+					return false;
+				}
 				currentRole = config.agentId;
-				return true;
+				return lease;
 			} catch (error) {
+				armLease = null;
 				await write("STOP", true);
 				throw error;
 			}
 		});
-		if (armed === true) await schedule();
-		else window.alert("LAB arm refused: active lock or stale configuration.");
+		if (armed && armed === armLease) await schedule(1500, armed);
+		else
+			window.alert(
+				"LAB arm refused: active lock, Pause, or stale configuration.",
+			);
 	});
 	menu("Pause LAB immediately", async () => {
-		await write("STOP", true);
-		clearTimer();
+		await revoke();
+		const config = await read("CONFIG");
+		// If no tick owns the lock, close a non-sending READY/COOLDOWN to
+		// PAUSED. If a tick is active, its own reply/uncertainty path closes it.
+		if (config?.lab && config.target === url && AGENTS.includes(config.agentId))
+			await controller.boot(config.agentId);
 		window.alert(
 			"LAB paused; in-flight attempt requires REVIEW after uncertainty.",
 		);
@@ -503,7 +564,7 @@
 	// Import is inert. Browser startup/reload never arms a job.
 	Promise.resolve()
 		.then(async () => {
-			await write("STOP", true);
+			await revoke();
 			const config = await read("CONFIG");
 			if (
 				config?.lab &&

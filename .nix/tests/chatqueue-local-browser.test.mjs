@@ -21,13 +21,21 @@ function sandbox(pathname = "/c/example-chat-123") {
 	const timers = [];
 	const alerts = [];
 	let confirms = true;
+	let nextUUID = 1;
+	const held = new Set();
 	const responses = [];
 	const context = {
 		location: { origin: "https://chatgpt.com", pathname },
 		navigator: {
 			locks: {
-				async request(_name, _opts, fn) {
-					return fn({ name: "fixture-lock" });
+				async request(name, _opts, fn) {
+					if (held.has(name)) return fn(null);
+					held.add(name);
+					try {
+						return await fn({ name });
+					} finally {
+						held.delete(name);
+					}
 				},
 			},
 		},
@@ -36,6 +44,7 @@ function sandbox(pathname = "/c/example-chat-123") {
 			prompt: () => responses.shift() ?? null,
 			alert: (text) => alerts.push(String(text)),
 		},
+		crypto: { randomUUID: () => "fixture-epoch-" + nextUUID++ },
 		document: { querySelector: () => null, querySelectorAll: () => [] },
 		GM_getValue: (key, fallback) => values.get(key) ?? fallback,
 		GM_setValue: (key, value) => {
@@ -359,6 +368,56 @@ test("configure never resets prepared, awaiting or review attempt even when paus
 		);
 		assert.equal(s.timers.length, 0);
 	}
+});
+
+test("Pause during durable READY write wins over the older Arm", async () => {
+	const s = sandbox();
+	const receipt = {
+		disabled: false,
+		getAttribute: () => null,
+		getClientRects: () => [1],
+	};
+	const box = { innerText: "", value: "" };
+	const form = {
+		getAttribute: () => null,
+		getClientRects: () => [1],
+		querySelector: () => box,
+	};
+	s.context.document.querySelectorAll = (selector) => {
+		if (selector === "form[data-chatgpt-composer]") return [form];
+		if (selector.includes('author-role="user"'))
+			return [{ innerText: "CQLOCAL LAB: Manual seed." }];
+		if (selector.includes('author-role="assistant"'))
+			return [{ querySelector: () => receipt }];
+		return [];
+	};
+	s.run();
+	await flush();
+	s.responses.push("coordinator", "CQLOCAL LAB: Original.");
+	await s.runMenu("Configure LAB");
+	const write = s.context.GM_setValue;
+	let raced = false;
+	s.context.GM_setValue = async (key, value) => {
+		write(key, value);
+		if (
+			!raced &&
+			key.endsWith(":STATE:coordinator") &&
+			value?.phase === "READY"
+		) {
+			raced = true;
+			await s.runMenu("Pause LAB");
+		}
+	};
+	await s.runMenu("Arm LAB");
+	await flush();
+	await flush();
+	assert.equal(raced, true);
+	assert.equal([...s.values].find(([k]) => k.endsWith(":STOP"))?.[1], true);
+	assert.equal(s.timers.length, 0, "stale Arm must not schedule after Pause");
+	assert.equal(
+		[...s.values].find(([k]) => k.endsWith(":STATE:coordinator"))[1].phase,
+		"PAUSED",
+	);
 });
 
 test("occupied conversation lock cannot reconfigure, arm or schedule", async () => {
