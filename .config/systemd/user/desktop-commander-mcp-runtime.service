@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h
-Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.nix/desktop-commander-ssh/bin:%h/.nix-profile/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.nix-profile/bin/desktop-commander-mcp-runtime serve
 Restart=on-failure
 RestartSec=5

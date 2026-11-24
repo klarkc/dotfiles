@@ -35,6 +35,30 @@ No ChatGPT, configure um MCP remoto com `https://mcp.example.com/mcp` como exemp
 
 Para processo longo, recolha o PID retornado e faça polling; após reinício do backend, inicie novamente. O probe pode requerer User-Agent compatível com a borda; não desabilite WAF nem controles para contornar rejeições. Não use a integração antiga do fornecedor quando verificar o novo MCP: confira as ferramentas diretas do conector configurado.
 
+## Git via SSH no runtime isolado
+
+Em serviços systemd de usuário com isolamento de mounts, o UID de root pode
+não estar mapeado no user namespace. O OpenSSH pode então recusar o include
+global do systemd com `Bad owner or permissions`, embora o Git funcione no
+terminal normal. Não altere ownership em /etc nem desligue o hardening.
+
+O serviço MCP tem um shim SSH próprio no início do PATH. Para comandos Git
+diretos destinados a git@github.com, e somente no caso verificado de namespace
+com root não mapeado, configuração global stock exclusivamente de transportes
+locais do systemd e ausência de configuração SSH do usuário, o shim seleciona
+uma configuração explícita de OpenSSH com BatchMode e StrictHostKeyChecking
+habilitados. Usa as chaves e known_hosts já existentes, sem aceitar chaves novas
+automaticamente. Se houver política SSH adicional ou alteração da configuração
+global, o shim mantém o OpenSSH nativo e não substitui a política. Outros hosts
+e comandos mantêm o comportamento nativo. O terminal normal e o túnel não
+recebem o PATH do shim.
+
+Depois de integrar a mudança, executar daemon-reload e reiniciar os serviços
+MCP/túnel a partir da sessão autorizada; a conexão MCP em uso será interrompida.
+No conector reconectado, validar `git ls-remote origin HEAD` em checkout GitHub
+e confirmar que os demais destinos não são reescritos. Um erro de autenticação
+ou de host key deve ser tratado normalmente, nunca reduzindo a verificação.
+
 ## Operação
 
 ```bash

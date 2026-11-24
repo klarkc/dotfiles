@@ -97,6 +97,58 @@ class ConfigContract(unittest.TestCase):
         self.assertNotIn('"desktop-commander", "remote"', text)
         self.assertEqual(controller["STATE"], ".profile_override.desktop-commander-mcp")
 
+    def test_service_only_github_ssh_compatibility(self):
+        shim = root / ".nix/desktop-commander-ssh/bin/ssh"
+        policy = shim.parent.parent / "github.conf"
+        functions = runpy.run_path(str(shim))
+        accepts = functions["github_git_args"]
+        for args in (
+            ["git@github.com", "git-receive-pack 'example/repo.git'"],
+            ["-o", "SendEnv=GIT_PROTOCOL", "git@github.com", "git-upload-pack 'example/repo.git'"],
+            ["-p", "22", "git@github.com", "git-upload-pack 'example/repo.git'"],
+        ):
+            self.assertTrue(accepts(args))
+        for args in (
+            ["git@example.com", "git-receive-pack 'example/repo.git'"],
+            ["root@github.com", "git-receive-pack 'example/repo.git'"],
+            ["-p", "443", "git@github.com", "git-upload-pack 'example/repo.git'"],
+            ["-o", "StrictHostKeyChecking=no", "git@github.com", "git-upload-pack 'example/repo.git'"],
+            ["git@github.com", "sh"],
+        ):
+            self.assertFalse(accepts(args))
+        etc = Path(self.temp.name) / "ssh-system"
+        include = etc / "ssh_config.d"
+        include.mkdir(parents=True)
+        (etc / "ssh_config").write_text("Include /etc/ssh/ssh_config.d/*.conf\n")
+        proxy = include / "20-systemd-ssh-proxy.conf"
+        proxy.write_text("\n".join(functions["PROXY_ONLY_CONFIG"]) + "\n")
+        home = Path(self.temp.name) / "home"
+        (home / ".ssh").mkdir(parents=True)
+        matches = functions["proxy_only_policy"]
+        self.assertTrue(matches(etc, home))
+        extra = include / "50-site-policy.conf"
+        extra.write_text("Host *\n    ProxyJump example.com\n")
+        self.assertFalse(matches(etc, home))
+        extra.unlink()
+        (home / ".ssh/config").symlink_to(home / "missing-config")
+        self.assertFalse(matches(etc, home))
+        (home / ".ssh/config").unlink()
+        proxy.write_text(proxy.read_text() + "Host github.com\n    ProxyJump example.com\n")
+        self.assertFalse(matches(etc, home))
+        text = policy.read_text()
+        self.assertIn("StrictHostKeyChecking yes", text)
+        self.assertIn("BatchMode yes", text)
+        self.assertIn("UpdateHostKeys no", text)
+        self.assertNotIn("StrictHostKeyChecking no", text)
+        self.assertNotIn("UserKnownHostsFile /dev/null", text)
+        server = (root / ".config/systemd/user/desktop-commander-mcp-runtime.service").read_text()
+        tunnel = (root / ".config/systemd/user/desktop-commander-mcp-tunnel.service").read_text()
+        self.assertIn("Environment=PATH=%h/.nix/desktop-commander-ssh/bin:", server)
+        self.assertNotIn("desktop-commander-ssh/bin", tunnel)
+        self.assertIn("ProtectSystem=strict", server)
+        self.assertIn("PrivateTmp=yes", server)
+        self.assertIn("NoNewPrivileges=yes", server)
+
     def test_profile_is_authoritative_and_append_does_not_overwrite(self):
         with patch.dict(os.environ, {"HOME": self.temp.name, "PRIVATE_SAMPLE": "inherited-not-authoritative"}):
             profile = Path(self.temp.name) / ".profile_override"

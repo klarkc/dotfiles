@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Service-only SSH compatibility for GitHub in an unprivileged user namespace."""
+
+import os
+from pathlib import Path
+import shutil
+import sys
+
+# Recognize only the stock, local-transport systemd include. If site or user
+# policy changes, use native SSH unchanged; never silently discard that policy.
+PROXY_ONLY_CONFIG = (
+    "Host .host machine/.host",
+    "ProxyCommand /usr/lib/systemd/systemd-ssh-proxy unix/run/ssh-unix-local/socket %p",
+    "ProxyUseFdpass yes",
+    "CheckHostIP no",
+    "Host unix/* unix%* vsock/* vsock%* vsock-mux/* vsock-mux%* machine/* machine%*",
+    "User root",
+    "ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %h %p",
+    "ProxyUseFdpass yes",
+    "CheckHostIP no",
+    "StrictHostKeyChecking no",
+    "UserKnownHostsFile /dev/null",
+)
+
+
+def active_lines(path):
+    return tuple(
+        " ".join(line.split())
+        for line in path.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def proxy_only_policy(etc_ssh, home):
+    # Do not replace an operator's existing SSH configuration, even if the
+    # pathname is a broken symbolic link.
+    if os.path.lexists(home / ".ssh/config"):
+        return False
+    try:
+        if active_lines(etc_ssh / "ssh_config") != (
+            "Include /etc/ssh/ssh_config.d/*.conf",
+        ):
+            return False
+        files = sorted((etc_ssh / "ssh_config.d").glob("*.conf"))
+        return (
+            len(files) == 1
+            and files[0].name == "20-systemd-ssh-proxy.conf"
+            and active_lines(files[0]) == PROXY_ONLY_CONFIG
+        )
+    except (OSError, UnicodeError):
+        return False
+
+
+def github_git_args(args):
+    # Git's OpenSSH transport uses a direct git@github.com destination and a
+    # single remote pack command. Refuse unknown flags, ports and destinations.
+    args = list(args)
+    while args:
+        if args[:2] == ["-o", "SendEnv=GIT_PROTOCOL"] or args[:2] == ["-p", "22"]:
+            args = args[2:]
+        else:
+            break
+    return (
+        len(args) == 2
+        and args[0] == "git@github.com"
+        and args[1].startswith(
+            ("git-upload-pack ", "git-receive-pack ", "git-upload-archive ")
+        )
+    )
+
+
+def namespace_compatible(etc_ssh, uid_map, uid):
+    try:
+        rows = tuple(tuple(map(int, line.split())) for line in uid_map.read_text().splitlines())
+        if uid == 0 or rows != ((uid, uid, 1),):
+            return False
+        # The real root-owned files appear as the overflow UID in this
+        # namespace; do not adopt user-writable or unexpected configurations.
+        paths = (
+            etc_ssh,
+            etc_ssh / "ssh_config",
+            etc_ssh / "ssh_config.d",
+            etc_ssh / "ssh_config.d/20-systemd-ssh-proxy.conf",
+        )
+        return all(
+            path.stat().st_uid == 65534 and not path.stat().st_mode & 0o022
+            for path in paths
+        )
+    except (OSError, UnicodeError, ValueError):
+        return False
+
+
+def main():
+    shim = Path(__file__).resolve()
+    search = os.pathsep.join(
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and Path(entry).is_absolute() and Path(entry).resolve() != shim.parent
+    )
+    native = shutil.which("ssh", path=search)
+    if not native or Path(native).resolve() == shim:
+        raise SystemExit("Native OpenSSH unavailable")
+    args = sys.argv[1:]
+    etc_ssh = Path("/etc/ssh")
+    if (
+        github_git_args(args)
+        and namespace_compatible(etc_ssh, Path("/proc/self/uid_map"), os.getuid())
+        and proxy_only_policy(etc_ssh, Path.home())
+    ):
+        # This is a separate explicit SSH configuration, not a relaxation of
+        # host key verification or a change to keys, host files or sandboxing.
+        args = ["-F", str(shim.parent.parent / "github.conf"), *args]
+    os.execv(native, [native, *args])
+
+
+if __name__ == "__main__":
+    main()
