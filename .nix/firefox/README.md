@@ -451,3 +451,37 @@ its own admission and final pre-click boundaries, reconcile attempts, and
 independently enforce pause/identity. No periodic checker or new scheduler
 is created. The existing signed LAB source and all live browser jobs remain
 unchanged. Offline tests run with `make firefox.RecurrenceTest`.
+
+### Passive local policy bridge (source only, NO_GO)
+
+The standalone chatqueue-policy-bridge.mjs can deliver read-only Git evidence
+to a future signed userscript, without placing repository credentials in the
+browser. Its one explicit endpoint is an authenticated POST /v1/evidence on
+an ephemeral IPv4 loopback port, with a per-launch 256-bit random capability,
+strict Host, agent and nonce checks, no CORS, no arbitrary client paths or
+commands, and at most one in-flight read. The bridge does not poll. A fresh
+request refreshes a generated private bare cache using only ordinary Git
+fetch reads of main and scheduling-runtime, then runs the exact policy
+reader. A failed refresh is a denial, never cached permission. The worktree
+and remote refs are not changed. The response includes only sanitized
+policy evidence with request nonce and timestamps, never runtime authority.
+
+Explicit manual launch requires the existing private configuration to
+provide CHATQUEUE_BROKER_ORIGIN, a private owned XDG_RUNTIME_DIR, and a
+trusted local Git transport. The program writes bridge.json (0600) inside
+its generated private runtime directory; never paste the capability in chat,
+an URL, source control, or logs. It does not configure or start Firefox,
+install a service, modify make all, or provide an alternative scheduler.
+The capability must be kept in the privileged userscript's isolated storage
+by a later reviewed provisioning procedure. No browser integration or actual
+operational permission is implemented in this delta. Local account/Git
+configuration is trusted, not a sandbox against its owner. Git HEAD
+snapshots are not atomic with a subsequent UI click. Shutdown closes the listener, rejects new requests, and waits for the bounded
+active read before removing the generated cache; failed cleanup leaves only
+generated private runtime data. Do not start this bridge for production
+until independent QA and the operational integration are approved.
+
+The Node tests use ephemeral loopback requests with synthetic data. They
+cover no request/no reads, authentication, input bounds, host/method/path,
+redaction, fail-closed results and concurrency. Run the existing
+firefox.RecurrenceTest target.
