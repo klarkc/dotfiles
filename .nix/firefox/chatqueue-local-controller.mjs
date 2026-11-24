@@ -76,7 +76,7 @@ export function makeLocalController({
 			if (state.phase === PHASES.REVIEW) return { status: "REVIEW" };
 			if (!due(state, clock())) return { status: "NOT_DUE" };
 
-			const preflight = await transport.preflight(agent);
+			const preflight = await transport.preflight(agent, content);
 			if (
 				!preflight?.identityVerified ||
 				!preflight?.notGenerating ||

@@ -149,10 +149,10 @@
 		!normalized(composeBox()?.innerText ?? composeBox()?.value) &&
 		manualSeedReady();
 
-	async function withLock(name, callback) {
+	async function withLock(_name, callback) {
 		if (!locks?.request) throw new Error("Firefox LockManager unavailable");
 		return await locks.request(
-			url + ":" + name,
+			url + ":chatqueue-local",
 			{ ifAvailable: true, mode: "exclusive" },
 			async (lock) => {
 				if (!lock) return { status: "SKIP_IN_PROGRESS" };
@@ -160,9 +160,22 @@
 			},
 		);
 	}
+	const configMatches = async (agent, content) => {
+		const config = await read("CONFIG");
+		return (
+			config?.lab === true &&
+			config.target === url &&
+			config.agentId === agent &&
+			config.text === content &&
+			content.startsWith(LAB_PREFIX)
+		);
+	};
 	const transport = {
-		preflight: async () => ({
-			identityVerified: targetReady() && currentRole !== null,
+		preflight: async (agent, content) => ({
+			identityVerified:
+				(await configMatches(agent, content)) &&
+				targetReady() &&
+				currentRole === agent,
 			notGenerating: !stopButton(),
 			threeLegacyGatesOff: true, // LAB assertion; never use for production.
 			noUnreconciledEffects: true, // LAB-only, no broker integrations.
@@ -204,9 +217,22 @@
 			if (actual !== normalized(content))
 				throw new Error("Composer text verification failed");
 		},
-		deliver: async (_agent, content) => {
-			if (stopButton() || location.origin + location.pathname !== url)
+		deliver: async (agent, content) => {
+			if (!(await configMatches(agent, content)) || (await read("STOP")))
+				throw new Error("Configuration changed or LAB paused before click");
+			if (
+				stopButton() ||
+				location.origin + location.pathname !== url ||
+				!accountReady()
+			)
 				throw new Error("Conversation changed or model busy");
+			const box = composeBox();
+			if (
+				!box ||
+				normalized(box.innerText ?? box.value ?? box.textContent) !==
+					normalized(content)
+			)
+				throw new Error("Composer changed before click");
 			const btn = sendButton();
 			if (!btn) throw new Error("Send button ambiguous or unavailable");
 			beforeAssistant = new Set(messageNodes("assistant"));
@@ -388,19 +414,32 @@
 			"CQLOCAL LAB: Respond with LAB_ACK.",
 		);
 		if (!content?.startsWith(LAB_PREFIX) || content.length > 300) return;
-		const previous = await read("CONFIG");
-		if (previous?.agentId && previous.agentId !== agent) return;
-		const prior = await read("STATE:" + agent);
-		if (prior?.phase === PHASES.REVIEW) return;
-		await write("STOP", true);
-		await write("CONFIG", {
-			lab: true,
-			target: url,
-			agentId: agent,
-			text: content,
+		const configured = await withLock("configure", async () => {
+			const previous = await read("CONFIG");
+			if (previous?.agentId && previous.agentId !== agent) return false;
+			const prior = await read("STATE:" + agent);
+			// Never reset a pending or ambiguous attempt, even when STOP is true.
+			if (
+				(await read("STOP")) !== true ||
+				(prior && ![PHASES.PAUSED, PHASES.COOLDOWN].includes(prior.phase))
+			)
+				return false;
+			await write("STOP", true);
+			await write("CONFIG", {
+				lab: true,
+				target: url,
+				agentId: agent,
+				text: content,
+			});
+			await write("STATE:" + agent, newPausedState(agent));
+			currentRole = agent;
+			clearTimer();
+			return true;
 		});
-		await write("STATE:" + agent, newPausedState(agent));
-		currentRole = agent;
+		if (configured !== true) {
+			window.alert("LAB configuration refused: active or uncertain attempt.");
+			return;
+		}
 		window.alert("Configured LAB-only; no sending until manual Arm LAB.");
 	});
 	menu("Arm LAB after preflight (max 2 sends)", async () => {
@@ -420,9 +459,15 @@
 			)
 		)
 			return;
-		currentRole = config.agentId;
-		await write("STOP", false);
-		try {
+		const armed = await withLock("arm", async () => {
+			// Re-read the binding under the same per-conversation lock as tick.
+			if (
+				(await read("STOP")) !== true ||
+				!(await configMatches(config.agentId, config.text))
+			)
+				return false;
+			const state = await read("STATE:" + config.agentId);
+			if (!state || state.agentId !== config.agentId) return false;
 			const gates = {
 				manualGo: true,
 				threeLegacyGatesOff: true,
@@ -433,12 +478,20 @@
 				noOtherGeneration: !stopButton(),
 				recurrenceE2EPassed: true, // LAB test path ONLY, not an operational claim.
 			};
-			await controller.arm(currentRole, gates);
-			await schedule();
-		} catch (error) {
-			await write("STOP", true);
-			throw error;
-		}
+			// Persist READY before allowing a send. A denied lock changes nothing.
+			const next = authorizeFirstTick(state, gates, Date.now());
+			try {
+				await write("STATE:" + config.agentId, next);
+				await write("STOP", false);
+				currentRole = config.agentId;
+				return true;
+			} catch (error) {
+				await write("STOP", true);
+				throw error;
+			}
+		});
+		if (armed === true) await schedule();
+		else window.alert("LAB arm refused: active lock or stale configuration.");
 	});
 	menu("Pause LAB immediately", async () => {
 		await write("STOP", true);

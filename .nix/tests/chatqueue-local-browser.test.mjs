@@ -24,7 +24,13 @@ function sandbox(pathname = "/c/example-chat-123") {
 	const responses = [];
 	const context = {
 		location: { origin: "https://chatgpt.com", pathname },
-		navigator: { locks: undefined },
+		navigator: {
+			locks: {
+				async request(_name, _opts, fn) {
+					return fn({ name: "fixture-lock" });
+				},
+			},
+		},
 		window: {
 			confirm: () => confirms,
 			prompt: () => responses.shift() ?? null,
@@ -135,6 +141,7 @@ test("without browser LockManager, arming LAB never starts or sends", async () =
 	await flush();
 	s.responses.push("coordinator", "CQLOCAL LAB: Short response.");
 	await s.runMenu("Configure LAB");
+	s.context.navigator.locks.request = undefined;
 	await s.runMenu("Arm LAB");
 	assert.equal(s.timers.length, 0);
 	assert.equal([...s.values].find(([key]) => key.endsWith(":STOP"))[1], true);
@@ -323,5 +330,48 @@ test("ARM with unverified editor refuses scheduling and restores STOP", async ()
 	await s.runMenu("Configure LAB");
 	await s.runMenu("Arm LAB");
 	assert.equal([...s.values].find(([k]) => k.endsWith(":STOP"))?.[1], true);
+	assert.equal(s.timers.length, 0);
+});
+
+test("configure never resets prepared, awaiting or review attempt even when paused", async () => {
+	for (const phase of ["PREPARED", "AWAITING_REPLY", "REVIEW"]) {
+		const s = sandbox();
+		s.run();
+		await flush();
+		s.responses.push("coordinator", "CQLOCAL LAB: Original.");
+		await s.runMenu("Configure LAB");
+		const [key, state] = [...s.values].find(([k]) =>
+			k.endsWith(":STATE:coordinator"),
+		);
+		const uncertain = {
+			...state,
+			phase,
+			cycle: 1,
+			attemptId: "lab-fixture-0001",
+		};
+		s.values.set(key, uncertain);
+		s.responses.push("coordinator", "CQLOCAL LAB: Replacement.");
+		await s.runMenu("Configure LAB");
+		assert.deepEqual(s.values.get(key), uncertain);
+		assert.equal(
+			[...s.values].find(([k]) => k.endsWith(":CONFIG"))[1].text,
+			"CQLOCAL LAB: Original.",
+		);
+		assert.equal(s.timers.length, 0);
+	}
+});
+
+test("occupied conversation lock cannot reconfigure, arm or schedule", async () => {
+	const s = sandbox();
+	s.run();
+	await flush();
+	s.responses.push("coordinator", "CQLOCAL LAB: Original.");
+	await s.runMenu("Configure LAB");
+	const previous = [...s.values];
+	s.context.navigator.locks.request = async (_name, _opts, fn) => fn(null);
+	s.responses.push("coordinator", "CQLOCAL LAB: Replacement.");
+	await s.runMenu("Configure LAB");
+	await s.runMenu("Arm LAB");
+	assert.deepEqual([...s.values], previous);
 	assert.equal(s.timers.length, 0);
 });
