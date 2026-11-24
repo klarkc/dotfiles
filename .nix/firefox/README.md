@@ -293,3 +293,79 @@ prevent the first send when there are two visible composers, no seed, or a
 newer unanswered user turn. This is still NOT an authenticated automated
 E2E; the script remains SOURCE ONLY, STOP=true, original XPI unchanged,
 four permanent agents paused, runtime NO_GO.
+
+### Live authenticated Firefox LAB one-shot and signed Violentmonkey integration (2026-11-24)
+
+On the existing **separate, previously manually seeded** ChatGPT /c/ LAB
+conversation, a supervised one-shot exercise ran the **original** local
+LAB source against authenticated Firefox DOM. The harness was temporary
+and restricted to the LAB URL; it replaced only its browser GM storage
+with **sessionStorage for that ephemeral DevTools experiment** and capped
+MAX_CYCLES at **1** in its ephemeral copy. No broker identities or four
+permanent agent chats were used; no userscript was installed in this first
+phase. The actual source in this repository retained its default
+MAX_CYCLES=2 and normal GM bridge.
+
+- The first automatic delivery requested ten original Portuguese sections
+  on asynchronous system resilience, ending with a synthetic marker.
+  The adapter made exactly ONE send, then observed a streamed reply of
+  roughly 8,049 characters. The final marker appeared as requested.
+  Polling at ~300 ms showed **119 active Stop** samples, **208 Copy**
+  samples, **ZERO simultaneous Stop+Copy** on the new reply, and the
+  Copy action appeared after Stop had disappeared. The observed interval
+  from first Stop to first Copy was about **36 seconds**. The state
+  transitioned to **COOLDOWN, cycle=1, STOP=true**, with no replay.
+  This is a positive witness for the **tested UI path**, not a formal
+  invariant of every future ChatGPT UI state.
+- A second ephemeral one-shot asked for 15 sections and was reloaded
+  during a visible Stop in **AWAITING_REPLY, cycle=1**. After reload
+  the server-side reply eventually finished, but the persisted state was
+  still **AWAITING_REPLY** and required reconciliation. Re-injecting
+  the source on the **same LAB conversation** ran the boot procedure and
+  produced **REVIEW, STOP=true**, **without a repeated send**. Recovery
+  preserved the distinction between conversational completion and
+  externally verified delivery effects.
+- Independently, the operator authorized a temporary import into the
+  **already signed Violentmonkey 2.50.0** extension in the operational
+  Firefox profile. We generated a temporary copy of the original script
+  constrained via a **single exact /c/ @match** and **MAX_CYCLES=1**.
+  The install came from a disposable 127.0.0.1 HTTP server, with external
+  edits auto-following OFF. No proprietary XPI was repacked or patched;
+  the existing selector-compatibility script stayed installed.
+- The Violentmonkey menu Status returned **configured=false,
+  phase=NONE, STOP=true**, and a unique visible editor with manual seed
+  ready. After explicit Configure and Arm actions in that **single LAB
+  tab**, the signed host sent exactly ONE harmless
+  CQLOCAL LAB: Respond with LAB_ACK. prompt, received LAB_ACK,
+  and its own post-reply Status returned **configured=true,
+  phase=COOLDOWN, stopped=true, cycles=1, Stop=false,
+  lastTurnHasCompletionAction=true**.
+- The **temporary** userscript was then deleted via Violentmonkey's
+  UI, including the trash; the dashboard readback showed **ONE**
+  installed script, the original non-sending compatibility shim. The
+  LAB tab was reloaded after uninstall and retained the test exchanges.
+  The unsigned temporary HTTP import server was stopped. No lingering
+  laboratory activation or timer was left running; the original signed
+  ChatQueue 1.0.1 queue remains PAUSED.
+
+### What these tests DO NOT authorize
+
+These findings satisfy a **single isolated authenticated LAB chat**
+positive send/long-reply/terminal test, an in-flight reload **fail-closed**
+test, and the real signed userscript-host positive path. They **do not**
+constitute production readiness for the permanent four-agent Broker:
+no authenticated 4-chat background-tab liveness/reconciliation test,
+no independent QualityManager sign-off, no proof of model selection or
+stable long-term ChatGPT DOM semantics, no cross-account generalization,
+no delivery of actual permanent agent prompts, and no approval to turn
+on heartbeats/schedulers/operator digest. The ephemeral one-shot harness
+was never intended as a production agent scheduler. Do not infer
+production GO, and do not resume ChatQueue 1.0.1.
+
+The dotfiles remain locally ahead of origin due to a previously observed
+remote write ACL/403; never bypass that permission. The future NixOS
+backport in klarkc/os must use versioned original source, signed
+userscript hosting, explicit operator activation, independent QA and the
+governance gates stored in klarkc/broker. No manual operator typing is
+required for further benign isolated tests when a controlled Firefox
+session is already available.
