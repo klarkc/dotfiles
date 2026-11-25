@@ -10,6 +10,8 @@ import { makeLocalController } from "./chatqueue-local-controller.mjs";
 import {
 	validateOperationalConfig,
 	freshOperationalEvidence,
+	freshPausedOperationalEvidence,
+	OPERATIONAL_PATH,
 	operationalMessage,
 } from "./chatqueue-operational-client.mjs";
 import {
@@ -506,16 +508,225 @@ export function makeOperationalRuntime({
 		await schedule(Math.max(0, state.nextEligibleAt - clock()), armed);
 		return true;
 	}
+	// Recovery is a distinct, explicitly invoked no-send path. A fresh
+	// paused policy packet is NOT accepted by arm/prepare/click.
+	const validPausedPacket = (packet, query = null) =>
+		!!packet &&
+		packet.context?.agent === agent &&
+		freshPausedOperationalEvidence(packet.value, {
+			...packet.context,
+			pulseQuery: query,
+			now: clock(),
+		});
+	const recoveryAttested = (a) =>
+		a?.manualRecovery === true &&
+		a?.accountModelVerified === true &&
+		a?.qaVerified === true;
+	const locallyStopped = (gate) =>
+		!lease &&
+		!active &&
+		timer === null &&
+		gate?.stopped === true &&
+		gate.armId === null &&
+		typeof gate.epoch === "string";
+	const sameStopped = async (config, gate) =>
+		locallyStopped(gate) &&
+		same(await getConfig(), config) &&
+		same(await read("GATE"), gate) &&
+		locallyStopped(gate);
+	const readPausedPacket = (config, query = null) =>
+		lock("CQOP_V1:POLICY_READ", false, () =>
+			readEvidence(config, agent, query, "paused-recovery"),
+		);
+
+	async function reconcileSupervisedReview(attestation) {
+		if (!booted || !recoveryAttested(attestation)) return false;
+		return (
+			(await exclusive(async () => {
+				const config = await getConfig(),
+					b = binding(config);
+				const gate = await read("GATE");
+				const state = await readState();
+				const journal = await read("SUPERVISED");
+				if (
+					!b ||
+					!locallyStopped(gate) ||
+					state?.phase !== PHASES.REVIEW ||
+					state.cycle < 1 ||
+					!opValidTime(clock()) ||
+					(state.lastReplyAt !== null && state.lastReplyAt > clock()) ||
+					!journal ||
+					journal.path !== path ||
+					journal.promptBlob !== config.promptBlob ||
+					journal.cycle !== state.cycle ||
+					journal.attemptId !== state.attemptId
+				)
+					return false;
+
+				// The journal is written first. A crash before STATE commits can
+				// only retry this same review, with the original exact Git pair.
+				const pending =
+					journal.phase === "PREPARED" &&
+					journal.lastReplyAt === null &&
+					!journal.gitProof &&
+					!journal.reconciledReview;
+				const priorProof = sanitizePulseProof(journal.gitProof);
+				const partial =
+					journal.phase === "REPLY_TERMINAL" &&
+					journal.reconciledReview?.method ===
+						"EXACT_RECEIPT_AND_OWN_GIT_PAIR" &&
+					same(journal.reconciledReview.previousState, state) &&
+					opValidTime(journal.lastReplyAt) &&
+					journal.lastReplyAt <= clock() &&
+					(state.lastReplyAt === null ||
+						journal.lastReplyAt >= state.lastReplyAt) &&
+					!!priorProof;
+				if (!pending && !partial) return false;
+				const query = {
+					attemptId: journal.attemptId,
+					baselineMain: journal.baselineMain,
+					...(partial ? { terminalCommit: priorProof.terminalCommit } : {}),
+				};
+				if (!validatePulseQuery(query)) return false;
+				const content = operationalMessage(b, state.attemptId);
+				const observed = await dom.waitTerminal(
+					b,
+					content,
+					async () => !(await sameStopped(config, gate)),
+					15000,
+				);
+				if (
+					observed?.observedFinalAssistantResponse !== true ||
+					observed.noActiveGeneration !== true ||
+					typeof observed.receiptText !== "string" ||
+					!observed.receiptText
+				)
+					return false;
+				const packet = await readPausedPacket(config, query);
+				if (!validPausedPacket(packet, query)) return false;
+				const proof = sanitizePulseProof(packet.value.pulseProof);
+				if (!pulseProofMatches(proof, agent, query, packet.value.heads.main))
+					return false;
+				if (partial && !same({ ...proof, main: priorProof.main }, priorProof))
+					return false;
+				return await fence(async () => {
+					const stillVerified = async () =>
+						(await sameStopped(config, gate)) &&
+						same(await readState(), state) &&
+						validPausedPacket(packet, query) &&
+						dom.terminalSnapshot(b, content) === observed.receiptText;
+					if (
+						!(await stillVerified()) ||
+						!same(await read("SUPERVISED"), journal)
+					)
+						return false;
+					const resolved = pending
+						? {
+								...journal,
+								phase: "REPLY_TERMINAL",
+								lastReplyAt: clock(),
+								gitProof: proof,
+								reconciledReview: {
+									method: "EXACT_RECEIPT_AND_OWN_GIT_PAIR",
+									previousState: state,
+								},
+							}
+						: journal;
+					if (pending) await writeChecked("SUPERVISED", resolved);
+					if (
+						!(await stillVerified()) ||
+						!same(await read("SUPERVISED"), resolved)
+					)
+						return false;
+					await writeState({
+						...state,
+						phase: PHASES.PAUSED,
+						attemptId: null,
+						nextEligibleAt: null,
+						lastReplyAt: resolved.lastReplyAt,
+						pendingReason:
+							"Exact supervised review reconciled; separate manual GO required",
+					});
+					return true;
+				});
+			})) === true
+		);
+	}
+
+	async function migratePristineBinding(attestation) {
+		if (
+			!recoveryAttested(attestation) ||
+			attestation.oldDocumentsRetired !== true
+		)
+			return false;
+		return (
+			(await exclusive(async () => {
+				const config = await getConfig(),
+					b = binding(config);
+				const gate = await read("GATE");
+				const previous = await read("STATE");
+				const s = previous?.state;
+				// Deliberately scoped to a never-prepared, zero-cycle journal.
+				// Any attempt/history or old supervised proof needs a distinct
+				// reviewed migration. Never discard it or inherit its authority.
+				if (
+					!b ||
+					config.reviewed !== false ||
+					!locallyStopped(gate) ||
+					!OPERATIONAL_PATH.test(previous?.path ?? "") ||
+					Object.keys(previous).sort().join(",") !== "path,state" ||
+					previous.path === path ||
+					previous.path.split("/")[2] !== path.split("/")[2] ||
+					config.bindings.some((item) => item.path === previous.path) ||
+					!validState(s, agent) ||
+					s.phase !== PHASES.PAUSED ||
+					s.cycle !== 0 ||
+					s.attemptId !== null ||
+					s.lastReplyAt !== null ||
+					(await read("SUPERVISED")) !== null ||
+					!dom.ready(b, "", true)
+				)
+					return false;
+				const packet = await readPausedPacket(config);
+				if (!validPausedPacket(packet)) return false;
+				return await fence(async () => {
+					if (
+						!(await sameStopped(config, gate)) ||
+						!same(await read("STATE"), previous) ||
+						(await read("SUPERVISED")) !== null ||
+						!validPausedPacket(packet) ||
+						!dom.ready(b, "", true)
+					)
+						return false;
+					// Preserve the entire existing state; only change its private
+					// binding envelope, under witnessed ROLE/FENCE locks.
+					await writeState(s);
+					booted = true;
+					return true;
+				});
+			})) === true
+		);
+	}
+
 	async function pause() {
 		await revoke();
 		await controller.boot(agent);
 	}
 	async function status() {
 		const cfg = await getConfig();
-		const state = await readState();
+		const envelope = await read("STATE");
+		const state = envelope?.state ?? null;
+		if (envelope && !validState(state, agent))
+			throw new Error("Invalid role state");
+		const bindingMigrationRequired = !!envelope && envelope.path !== path;
 		const journal = await read("SUPERVISED");
 		return {
 			configured: !!binding(cfg),
+			bindingMigrationRequired,
+			pendingReason:
+				typeof state?.pendingReason === "string"
+					? state.pendingReason.slice(0, 256)
+					: null,
 			reviewed: cfg?.reviewed === true,
 			phase: state?.phase ?? "NONE",
 			cycle: state?.cycle ?? 0,
@@ -527,5 +738,12 @@ export function makeOperationalRuntime({
 			supervisedGitProofStored: !!sanitizePulseProof(journal?.gitProof),
 		};
 	}
-	return { boot, arm, pause, status };
+	return {
+		boot,
+		arm,
+		pause,
+		status,
+		reconcileSupervisedReview,
+		migratePristineBinding,
+	};
 }

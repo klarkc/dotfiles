@@ -140,8 +140,26 @@
 			(!requireBootstrap || bootstrap(b))
 		);
 	};
+	// A virtualized turn can temporarily leave the DOM. Absence is not a
+	// terminal witness; an explicit duplicate or superseding turn is fatal.
+	const attemptTurn = (content) => {
+		const ts = turns();
+		const matches = ts.filter((t) => textOf(user(t)) === norm(content));
+		if (
+			matches.length > 1 ||
+			(matches.length === 1 && matches[0] !== ts.at(-1))
+		)
+			throw new Error("Attempt turn no longer unique/latest");
+		return matches[0] ?? null;
+	};
+	const terminalSnapshot = (b, content) => {
+		const t = attemptTurn(content);
+		const a = assistant(t);
+		return t && terminal(a) && ready(b, "") ? textOf(a) || null : null;
+	};
 	const dom = {
 		ready,
+		terminalSnapshot,
 		receiptCount: (message) => receiptMatches(message).length,
 		async compose(content) {
 			const c = composer();
@@ -199,28 +217,34 @@
 			}
 			throw new Error("No exact user receipt");
 		},
-		async waitTerminal(b, content, paused) {
+		async waitTerminal(b, content, paused, maxWait = Infinity) {
 			const deadline = Date.now() + 2 * 60 * 60 * 1000;
+			const until = Math.min(deadline, Date.now() + maxWait);
 			let previous = "",
-				stable = 0;
-			while (Date.now() < deadline) {
+				stable = null,
+				missingIdleSince = null;
+			while (Date.now() < until) {
 				if (!route() || (await paused())) throw new Error("Reply interrupted");
-				const t = receipt(content);
-				if (!t || turns().at(-1) !== t)
-					throw new Error("Attempt turn no longer unique/latest");
-				const a = assistant(t),
-					text = textOf(a);
-				if (!busy() && text && terminal(a) && ready(b, "")) {
-					if (text !== previous) {
+				const t = attemptTurn(content);
+				const now = Date.now();
+				if (!t && !busy()) {
+					missingIdleSince ??= now;
+					if (now - missingIdleSince >= 30000)
+						throw new Error("Exact attempt receipt absent after idle grace");
+				} else missingIdleSince = null;
+				const text = t ? terminalSnapshot(b, content) : null;
+				if (text) {
+					if (text !== previous || stable === null) {
 						previous = text;
 						stable = Date.now();
-					} else if (stable && Date.now() - stable >= 6000)
+					} else if (Date.now() - stable >= 6000)
 						return {
 							observedFinalAssistantResponse: true,
 							noActiveGeneration: true,
+							receiptText: text,
 						};
 				} else {
-					stable = 0;
+					stable = null;
 					previous = "";
 				}
 				await sleep(500);
@@ -276,7 +300,7 @@
 				readEvidence,
 				dom,
 			});
-			const boot = runtime.boot();
+			const boot = runtime.boot().catch(() => false);
 			const menu = (title, fn) =>
 				GM_registerMenuCommand("ChatQueue Broker - " + title, () =>
 					Promise.resolve()
@@ -336,6 +360,44 @@
 				});
 				if (!ok) window.alert("Arm refused; no automatic retry.");
 			};
+			const recoveryAttestation = () => ({
+				manualRecovery: true,
+				accountModelVerified: true,
+				oldDocumentsRetired: true,
+				qaVerified: true,
+			});
+			menu("Reconcile supervised REVIEW (no send)", async () => {
+				await boot;
+				if (
+					!window.confirm(
+						"Reconcile only the exact supervised attempt in this chat? Confirm stopped roles, correct account/model and independent QA. No send, arm or provider-effect claim.",
+					)
+				)
+					return;
+				const ok = await runtime.reconcileSupervisedReview(
+					recoveryAttestation(),
+				);
+				window.alert(
+					ok
+						? "Exact attempt reconciled; still paused. Separate GO required."
+						: "REVIEW retained; exact receipt or proof not verified. No send.",
+				);
+			});
+			menu("Migrate pristine paused binding (no send)", async () => {
+				await boot;
+				if (
+					!window.confirm(
+						"Migrate this role's pristine paused journal to the current chat? Confirm old documents closed, exact new account/model/bootstrap and independent QA. No send or arm.",
+					)
+				)
+					return;
+				const ok = await runtime.migratePristineBinding(recoveryAttestation());
+				window.alert(
+					ok
+						? "Pristine binding migrated; still paused. Separate GO required."
+						: "Binding unchanged; migration conditions not proven. No send.",
+				);
+			});
 			menu("Arm supervised (one tick)", () => arm("supervised"));
 			menu("Arm recurrence (requires verified supervised Git pair)", () =>
 				arm("recurrence"),

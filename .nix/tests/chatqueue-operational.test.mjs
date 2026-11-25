@@ -11,6 +11,7 @@ import {
 	validateOperationalConfig,
 	parseOperationalTemplates,
 	freshOperationalEvidence,
+	freshPausedOperationalEvidence,
 	makeOperationalPolicyClient,
 	operationalMessage,
 } from "../firefox/chatqueue-operational-client.mjs";
@@ -274,12 +275,17 @@ test("actual loopback bridge transports prompt pin; client denies NO_GO", async 
 		readPolicy: async (agent, query) => {
 			reads++;
 			const v = permitted(agent, "c".repeat(32), Date.now());
+			const withProof = {
+				...v,
+				...(query ? { pulseProof: syntheticProof(agent, query) } : {}),
+			};
 			return go
-				? {
-						...v,
-						...(query ? { pulseProof: syntheticProof(agent, query) } : {}),
-					}
-				: { ...v, status: "NO_GO", reasons: ["PRODUCTION_NO_GO"] };
+				? withProof
+				: {
+						...withProof,
+						status: "NO_GO",
+						reasons: ["ROLE_PAUSED", "PRODUCTION_NO_GO"],
+					};
 		},
 	});
 	try {
@@ -303,9 +309,28 @@ test("actual loopback bridge transports prompt pin; client denies NO_GO", async 
 			},
 		});
 		assert.equal(await client(c, "coordinator"), null);
+		const pausedQuery = {
+			attemptId: "cqop-" + randomUUID(),
+			baselineMain: blob,
+		};
+		const paused = await client(
+			c,
+			"coordinator",
+			pausedQuery,
+			"paused-recovery",
+		);
+		assert.equal(paused.value.status, "NO_GO");
+		assert.equal(paused.value.pulseProof.attemptId, pausedQuery.attemptId);
+		assert.equal(
+			freshOperationalEvidence(paused.value, {
+				...paused.context,
+				now: Date.now(),
+			}),
+			false,
+		);
 		go = true;
 		assert.ok(await client(c, "coordinator"));
-		assert.equal(reads, 2);
+		assert.equal(reads, 3);
 		const q = {
 			attemptId: "cqop-" + randomUUID(),
 			baselineMain: blob,
@@ -319,7 +344,7 @@ test("actual loopback bridge transports prompt pin; client denies NO_GO", async 
 			"Edited body.",
 		);
 		assert.equal(await client(c, "coordinator"), null);
-		assert.equal(reads, 4);
+		assert.equal(reads, 5);
 	} finally {
 		await bridge.stop();
 	}
@@ -377,20 +402,32 @@ function fixture(agent = "coordinator", shared) {
 			receipt = true;
 		},
 		waitSent: async () => ({ sent: true }),
+		terminalSnapshot: (b) =>
+			route && ready && b.path === path && !draft
+				? "Synthetic terminal result"
+				: null,
 		waitTerminal: async (_b, _c, paused) => {
 			if (await paused()) throw new Error("paused");
 			receipt = false;
-			return { observedFinalAssistantResponse: true, noActiveGeneration: true };
+			return {
+				observedFinalAssistantResponse: true,
+				noActiveGeneration: true,
+				receiptText: "Synthetic terminal result",
+			};
 		},
 	};
-	const readEvidence = async (_cfg, id, query = null) => {
+	const readEvidence = async (_cfg, id, query = null, purpose = "send") => {
 		base.reads++;
 		if (base.readHook) await base.readHook(base.reads);
-		if (!base.allow) return null;
+		if (!base.allow && !(purpose === "paused-recovery" && base.pausedRecovery))
+			return null;
 		const nonce = randomUUID().replace(/-/g, "");
 		return {
 			value: {
 				...permitted(id, nonce, base.now),
+				...(purpose === "paused-recovery" && base.pausedRecovery
+					? { status: "NO_GO", reasons: ["ROLE_PAUSED", "PRODUCTION_NO_GO"] }
+					: {}),
 				...(query && base.proofAllowed === true
 					? {
 							pulseProof:
@@ -683,4 +720,266 @@ test("legacy uncorrelated supervised record cannot grant recurrence", async () =
 	f.base.proofAllowed = true;
 	assert.equal(await f.runtime.arm("recurrence", attest), false);
 	assert.equal(f.base.timers.size, 0);
+});
+
+const recoveryAttest = {
+	manualRecovery: true,
+	accountModelVerified: true,
+	oldDocumentsRetired: true,
+	qaVerified: true,
+};
+
+test("paused evidence is disjoint from send admission and requires exact closed gates, pins and freshness", () => {
+	const now = 10000,
+		nonce = "c".repeat(32);
+	const ctx = {
+		agent: "platformmanager",
+		nonce,
+		promptBlob: oid,
+		promptDigest: digestFor("platformmanager"),
+		requestedAt: now,
+		now,
+	};
+	const value = {
+		...permitted(ctx.agent, nonce, now),
+		status: "NO_GO",
+		reasons: ["ROLE_PAUSED", "PRODUCTION_NO_GO"],
+	};
+	assert.equal(freshPausedOperationalEvidence(value, ctx), true);
+	assert.equal(freshOperationalEvidence(value, ctx), false);
+	for (const patch of [
+		{ status: "GIT_POLICY_PASS_ONLY", reasons: [] },
+		{ reasons: ["PRODUCTION_NO_GO"] },
+		{
+			reasons: [
+				"ROLE_PAUSED",
+				"PRODUCTION_NO_GO",
+				"LEGACY_RUNTIME_GATE_NOT_OFF",
+			],
+		},
+		{ reasons: ["ROLE_PAUSED", "ROLE_PAUSED"] },
+		{ heads: {} },
+		{ blobs: {} },
+		{ promptDigest: "a".repeat(64) },
+		{ nonce: "d".repeat(32) },
+		{ runtimeAuthorized: true },
+		{ agent: "businessmanager" },
+	])
+		assert.equal(
+			freshPausedOperationalEvidence({ ...value, ...patch }, ctx),
+			false,
+		);
+	assert.equal(
+		freshPausedOperationalEvidence(value, { ...ctx, now: now + 5001 }),
+		false,
+	);
+});
+
+async function reviewedFixture() {
+	const f = fixture("platformmanager");
+	await f.runtime.boot();
+	const terminal = f.dom.waitTerminal;
+	f.dom.waitTerminal = async () => {
+		throw new Error("Virtualized receipt missing");
+	};
+	await f.runtime.arm("supervised", attest);
+	await f.fire();
+	f.dom.waitTerminal = terminal;
+	f.base.allow = false;
+	f.base.pausedRecovery = true;
+	f.base.proofAllowed = true;
+	assert.equal((await f.runtime.status()).phase, "REVIEW");
+	assert.equal(f.base.clicks.length, 1);
+	return f;
+}
+
+test("exact supervised REVIEW reconciles under closed gates without a second send or arm", async () => {
+	const f = await reviewedFixture();
+	const original = structuredClone(f.base.data.get(f.key("STATE")).state);
+	const gate = structuredClone(f.base.data.get(f.key("GATE")));
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview({
+			...recoveryAttest,
+			manualRecovery: false,
+		}),
+		false,
+	);
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+	f.base.proofAllowed = false;
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	f.base.proofAllowed = true;
+	f.base.proofOverride = (agent, query) => ({
+		...syntheticProof(agent, query),
+		attemptId: "cqop-" + randomUUID(),
+	});
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	delete f.base.proofOverride;
+	const terminal = f.dom.waitTerminal;
+	f.dom.waitTerminal = async () => ({
+		observedFinalAssistantResponse: true,
+		noActiveGeneration: true,
+	});
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	f.dom.waitTerminal = terminal;
+	f.dom.terminalSnapshot = () => "Changed reply";
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	f.dom.terminalSnapshot = () => "Synthetic terminal result";
+	assert.deepEqual(f.base.data.get(f.key("STATE")).state, original);
+	assert.equal(await f.runtime.reconcileSupervisedReview(recoveryAttest), true);
+	const s = await f.runtime.status();
+	const journal = f.base.data.get(f.key("SUPERVISED"));
+	assert.equal(s.phase, "PAUSED");
+	assert.equal(s.cycle, 1);
+	assert.equal(s.attemptId, null);
+	assert.equal(s.stopped, true);
+	assert.equal(s.leased, false);
+	assert.equal(s.supervisedGitProofStored, true);
+	assert.equal(journal.attemptId, original.attemptId);
+	assert.equal(journal.gitProof.providerEffectsVerified, false);
+	assert.deepEqual(journal.reconciledReview.previousState, original);
+	assert.deepEqual(f.base.data.get(f.key("GATE")), gate);
+	assert.equal(f.base.timers.size, 0);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+});
+
+test("partial reconciliation preserves original REVIEW and retries only its pinned pair", async () => {
+	const f = await reviewedFixture();
+	const original = structuredClone(f.base.data.get(f.key("STATE")).state);
+	f.base.writeHook = async (key, value) => {
+		if (key === "STATE" && value.state.phase === "PAUSED")
+			throw new Error("Synthetic interrupted STATE write");
+	};
+	await assert.rejects(f.runtime.reconcileSupervisedReview(recoveryAttest));
+	assert.deepEqual(f.base.data.get(f.key("STATE")).state, original);
+	const saved = structuredClone(f.base.data.get(f.key("SUPERVISED")));
+	assert.equal(saved.phase, "REPLY_TERMINAL");
+	assert.equal(saved.attemptId, original.attemptId);
+	delete f.base.writeHook;
+	f.base.proofOverride = (agent, query) => ({
+		...syntheticProof(agent, query),
+		startedCommit: "5".repeat(40),
+	});
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	delete f.base.proofOverride;
+	assert.equal(await f.runtime.reconcileSupervisedReview(recoveryAttest), true);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), saved);
+	assert.equal((await f.runtime.status()).phase, "PAUSED");
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal(f.base.timers.size, 0);
+});
+
+test("a config change during paused recovery keeps exact attempt in REVIEW", async () => {
+	const f = await reviewedFixture();
+	const original = structuredClone(f.base.data.get(f.key("STATE")));
+	f.base.readHook = async () => {
+		f.base.config.reviewed = false;
+	};
+	assert.equal(
+		await f.runtime.reconcileSupervisedReview(recoveryAttest),
+		false,
+	);
+	assert.deepEqual(f.base.data.get(f.key("STATE")), original);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal(f.base.timers.size, 0);
+});
+
+async function rolloverFixture() {
+	const f = fixture();
+	await f.runtime.boot();
+	const previous = structuredClone(f.base.data.get(f.key("STATE")));
+	f.base.config.reviewed = false;
+	f.base.config.bindings[0].path = "/g/example-project/c/coordinator-successor";
+	f.base.allow = false;
+	f.base.pausedRecovery = true;
+	const successor = fixture("coordinator", f.base);
+	await assert.rejects(successor.runtime.boot());
+	return { f: successor, previous };
+}
+
+test("explicit pristine paused rollover preserves state, changes only binding, never arms", async () => {
+	const { f, previous } = await rolloverFixture();
+	assert.equal((await f.runtime.status()).bindingMigrationRequired, true);
+	assert.equal(
+		await f.runtime.migratePristineBinding({
+			...recoveryAttest,
+			oldDocumentsRetired: false,
+		}),
+		false,
+	);
+	f.base.pausedRecovery = false;
+	assert.equal(await f.runtime.migratePristineBinding(recoveryAttest), false);
+	f.base.pausedRecovery = true;
+	assert.deepEqual(f.base.data.get(f.key("STATE")), previous);
+	assert.equal(await f.runtime.migratePristineBinding(recoveryAttest), true);
+	assert.deepEqual(f.base.data.get(f.key("STATE")), {
+		path: f.path,
+		state: previous.state,
+	});
+	const status = await f.runtime.status();
+	assert.equal(status.bindingMigrationRequired, false);
+	assert.equal(status.phase, "PAUSED");
+	assert.equal(status.stopped, true);
+	assert.equal(status.leased, false);
+	assert.equal(status.cycle, 0);
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal(f.base.timers.size, 0);
+	assert.equal(await f.runtime.arm("supervised", attest), false);
+});
+
+test("rollover rejects historical cycles, supervised journal, review, wrong project and reviewed config", async () => {
+	for (const scenario of [
+		"cycle",
+		"journal",
+		"review",
+		"project",
+		"reviewed",
+		"model",
+		"unknown-envelope",
+	]) {
+		const { f, previous } = await rolloverFixture();
+		const candidate = structuredClone(previous);
+		if (scenario === "cycle") candidate.state.cycle = 1;
+		if (scenario === "journal")
+			f.base.data.set(f.key("SUPERVISED"), {
+				attemptId: "cqop-" + randomUUID(),
+			});
+		if (scenario === "review") {
+			candidate.state.phase = "REVIEW";
+			candidate.state.attemptId = "cqop-" + randomUUID();
+		}
+		if (scenario === "project") candidate.path = "/g/other-project/c/old";
+		if (scenario === "reviewed") f.base.config.reviewed = true;
+		if (scenario === "model") f.setReady(false);
+		if (scenario === "unknown-envelope")
+			candidate.history = ["synthetic prior record"];
+		f.base.data.set(f.key("STATE"), candidate);
+		assert.equal(
+			await f.runtime.migratePristineBinding(recoveryAttest),
+			false,
+			scenario,
+		);
+		assert.deepEqual(f.base.data.get(f.key("STATE")), candidate);
+		assert.equal(f.base.clicks.length, 0);
+		assert.equal(f.base.timers.size, 0);
+	}
 });

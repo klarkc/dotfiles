@@ -115,7 +115,7 @@ export function operationalMessage(binding, attemptId) {
 	);
 }
 
-export function freshOperationalEvidence(
+function freshEvidenceEnvelope(
 	value,
 	{
 		agent,
@@ -133,10 +133,7 @@ export function freshOperationalEvidence(
 		validNonce(nonce) &&
 		value.agent === agent &&
 		value.nonce === nonce &&
-		value.status === "GIT_POLICY_PASS_ONLY" &&
 		value.runtimeAuthorized === false &&
-		Array.isArray(value.reasons) &&
-		value.reasons.length === 0 &&
 		oid(promptBlob) &&
 		value.promptBlob === promptBlob &&
 		validNonce(promptDigest) &&
@@ -164,6 +161,27 @@ export function freshOperationalEvidence(
 	);
 }
 
+// These are separate predicates: a paused packet can never authorize a send.
+export function freshOperationalEvidence(value, context) {
+	return (
+		freshEvidenceEnvelope(value, context) &&
+		value.status === "GIT_POLICY_PASS_ONLY" &&
+		Array.isArray(value.reasons) &&
+		value.reasons.length === 0
+	);
+}
+
+export function freshPausedOperationalEvidence(value, context) {
+	return (
+		freshEvidenceEnvelope(value, context) &&
+		value.status === "NO_GO" &&
+		Array.isArray(value.reasons) &&
+		value.reasons.length === 2 &&
+		value.reasons.includes("ROLE_PAUSED") &&
+		value.reasons.includes("PRODUCTION_NO_GO")
+	);
+}
+
 export async function sha256(text) {
 	const bytes = await crypto.subtle.digest(
 		"SHA-256",
@@ -174,10 +192,16 @@ export async function sha256(text) {
 		.join("");
 }
 export function makeOperationalPolicyClient({ request, clock, randomNonce }) {
-	return async function readEvidence(config, agent, pulseQuery = null) {
+	return async function readEvidence(
+		config,
+		agent,
+		pulseQuery = null,
+		purpose = "send",
+	) {
 		if (
 			!validateOperationalConfig(config) ||
 			!AGENTS.includes(agent) ||
+			!["send", "paused-recovery"].includes(purpose) ||
 			(pulseQuery !== null && !validatePulseQuery(pulseQuery))
 		)
 			return null;
@@ -225,7 +249,11 @@ export function makeOperationalPolicyClient({ request, clock, randomNonce }) {
 				requestedAt,
 				pulseQuery,
 			};
-			return freshOperationalEvidence(value, { ...context, now: clock() })
+			const validate =
+				purpose === "paused-recovery"
+					? freshPausedOperationalEvidence
+					: freshOperationalEvidence;
+			return validate(value, { ...context, now: clock() })
 				? { value, context }
 				: null;
 		} catch {

@@ -41,6 +41,7 @@ TOKEN = secrets.token_hex(32)
 COOLDOWN = 3000
 COUNTS = dict.fromkeys(ROLES, 0)
 DENY_AT = {}
+PAUSED_ROLES = set()
 PROOFS = {}  # Synthetic externally supplied proof; never infer it from DOM completion.
 MUTEX = threading.Lock()
 LOCK_PORT = None
@@ -103,7 +104,7 @@ PAGE = """
 <button id="stop" type="button" data-testid="stop-button" style="display:none">Stop</button>
 <script>
 (() => {
- const role=location.pathname.split("/").at(-1).replace("example-","");
+ const role=location.pathname.split("/").at(-1).replace("example-","").replace("-successor","");
  document.getElementById("marker").textContent=role.toUpperCase()+"_BOOTSTRAP_READY";
  const messages=document.getElementById("messages"),form=document.getElementById("composer"),box=form.querySelector("[contenteditable]"),stop=document.getElementById("stop");
  const send=document.createElement("button");send.type="button";send.dataset.testid="send-button";send.textContent="Send";
@@ -138,7 +139,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if urlparse(self.path).path not in [
             f"/g/example-project/c/example-{r}" for r in ROLES
-        ]:
+        ] + ["/g/example-project/c/example-coordinator-successor"]:
             self.send_error(404)
             return
         self.respond(200, PAGE.encode(), "text/html; charset=utf-8")
@@ -180,7 +181,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         with MUTEX:
             COUNTS[role] += 1
-            denied = COUNTS[role] >= DENY_AT.get(role, 10**9)
+            paused = role in PAUSED_ROLES
+            denied = paused or COUNTS[role] >= DENY_AT.get(role, 10**9)
             proof = PROOFS.get(role) if query else None
             if proof and (
                 proof["attemptId"] != query["attemptId"]
@@ -194,7 +196,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "nonce": nonce,
             "status": "NO_GO" if denied else "GIT_POLICY_PASS_ONLY",
             "runtimeAuthorized": False,
-            "reasons": ["PRODUCTION_NO_GO"] if denied else [],
+            "reasons": (["ROLE_PAUSED", "PRODUCTION_NO_GO"] if paused
+                        else ["PRODUCTION_NO_GO"] if denied else []),
             "startedAt": now,
             "observedAt": now,
             "promptBlob": PROMPT_BLOB,
@@ -291,15 +294,15 @@ def menu(driver, name):
     )
 
 
-def boot(driver, bundle, role, config=None):
+def boot(driver, bundle, role, config=None, expected_path=None):
     u = urlparse(driver.current_url)
     assert u.scheme == "http" and u.hostname == "127.0.0.1"
-    assert u.path == f"/g/example-project/c/example-{role}"
+    assert u.path == (expected_path or f"/g/example-project/c/example-{role}")
     if config is not None:
         driver.execute_script("localStorage.setItem('CQOP_V1:CONFIG',JSON.stringify(arguments[0]))", config)
     driver.execute_script(SHIM, bundle)
     WebDriverWait(driver, 10).until(
-        lambda d: d.execute_script("return window.__opTest?.menus?.length===5") and stopped(d, role)
+        lambda d: d.execute_script("return window.__opTest?.menus?.length===7") and stopped(d, role)
     )
 
 
@@ -352,17 +355,95 @@ def main():
         menu(driver, "Arm supervised")
         WebDriverWait(driver, 8).until(lambda d: d.execute_script("return window.__opTest.alerts.some(a=>a.includes('not approved'))"))
         assert count(driver, "send") == 0
+        # Retire the old pristine document, provision a different exact route,
+        # and migrate only its witnessed zero-cycle state while Git is closed.
+        role = ROLES[0]
+        driver.switch_to.window(tabs[role])
+        previous = state(driver, role)
+        assert previous["cycle"] == 0 and previous["phase"] == "PAUSED"
+        successor = "/g/example-project/c/example-coordinator-successor"
+        cfg["bindings"][0]["path"] = successor
+        with MUTEX:
+            PAUSED_ROLES.add(role)
+        driver.get(f"http://127.0.0.1:{port}" + successor)
+        boot(driver, bundle, role, cfg, expected_path=successor)
+        menu(driver, "Migrate pristine paused binding")
+        WebDriverWait(driver, 12).until(lambda d: d.execute_script(
+            "return window.__opTest.alerts.some(a=>a.includes('Pristine binding migrated'))"
+        ))
+        envelope = driver.execute_script(
+            "return JSON.parse(localStorage.getItem('CQOP_V1:coordinator:STATE'))"
+        )
+        assert envelope == {"path": successor, "state": previous}
+        assert count(driver, "send") == 0 and stopped(driver, role)
+        driver.refresh()
+        boot(driver, bundle, role, expected_path=successor)
+        with MUTEX:
+            PAUSED_ROLES.remove(role)
+        print("PASS: pristine stopped rollover under witnessed locks, no send", flush=True)
         cfg["reviewed"] = True
         driver.execute_script("localStorage.setItem('CQOP_V1:CONFIG',JSON.stringify(arguments[0]))", cfg)
         for role in ROLES:
             driver.switch_to.window(tabs[role])
+            if role in ("platformmanager", "qualitymanager"):
+                driver.execute_script("localStorage.setItem('CQOP_DELAY:'+arguments[0],'4500')", role)
             menu(driver, "Arm supervised")
             WebDriverWait(driver, 15).until(lambda d: count(d, "send") == 1)
-            WebDriverWait(driver, 15).until(lambda d: state(d, role)["phase"] == "COOLDOWN" and stopped(d, role))
+            if role == "platformmanager":
+                WebDriverWait(driver, 8).until(lambda d: state(d, role)["phase"] == "AWAITING_REPLY")
+                driver.execute_script("""
+                    const m=document.getElementById('messages'),t=m.lastElementChild;
+                    t.remove();setTimeout(()=>m.append(t),1600);
+                """)
+            if role == "qualitymanager":
+                # An explicit duplicate is not transient absence: it must
+                # stop the attempt. Restore the exact original receipt, then
+                # reconcile with synthetic independently supplied Git proof.
+                WebDriverWait(driver, 8).until(lambda d: state(d, role)["phase"] == "AWAITING_REPLY")
+                driver.execute_script("""
+                    const m=document.getElementById('messages');
+                    const duplicate=m.lastElementChild.cloneNode(true);
+                    duplicate.id='fixture-duplicate';m.append(duplicate);
+                """)
+                WebDriverWait(driver, 12).until(lambda d: state(d, role)["phase"] == "REVIEW" and stopped(d, role))
+                original = state(driver, role)
+                driver.execute_script("document.getElementById('fixture-duplicate').remove()")
+                WebDriverWait(driver, 12).until(lambda d: count(d, "reply") == 1)
+                journal = driver.execute_script(
+                    "return JSON.parse(localStorage.getItem('CQOP_V1:qualitymanager:SUPERVISED'))"
+                )
+                with MUTEX:
+                    PAUSED_ROLES.add(role)
+                    PROOFS[role] = {
+                        "status": "OWN_GIT_PAIR_VERIFIED", "agent": role,
+                        "attemptId": journal["attemptId"], "baselineMain": journal["baselineMain"],
+                        "main": "a" * 40, "startedCommit": "1" * 40, "startedBlob": "2" * 40,
+                        "terminalCommit": "3" * 40, "terminalBlob": "4" * 40,
+                        "runId": "synthetic-run", "operationId": "synthetic-operation",
+                        "terminalStatus": "PROGRESS", "providerEffectsVerified": False,
+                    }
+                menu(driver, "Reconcile supervised REVIEW")
+                WebDriverWait(driver, 18).until(lambda d: state(d, role)["phase"] == "PAUSED" and stopped(d, role))
+                saved = driver.execute_script(
+                    "return JSON.parse(localStorage.getItem('CQOP_V1:qualitymanager:SUPERVISED'))"
+                )
+                assert saved["reconciledReview"]["previousState"] == original
+                assert saved["attemptId"] == original["attemptId"]
+                assert saved["gitProof"]["providerEffectsVerified"] is False
+                assert count(driver, "send") == 1
+                with MUTEX:
+                    PAUSED_ROLES.remove(role)
+                driver.execute_script("localStorage.removeItem('CQOP_DELAY:'+arguments[0])", role)
+                print("PASS: duplicate stops exact attempt; paused native-menu reconciliation preserves REVIEW evidence, no resend", flush=True)
+            else:
+                WebDriverWait(driver, 15).until(lambda d: state(d, role)["phase"] == "COOLDOWN" and stopped(d, role))
+            if role == "platformmanager":
+                driver.execute_script("localStorage.removeItem('CQOP_DELAY:'+arguments[0])", role)
+                print("PASS: virtualized receipt temporarily absent during generation, exact terminal recovered", flush=True)
             assert count(driver, "reply") == 1
             assert events(driver)[0]["body"].startswith(PROMPTS[role])
-            assert COUNTS[role] == 3
-            print(f"PASS: {role} one supervised send, terminal, three policy reads, STOP", flush=True)
+            assert COUNTS[role] == (4 if role in ("coordinator", "qualitymanager") else 3)
+            print(f"PASS: {role} one supervised send, terminal, expected policy reads, STOP", flush=True)
 
         role = ROLES[0]
         driver.switch_to.window(tabs[role])

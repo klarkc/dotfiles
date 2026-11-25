@@ -650,6 +650,56 @@ shutdown or orphaned lock leaves the guard; do not auto-restart or
 reclaim by elapsed time, PID disappearance or network failure. The
 bridge is not an independent scheduler or an authority to send.
 
+### Paused supervised review and pristine conversation rollover
+
+A temporarily absent virtualized user receipt during generation is not
+completion or failure by itself. The operational observer resets its stability
+window when evidence disappears. It still rejects an explicitly duplicated
+or superseded matching turn, requires the same exact latest user message,
+assistant terminal action, idle empty composer and exact route/model, and
+observes stable text for six seconds. A continuously missing receipt while
+idle times out after 30 seconds; the whole observation remains bounded by the
+existing two-hour deadline. It never accepts a different assistant response.
+
+Two explicit signed-menu operations do **not** send or arm:
+
+- **Reconcile supervised REVIEW (no send):** requires the original stopped
+  role, a REVIEW state matching its retained PREPARED supervised journal,
+  exact prompt blob, attempt, cycle and final pre-click main baseline. The
+  current chat must independently expose the exact latest terminal receipt
+  in a bounded 15-second observation, and fresh Git evidence must verify the
+  matching OWN STARTED/terminal pair. The receipt is rechecked after the Git
+  read; raw response text is not persisted. The paused-evidence validator
+  requires exactly ROLE_PAUSED and PRODUCTION_NO_GO, with all usual nonce,
+  blob, digest, freshness and proof checks. Its packet cannot pass the
+  separate send-admission validator. Under the role lock and short fence,
+  store the correlated terminal journal first, retaining the complete
+  previous REVIEW state and Git proof, then transition STATE to PAUSED.
+  A partial journal write permits only same-attempt reconciliation with the
+  pinned pair and fresh receipt; no blind retry of uncertain storage writes.
+  Reconciliation preserves the attempt identity in the journal, never
+  asserts provider effects, never schedules or arms, and requires a separate
+  manual GO with fresh policy for future operation.
+- **Migrate pristine paused binding (no send):** after retiring the old
+  browser documents, cleanly reprovisioning the bridge and applying the new
+  private config with reviewed=false, the successor must show its own
+  bootstrap and exact idle route/model. Require the same project, an old
+  route absent from the new bindings, a stopped gate, PAUSED cycle zero,
+  no attempt, no reply timestamp and no supervised journal. Check fresh
+  paused Git policy, preserve the complete role state and update only the
+  private path envelope under witnessed ROLE/FENCE locks. The menu can be
+  invoked after a fail-closed boot on the previous path. Reload the migrated
+  successor, still unreviewed and stopped, before any later GO. Migration of roles
+  with any historical cycle, attempt or supervised evidence is deliberately
+  **not** supported by this operation; retain them for separately reviewed
+  reconciliation. No automatic migration or new identity.
+
+Native Status reports the pending reason and a binding mismatch flag without
+publishing the private route. Source-level and isolated tests do not prove an
+actual broker terminal receipt, successful live migration or signed-profile
+installation. Independent exact-source QA and native readback are required.
+If any evidence is absent, retain REVIEW or the prior path and keep NO_GO.
+
 **Orphan recovery (deliberately conservative):** keep remote GO disabled
 and the old queue paused. Stop the executor and all Firefox processes
 that could run the old userscript, and verify the bridge process has
