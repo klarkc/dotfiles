@@ -401,6 +401,25 @@ function fixture(agent = "coordinator", shared) {
 			draft = "";
 			receipt = true;
 		},
+		unsentSnapshot: (b, content, prior) => {
+			const latest = base.clicks.filter((c) => c.agent === agent).at(-1);
+			return route &&
+				ready &&
+				b.path === path &&
+				!receipt &&
+				latest?.content === prior &&
+				(draft === content || draft === "")
+				? {
+						draft: draft === content ? "exact" : "empty",
+						reply: "Synthetic terminal result",
+					}
+				: null;
+		},
+		clearUnsentDraft: async (b, content, prior) => {
+			assert.equal(dom.unsentSnapshot(b, content, prior)?.draft, "exact");
+			draft = "";
+			base.clears = (base.clears ?? 0) + 1;
+		},
 		waitSent: async () => ({ sent: true }),
 		terminalSnapshot: (b) =>
 			route && ready && b.path === path && !draft
@@ -982,4 +1001,183 @@ test("rollover rejects historical cycles, supervised journal, review, wrong proj
 		assert.equal(f.base.clicks.length, 0);
 		assert.equal(f.base.timers.size, 0);
 	}
+});
+
+const preclickAttest = {
+	...recoveryAttest,
+	precisePreclickSourceVerified: true,
+};
+
+async function preclickFixture() {
+	const f = fixture("businessmanager");
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	await f.fire();
+	f.base.proofAllowed = true;
+	await f.runtime.arm("recurrence", attest);
+	const denyAt = f.base.reads + 2;
+	f.base.readHook = async (n) => {
+		if (n >= denyAt) f.base.allow = false;
+	};
+	await f.fire();
+	delete f.base.readHook;
+	f.base.pausedRecovery = true;
+	const state = f.base.data.get(f.key("STATE")).state;
+	assert.equal(state.phase, "REVIEW");
+	assert.match(state.pendingReason, /Final Git policy not proven/);
+	assert.equal(f.base.clicks.length, 1);
+	const q = { attemptId: f.base.clicks[0].id, baselineMain: blob };
+	return { f, state: structuredClone(state), q };
+}
+
+test("one fresh pre-click reread can recover a transient denial without recomposition or duplicate click", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	let composed = 0;
+	const compose = f.dom.compose;
+	f.dom.compose = async (...a) => {
+		composed++;
+		return compose(...a);
+	};
+	f.base.readHook = async (n) => {
+		if (n === 3) f.base.allow = false;
+		if (n === 4) f.base.allow = true;
+	};
+	await f.fire();
+	assert.equal(f.base.reads, 4);
+	assert.equal(composed, 1);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal((await f.runtime.status()).phase, "COOLDOWN");
+});
+
+test("precise pre-click REVIEW recovery preserves full original state and prior proof, clears exact draft only, no click", async () => {
+	const { f, state, q } = await preclickFixture();
+	const journal = structuredClone(f.base.data.get(f.key("SUPERVISED")));
+	const gate = structuredClone(f.base.data.get(f.key("GATE")));
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(recoveryAttest, q),
+		false,
+	);
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, {
+			...q,
+			terminalCommit: "3".repeat(40),
+		}),
+		false,
+	);
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, {
+			...q,
+			attemptId: state.attemptId,
+		}),
+		false,
+	);
+	f.base.pausedRecovery = false;
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	f.base.pausedRecovery = true;
+	const snapshot = f.dom.unsentSnapshot;
+	f.dom.unsentSnapshot = () => null;
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	f.dom.unsentSnapshot = snapshot;
+	f.base.proofOverride = (agent, query) => ({
+		...syntheticProof(agent, query),
+		attemptId: "cqop-" + randomUUID(),
+	});
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	delete f.base.proofOverride;
+	assert.deepEqual(f.base.data.get(f.key("STATE")).state, state);
+	assert.equal(f.base.clears ?? 0, 0);
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		true,
+	);
+	const after = f.base.data.get(f.key("STATE")).state;
+	assert.equal(after.phase, "PAUSED");
+	assert.equal(after.cycle, state.cycle);
+	assert.equal(after.attemptId, null);
+	assert.equal(after.lastReplyAt, state.lastReplyAt);
+	assert.equal(after.nextEligibleAt, null);
+	assert.equal(after.preclickReviews.length, 1);
+	assert.equal(after.preclickReviews[0].phase, "CANCELLED_BEFORE_CLICK");
+	assert.deepEqual(after.preclickReviews[0].previousState, state);
+	assert.equal(after.preclickReviews[0].priorGitProof.attemptId, q.attemptId);
+	assert.equal(
+		after.preclickReviews[0].priorGitProof.providerEffectsVerified,
+		false,
+	);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+	assert.deepEqual(f.base.data.get(f.key("GATE")), gate);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal(f.base.clears, 1);
+	assert.equal(f.base.timers.size, 0);
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+});
+
+test("pre-click recovery writes pending intent before draft clear and retries only same proof after interrupted final state write", async () => {
+	const { f, state, q } = await preclickFixture();
+	const clear = f.dom.clearUnsentDraft;
+	f.dom.clearUnsentDraft = async (...args) => {
+		const staged = f.base.data.get(f.key("STATE")).state;
+		assert.equal(staged.phase, "REVIEW");
+		assert.equal(staged.preclickReviews[0].phase, "DRAFT_CLEAR_PENDING");
+		assert.deepEqual(staged.preclickReviews[0].previousState, state);
+		return clear(...args);
+	};
+	f.base.writeHook = async (key, value) => {
+		if (key === "STATE" && value.state.phase === "PAUSED")
+			throw new Error("Synthetic interrupted finalize");
+	};
+	await assert.rejects(f.runtime.reconcilePreclickReview(preclickAttest, q));
+	assert.equal(f.base.clears, 1);
+	assert.equal((await f.runtime.status()).attemptId, state.attemptId);
+	delete f.base.writeHook;
+	f.base.proofOverride = (agent, query) => ({
+		...syntheticProof(agent, query),
+		terminalCommit: "5".repeat(40),
+	});
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	delete f.base.proofOverride;
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		true,
+	);
+	assert.equal(f.base.clears, 1);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal((await f.runtime.status()).phase, "PAUSED");
+});
+
+test("non-preclick REVIEW is never cancelled even with same draft or proof", async () => {
+	const { f, state, q } = await preclickFixture();
+	const altered = {
+		...state,
+		pendingReason:
+			"Reconcile exact attempt " +
+			state.attemptId +
+			" before any retry (No exact user receipt)",
+	};
+	f.base.data.set(f.key("STATE"), { path: f.path, state: altered });
+	assert.equal(
+		await f.runtime.reconcilePreclickReview(preclickAttest, q),
+		false,
+	);
+	assert.deepEqual(f.base.data.get(f.key("STATE")).state, altered);
+	assert.equal(f.base.clears ?? 0, 0);
+	assert.equal(f.base.clicks.length, 1);
 });

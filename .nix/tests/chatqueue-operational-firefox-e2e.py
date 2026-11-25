@@ -254,6 +254,7 @@ window.GM_registerMenuCommand=(name,callback)=>window.__opTest.menus.push({name,
 window.GM_xmlhttpRequest=opts=>fetch(opts.url,{method:opts.method,headers:opts.headers,body:opts.data,redirect:"error",credentials:"omit"})
  .then(async response=>opts.onload({status:response.status,finalUrl:response.url,responseText:await response.text()})).catch(opts.onerror);
 window.confirm=()=>window.__opTest.confirm;
+window.prompt=()=>window.__opTest.prompt??null;
 window.alert=v=>window.__opTest.alerts.push(String(v));
 window.eval(arguments[0]);
 """
@@ -320,7 +321,7 @@ def boot(driver, bundle, role, config=None, expected_path=None):
         driver.execute_script("localStorage.setItem('CQOP_V1:CONFIG',JSON.stringify(arguments[0]))", config)
     driver.execute_script(SHIM, bundle)
     WebDriverWait(driver, 10).until(
-        lambda d: d.execute_script("return window.__opTest?.menus?.length===7") and stopped(d, role)
+        lambda d: d.execute_script("return window.__opTest?.menus?.length===8") and stopped(d, role)
     )
 
 
@@ -570,12 +571,27 @@ def main():
             DENY_AT[role] = COUNTS[role] + 3
         menu(driver, "Arm recurrence")
         WebDriverWait(driver, 18).until(lambda d: state(d, role)["phase"] == "REVIEW" and stopped(d, role))
-        original = state(driver, role)["attemptId"]
-        assert original and count(driver, "send") == 1
+        original = state(driver, role)
+        assert original["attemptId"] and count(driver, "send") == 1
+        journal = driver.execute_script(
+            "return JSON.parse(localStorage.getItem('CQOP_V1:'+arguments[0]+':SUPERVISED'))", role)
+        query = {"attemptId": journal["attemptId"], "baselineMain": journal["baselineMain"]}
+        driver.execute_script("window.__opTest.prompt=JSON.stringify(arguments[0])", query)
+        with MUTEX:
+            PAUSED_ROLES.add(role)
+        menu(driver, "Reconcile pre-click REVIEW")
+        WebDriverWait(driver, 18).until(lambda d: state(d, role)["phase"] == "PAUSED" and stopped(d, role))
+        cancelled = state(driver, role)
+        assert cancelled["preclickReviews"][0]["previousState"] == original
+        assert cancelled["preclickReviews"][0]["phase"] == "CANCELLED_BEFORE_CLICK"
+        assert cancelled["attemptId"] is None and count(driver, "send") == 1
+        assert driver.execute_script("return document.querySelector('[role=textbox]').innerText.trim()")== ""
         driver.refresh()
         boot(driver, bundle, role)
-        assert state(driver, role)["attemptId"] == original and count(driver, "send") == 1
-        print("PASS: final policy denial, durable REVIEW, reload without replay", flush=True)
+        assert state(driver, role) == cancelled and count(driver, "send") == 1
+        with MUTEX:
+            PAUSED_ROLES.remove(role)
+        print("PASS: pre-click denial, exact no-send draft cancellation and preserved REVIEW evidence after reload", flush=True)
 
         role = ROLES[2]
         driver.switch_to.window(tabs[role])

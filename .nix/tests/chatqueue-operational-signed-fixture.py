@@ -327,6 +327,38 @@ def run(args):
         assert events[2]["at"] - events[1]["at"] >= fixture.COOLDOWN
         print("PASS: signed missing-proof refusal, distinct recurrence, cooldown, acknowledged Pause", flush=True)
 
+        role = "qualitymanager"
+        driver.switch_to.window(tabs[role])
+        prior = status()["supervisedAttemptId"]
+        with fixture.MUTEX:
+            fixture.DENY_AT[role] = fixture.COUNTS[role] + 3
+        arm("recurrence")
+        s = wait_status(lambda s: s["phase"] == "REVIEW" and s["stopped"], 30)
+        assert s["cycle"] == 2 and "Final Git policy not proven" in s["pendingReason"]
+        failed = s["attemptId"]
+        assert failed and failed != prior and count("send") == 1
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.add(role)
+        button("Reconcile pre-click REVIEW").click()
+        assert "Cancel only a proven pre-click" in accept_alert()
+        prompt = wait(EC.alert_is_present(), 20)
+        assert "Prior completed OWN invocation" in prompt.text
+        prompt.send_keys(json.dumps({"attemptId": prior, "baselineMain": "a"*40}))
+        prompt.accept()
+        assert "Exact pre-click attempt cancelled" in accept_alert()
+        s = status()
+        assert s["phase"] == "PAUSED" and s["stopped"] and not s["leased"] and s["attemptId"] is None
+        assert s["cycle"] == 2 and s["supervisedAttemptId"] == prior and s["supervisedGitProofStored"]
+        assert count("send") == 1
+        assert driver.execute_script("return document.querySelector('[role=textbox]').innerText.trim()") == ""
+        driver.refresh()
+        await_menus()
+        assert status()["phase"] == "PAUSED" and status()["cycle"] == 2 and count("send") == 1
+        assert not driver.execute_script("return Object.keys(localStorage).some(k=>k.startsWith('CQOP_V1:'))")
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.remove(role)
+        print("PASS: signed GM pre-click cancellation, exact draft removed, prior proof retained, no resend after reload", flush=True)
+
         role = "platformmanager"
         driver.switch_to.window(tabs[role])
         driver.execute_script("localStorage.setItem('CQOP_DELAY:platformmanager','20000')")

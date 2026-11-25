@@ -652,6 +652,35 @@ bridge is not an independent scheduler or an authority to send.
 
 ### Paused supervised review and pristine conversation rollover
 
+#### Proven pre-click denial (no send)
+
+The final policy read may be repeated at most once while the same durable
+PREPARED attempt, lease, exact draft and absent receipt still match. Every
+fresh positive packet is checked again at the ordinary click fence. This
+is not a delivery retry, and a second denial keeps REVIEW without clicking.
+
+The explicit **Reconcile pre-click REVIEW (no send)** menu is restricted to
+the exact predecessor reason `Final Git policy not proven` for a recurrent
+attempt. Independently review the installed predecessor source to confirm
+that reason is emitted before entering the click fence. Stop the role and
+close the production/legacy gates. Supply the immediately preceding
+completed OWN invocation's `attemptId` and `baselineMain` as a JSON object,
+without a terminalCommit: the fresh Git reader must verify the exact pair
+as the latest own pulse through current main. Require the exact unsent
+draft, no matching receipt, same prior latest terminal receipt, idle
+composer/model/route, original supervised proof, and fresh paused policy.
+Under ROLE/FENCE and witnessed storage, retain the prior REVIEW state and
+own proof in STATE.preclickReviews with DRAFT_CLEAR_PENDING before clearing
+only that exact draft (no click/submit). Verify empty composer and unchanged
+prior terminal, then commit CANCELLED_BEFORE_CLICK and PAUSED. The original
+cycle and lastReplyAt are retained. Interrupted finalization may only
+reconcile the same staged attempt and proof; unknown writes remain blocked
+by witness reconciliation. A missing draft before staging, an ambiguous
+receipt or any other REVIEW reason cannot be cancelled. Retain history
+(up to 64 records; stop for independent review at the limit). No automatic
+arm or replay; separate explicit GO and ordinary fresh send admission are
+still mandatory. This is not proof of provider effects.
+
 Long user prompts can be rendered as a unique plain-text leaf
 (`div.whitespace-pre-wrap`) plus a localized expansion button and a separate
 aria-hidden ellipsis. The browser adapter checks the entire leaf text, not

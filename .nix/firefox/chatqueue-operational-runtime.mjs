@@ -236,7 +236,21 @@ export function makeOperationalRuntime({
 			if (!l || lease !== l || content !== active.content)
 				throw new Error("Attempt mismatch");
 			// No remote IO while holding the short fence. Recheck freshness inside it.
-			const packet = await currentEvidence(l);
+			let packet = await currentEvidence(l);
+			if (!validPacket(packet, l.proofQuery ?? null)) {
+				// At most one fresh policy reread, still before any click.
+				// No recomposition, cached admission, second attempt or replay.
+				const s = await readState();
+				if (
+					s?.phase === PHASES.PREPARED &&
+					s.attemptId === attemptId &&
+					lease === l &&
+					!(await paused()) &&
+					dom.ready(l.binding, content) &&
+					dom.receiptCount(content) === 0
+				)
+					packet = await currentEvidence(l);
+			}
 			if (!validPacket(packet, l.proofQuery ?? null))
 				throw new Error("Final Git policy not proven");
 			await fence(async () => {
@@ -653,6 +667,162 @@ export function makeOperationalRuntime({
 		);
 	}
 
+	// This is deliberately not generic REVIEW recovery. The exact installed
+	// predecessor emits this reason only before entering the click fence.
+	// A live draft corroborates that path; a current OWN Git pair and exact
+	// prior terminal receipt exclude a newer accepted invocation.
+	async function reconcilePreclickReview(attestation, priorQuery) {
+		if (
+			!booted ||
+			!recoveryAttested(attestation) ||
+			attestation.precisePreclickSourceVerified !== true ||
+			!validatePulseQuery(priorQuery) ||
+			priorQuery.terminalCommit !== undefined
+		)
+			return false;
+		return (
+			(await exclusive(async () => {
+				const config = await getConfig(),
+					b = binding(config);
+				const gate = await read("GATE"),
+					state = await readState();
+				const journal = await read("SUPERVISED");
+				if (
+					!b ||
+					!locallyStopped(gate) ||
+					state?.phase !== PHASES.REVIEW ||
+					state.cycle < 2 ||
+					!opValidTime(state.lastReplyAt) ||
+					state.lastReplyAt > clock() ||
+					state.pendingReason !==
+						"Reconcile exact attempt " +
+							state.attemptId +
+							" before any retry (Final Git policy not proven)" ||
+					priorQuery.attemptId === state.attemptId ||
+					!supervisedQuery(journal, state, config) ||
+					!sanitizePulseProof(journal.gitProof) ||
+					journal.cycle >= state.cycle
+				)
+					return false;
+				const { preclickReviews = [], ...original } = state;
+				if (
+					!Array.isArray(preclickReviews) ||
+					preclickReviews.length >= 64 ||
+					preclickReviews.some(
+						(r, i) =>
+							r?.phase !== "CANCELLED_BEFORE_CLICK" &&
+							!(
+								i === preclickReviews.length - 1 &&
+								r?.phase === "DRAFT_CLEAR_PENDING"
+							),
+					)
+				)
+					return false;
+				const pending =
+					preclickReviews.at(-1)?.phase === "DRAFT_CLEAR_PENDING"
+						? preclickReviews.at(-1)
+						: null;
+				if (
+					pending &&
+					(!same(pending.previousState, original) ||
+						!same(pending.query, priorQuery) ||
+						!sanitizePulseProof(pending.priorGitProof))
+				)
+					return false;
+				if (
+					preclickReviews.some(
+						(r) =>
+							r !== pending && r?.previousState?.attemptId === state.attemptId,
+					)
+				)
+					return false;
+				const content = operationalMessage(b, state.attemptId);
+				const prior = operationalMessage(b, priorQuery.attemptId);
+				const snapshot = dom.unsentSnapshot(b, content, prior);
+				if (
+					!snapshot ||
+					(!pending && snapshot.draft !== "exact") ||
+					!["exact", "empty"].includes(snapshot.draft)
+				)
+					return false;
+				const packet = await readPausedPacket(config, priorQuery);
+				if (!validPausedPacket(packet, priorQuery)) return false;
+				const proof = sanitizePulseProof(packet.value.pulseProof);
+				if (
+					!pulseProofMatches(proof, agent, priorQuery, packet.value.heads.main)
+				)
+					return false;
+				if (
+					pending &&
+					!same(
+						{ ...proof, main: pending.priorGitProof.main },
+						pending.priorGitProof,
+					)
+				)
+					return false;
+				return await fence(async () => {
+					let staged = state;
+					const verified = async () =>
+						(await sameStopped(config, gate)) &&
+						same(await readState(), staged) &&
+						same(await read("SUPERVISED"), journal) &&
+						validPausedPacket(packet, priorQuery);
+					if (
+						!(await verified()) ||
+						!same(dom.unsentSnapshot(b, content, prior), snapshot)
+					)
+						return false;
+					const record = pending ?? {
+						method: "EXACT_PRECLICK_REASON_DRAFT_AND_PRIOR_OWN_GIT_PAIR",
+						phase: "DRAFT_CLEAR_PENDING",
+						previousState: original,
+						query: priorQuery,
+						priorGitProof: proof,
+					};
+					const history = pending
+						? preclickReviews.slice(0, -1)
+						: preclickReviews;
+					if (!pending) {
+						staged = { ...state, preclickReviews: [...history, record] };
+						await writeState(staged);
+					}
+					if (
+						!(await verified()) ||
+						!same(dom.unsentSnapshot(b, content, prior), snapshot)
+					)
+						return false;
+					// Persist cancellation intent before removing only the exact
+					// unsent draft. Interrupted writes/clears leave REVIEW and the
+					// same attempt/query; no automatic retry of uncertain writes.
+					if (snapshot.draft === "exact")
+						await dom.clearUnsentDraft(b, content, prior);
+					const after = dom.unsentSnapshot(b, content, prior);
+					if (
+						!(await verified()) ||
+						!after ||
+						after.draft !== "empty" ||
+						after.reply !== snapshot.reply ||
+						!same(dom.unsentSnapshot(b, content, prior), after)
+					)
+						return false;
+					await writeState({
+						...staged,
+						preclickReviews: [
+							...history,
+							{ ...record, phase: "CANCELLED_BEFORE_CLICK" },
+						],
+						phase: PHASES.PAUSED,
+						attemptId: null,
+						nextEligibleAt: null,
+						pendingReason:
+							"Exact pre-click attempt cancelled without send; separate manual GO required",
+					});
+					return true;
+				});
+			})) === true
+		);
+	}
+
 	async function migratePristineBinding(attestation) {
 		if (
 			!recoveryAttested(attestation) ||
@@ -744,6 +914,7 @@ export function makeOperationalRuntime({
 		pause,
 		status,
 		reconcileSupervisedReview,
+		reconcilePreclickReview,
 		migratePristineBinding,
 	};
 }

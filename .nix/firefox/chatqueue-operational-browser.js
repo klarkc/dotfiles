@@ -253,8 +253,48 @@
 			? norm(assistantReply(a)) || null
 			: null;
 	};
+	const unsentSnapshot = (b, content, prior) => {
+		if (receiptMatches(content).length !== 0) return null;
+		const draft = ready(b, content) ? "exact" : ready(b, "") ? "empty" : null;
+		const t = attemptTurn(prior),
+			a = assistant(t);
+		const reply = terminal(a) ? norm(assistantReply(a)) : "";
+		return draft && reply ? { draft, reply } : null;
+	};
 	const dom = {
 		ready,
+		unsentSnapshot,
+		async clearUnsentDraft(b, content, prior) {
+			const before = unsentSnapshot(b, content, prior);
+			if (before?.draft !== "exact")
+				throw new Error("Exact unsent draft not proven");
+			const c = composer();
+			c.box.focus();
+			if (unsentSnapshot(b, content, prior)?.draft !== "exact")
+				throw new Error("Draft changed before clear");
+			if (c.box.tagName === "TEXTAREA") {
+				const set = Object.getOwnPropertyDescriptor(
+					HTMLTextAreaElement.prototype,
+					"value",
+				)?.set;
+				if (!set) throw new Error("Textarea setter unavailable");
+				set.call(c.box, "");
+				c.box.dispatchEvent(new Event("input", { bubbles: true }));
+			} else {
+				const range = document.createRange(),
+					sel = window.getSelection();
+				if (!sel) throw new Error("Selection unavailable");
+				range.selectNodeContents(c.box);
+				sel.removeAllRanges();
+				sel.addRange(range);
+				if (!document.execCommand("delete", false))
+					throw new Error("Exact draft clear unverified");
+			}
+			await sleep(400);
+			const after = unsentSnapshot(b, content, prior);
+			if (after?.draft !== "empty" || after.reply !== before.reply)
+				throw new Error("Draft clear readback unverified");
+		},
 		terminalSnapshot,
 		receiptCount: (message) => receiptMatches(message).length,
 		async compose(content) {
@@ -492,6 +532,34 @@
 					ok
 						? "Pristine binding migrated; still paused. Separate GO required."
 						: "Binding unchanged; migration conditions not proven. No send.",
+				);
+			});
+			menu("Reconcile pre-click REVIEW (no send)", async () => {
+				await boot;
+				if (
+					!window.confirm(
+						"Cancel only a proven pre-click REVIEW? Confirm exact predecessor source/reason, stopped roles, correct account/model and independent QA. Only the exact unsent draft may be cleared; no send, arm or replay.",
+					)
+				)
+					return;
+				const raw = window.prompt(
+					"Prior completed OWN invocation evidence: JSON with attemptId and baselineMain only. No terminalCommit; the pair must be the latest own Git pulse.",
+				);
+				if (!raw) return;
+				let query;
+				try {
+					query = JSON.parse(raw);
+				} catch {
+					return;
+				}
+				const ok = await runtime.reconcilePreclickReview(
+					{ ...recoveryAttestation(), precisePreclickSourceVerified: true },
+					query,
+				);
+				window.alert(
+					ok
+						? "Exact pre-click attempt cancelled; still paused. Separate GO required."
+						: "REVIEW retained; pre-click evidence not verified. No send.",
 				);
 			});
 			menu("Arm supervised (one tick)", () => arm("supervised"));
