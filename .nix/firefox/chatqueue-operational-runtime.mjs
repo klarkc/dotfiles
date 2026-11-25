@@ -12,6 +12,11 @@ import {
 	freshOperationalEvidence,
 	operationalMessage,
 } from "./chatqueue-operational-client.mjs";
+import {
+	validatePulseQuery,
+	sanitizePulseProof,
+	pulseProofMatches,
+} from "./chatqueue-pulse-proof-schema.mjs";
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const opValidTime = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -134,21 +139,68 @@ export function makeOperationalRuntime({
 		if (lease !== l || (await paused())) return null;
 		const packet = await lock("CQOP_V1:POLICY_READ", false, async () => {
 			if (lease !== l || (await paused())) return null;
-			return await readEvidence(l.config, agent);
+			return await readEvidence(l.config, agent, l.proofQuery ?? null);
 		});
 		if (lease !== l || (await paused())) return null;
 		return packet;
 	};
-	const validPacket = (packet) =>
+	const validPacket = (packet, pulseQuery = null) =>
 		!!packet &&
-		freshOperationalEvidence(packet.value, { ...packet.context, now: clock() });
+		packet.context?.agent === agent &&
+		freshOperationalEvidence(packet.value, {
+			...packet.context,
+			pulseQuery,
+			now: clock(),
+		});
+	const supervisedQuery = (journal, state, config) => {
+		if (
+			!journal ||
+			journal.phase !== "REPLY_TERMINAL" ||
+			journal.path !== path ||
+			journal.promptBlob !== config.promptBlob ||
+			!Number.isSafeInteger(journal.cycle) ||
+			journal.cycle < 1 ||
+			!state ||
+			journal.cycle > state.cycle ||
+			!opValidTime(journal.lastReplyAt) ||
+			!opValidTime(state.lastReplyAt) ||
+			journal.lastReplyAt > state.lastReplyAt
+		)
+			return null;
+		const q = {
+			attemptId: journal.attemptId,
+			baselineMain: journal.baselineMain,
+			...(journal.gitProof
+				? { terminalCommit: journal.gitProof.terminalCommit }
+				: {}),
+		};
+		if (
+			!validatePulseQuery(q) ||
+			(journal.gitProof &&
+				(!sanitizePulseProof(journal.gitProof) ||
+					!pulseProofMatches(
+						journal.gitProof,
+						agent,
+						q,
+						journal.gitProof.main,
+					)))
+		)
+			return null;
+		return q;
+	};
 	const transport = {
 		preflight: async (_agent, content) => {
 			const l = active?.lease;
 			const p = l && (await currentEvidence(l));
+			const state = await readState();
+			const priorBrowserTerminal =
+				!!state &&
+				[PHASES.READY, PHASES.COOLDOWN].includes(state.phase) &&
+				state.attemptId === null;
 			const valid =
 				!!l &&
-				validPacket(p) &&
+				priorBrowserTerminal &&
+				validPacket(p, l?.proofQuery ?? null) &&
 				!(await paused()) &&
 				active?.lease === l &&
 				content === active.content &&
@@ -157,9 +209,10 @@ export function makeOperationalRuntime({
 				identityVerified: valid,
 				notGenerating: valid,
 				threeLegacyGatesOff: valid,
-				// Browser attempt only, never a claim about external provider effects.
-				// The exact canonical prompt reconciles prior OWN STARTED/provider effects.
-				noUnreconciledEffects: valid,
+				// The controller checks delivery state separately; the agent
+				// must reconcile any external UNKNOWN under the canonical contract.
+				browserDeliveryReconciled: priorBrowserTerminal,
+				externalEffectDisposition: "AGENT_MUST_RECONCILE",
 			};
 		},
 		compose: async (_agent, content) => {
@@ -182,7 +235,8 @@ export function makeOperationalRuntime({
 				throw new Error("Attempt mismatch");
 			// No remote IO while holding the short fence. Recheck freshness inside it.
 			const packet = await currentEvidence(l);
-			if (!validPacket(packet)) throw new Error("Final Git policy not proven");
+			if (!validPacket(packet, l.proofQuery ?? null))
+				throw new Error("Final Git policy not proven");
 			await fence(async () => {
 				const state = await readState();
 				if (
@@ -190,13 +244,37 @@ export function makeOperationalRuntime({
 					state.attemptId !== attemptId ||
 					(await paused()) ||
 					lease !== l ||
-					!validPacket(packet) ||
+					!validPacket(packet, l.proofQuery ?? null) ||
 					!dom.ready(l.binding, content) ||
 					dom.receiptCount(content) !== 0
 				)
 					throw new Error("Final send admission denied");
-				// dom.click is synchronous and repeats exact route/draft/idle checks.
-				// Pause acknowledgement shares this fence.
+				if (l.mode === "supervised") {
+					// Persist the exact final Git baseline before crossing the click
+					// boundary. A restart or uncertain send cannot manufacture proof.
+					await writeChecked("SUPERVISED", {
+						phase: "PREPARED",
+						path,
+						promptBlob: l.config.promptBlob,
+						cycle: state.cycle,
+						attemptId,
+						baselineMain: packet.value.heads.main,
+						lastReplyAt: null,
+					});
+				}
+				// The durable write may have yielded to Pause or invalidated freshness.
+				const current = await readState();
+				if (
+					current?.phase !== PHASES.PREPARED ||
+					current.attemptId !== attemptId ||
+					(await paused()) ||
+					lease !== l ||
+					!validPacket(packet, l.proofQuery ?? null) ||
+					!dom.ready(l.binding, content) ||
+					dom.receiptCount(content) !== 0
+				)
+					throw new Error("Final send admission changed");
+				// No await between final checks and the synchronous click.
 				dom.click(l.binding, content);
 			});
 			return await dom.waitSent(
@@ -222,6 +300,7 @@ export function makeOperationalRuntime({
 		clock,
 		transport,
 		paused,
+		admission: "broker",
 	});
 	async function boot() {
 		const cfg = await getConfig();
@@ -255,29 +334,43 @@ export function makeOperationalRuntime({
 							attempt.content,
 							attemptId,
 						);
-						if (active === attempt) active = null;
 						if (result?.status !== "COOLDOWN") {
 							await stopOwn(l);
 							return;
 						}
 						if (l.mode === "supervised") {
-							const state = await readState();
-							// This records conversational completion only. A later manual
-							// attestation of OWN STARTED/terminal Git is separately required.
-							await writeChecked("SUPERVISED", {
-								path,
-								promptBlob: l.config.promptBlob,
-								cycle: state.cycle,
-								attemptId,
-								lastReplyAt: state.lastReplyAt,
-							});
+							await exclusive(() =>
+								fence(async () => {
+									const state = await readState();
+									const journal = await read("SUPERVISED");
+									if (
+										(await paused()) ||
+										lease !== l ||
+										state?.phase !== PHASES.COOLDOWN ||
+										journal?.phase !== "PREPARED" ||
+										journal.attemptId !== attemptId ||
+										journal.cycle !== state.cycle ||
+										journal.path !== path ||
+										journal.promptBlob !== l.config.promptBlob
+									)
+										return;
+									// Receipt is only conversational evidence, not Git proof.
+									await writeChecked("SUPERVISED", {
+										...journal,
+										phase: "REPLY_TERMINAL",
+										lastReplyAt: state.lastReplyAt,
+									});
+								}),
+							);
 							await stopOwn(l);
 						} else {
+							if (active === attempt) active = null;
 							await schedule(Math.max(0, result.nextEligibleAt - clock()), l);
 						}
 					} catch {
-						if (active === attempt) active = null;
 						await stopOwn(l);
+					} finally {
+						if (active === attempt) active = null;
 					}
 				},
 				Math.max(1, delay),
@@ -295,9 +388,7 @@ export function makeOperationalRuntime({
 			attestation?.manualGo !== true ||
 			attestation?.accountModelVerified !== true ||
 			attestation?.originalQueueRetired !== true ||
-			attestation?.qaVerified !== true ||
-			(mode === "recurrence" &&
-				attestation?.supervisedGitProofVerified !== true)
+			attestation?.qaVerified !== true
 		)
 			return false;
 		const config = await getConfig();
@@ -306,32 +397,38 @@ export function makeOperationalRuntime({
 		const before = await read("GATE");
 		if (before?.stopped !== true || typeof before.epoch !== "string")
 			return false;
+		const journal = mode === "recurrence" ? await read("SUPERVISED") : null;
+		const query =
+			mode === "recurrence"
+				? supervisedQuery(journal, await readState(), config)
+				: null;
+		if (mode === "recurrence" && !query) return false;
 		const evidence = await lock("CQOP_V1:POLICY_READ", false, () =>
-			readEvidence(config, agent),
+			readEvidence(config, agent, query),
 		);
-		if (!validPacket(evidence)) return false;
+		if (!validPacket(evidence, query)) return false;
 		const armed = await exclusive(async () => {
 			if (
 				!same(await getConfig(), config) ||
 				!same(await read("GATE"), before) ||
 				!dom.ready(b, "", true) ||
-				!validPacket(evidence)
+				!validPacket(evidence, query)
 			)
 				return false;
 			let state = await readState();
 			if (!state) return false;
 			if (mode === "recurrence") {
-				const proof = await read("SUPERVISED");
 				if (
-					proof?.path !== path ||
-					proof.promptBlob !== config.promptBlob ||
-					!Number.isSafeInteger(proof.cycle) ||
-					proof.cycle > state.cycle ||
-					!Number.isSafeInteger(proof.lastReplyAt) ||
-					!Number.isSafeInteger(state.lastReplyAt) ||
-					proof.lastReplyAt > state.lastReplyAt
+					!same(await read("SUPERVISED"), journal) ||
+					!same(supervisedQuery(journal, state, config), query)
 				)
 					return false;
+				const proof = sanitizePulseProof(evidence.value.pulseProof);
+				if (!pulseProofMatches(proof, agent, query, evidence.value.heads.main))
+					return false;
+				// A fresh, independently read Git pair is mandatory. Preserve it
+				// for future rearm, which rechecks ancestry and exact commits.
+				await writeChecked("SUPERVISED", { ...journal, gitProof: proof });
 			}
 			if (state.phase === PHASES.COOLDOWN) {
 				// Preserve the original cooldown even after manual rearm.
@@ -370,7 +467,12 @@ export function makeOperationalRuntime({
 				if (
 					!same(await read("GATE"), before) ||
 					!same(await getConfig(), config) ||
-					!validPacket(evidence) ||
+					(mode === "recurrence" &&
+						!same(await read("SUPERVISED"), {
+							...journal,
+							gitProof: sanitizePulseProof(evidence.value.pulseProof),
+						})) ||
+					!validPacket(evidence, query) ||
 					!dom.ready(b, "", true)
 				) {
 					await writeState(recoverAfterRestart(ready));
@@ -378,7 +480,14 @@ export function makeOperationalRuntime({
 				}
 				const gate = { epoch: before.epoch, stopped: false, armId: randomId() };
 				await writeChecked("GATE", gate);
-				const l = { gate, config, binding: b, mode };
+				const proofQuery =
+					mode === "recurrence"
+						? {
+								...query,
+								terminalCommit: evidence.value.pulseProof.terminalCommit,
+							}
+						: null;
+				const l = { gate, config, binding: b, mode, proofQuery };
 				lease = l;
 				if (await paused()) {
 					lease = null;
@@ -404,6 +513,7 @@ export function makeOperationalRuntime({
 	async function status() {
 		const cfg = await getConfig();
 		const state = await readState();
+		const journal = await read("SUPERVISED");
 		return {
 			configured: !!binding(cfg),
 			reviewed: cfg?.reviewed === true,
@@ -412,7 +522,9 @@ export function makeOperationalRuntime({
 			attemptId: state?.attemptId ?? null,
 			stopped: (await read("GATE"))?.stopped !== false,
 			leased: !!lease,
-			supervised: !!(await read("SUPERVISED")),
+			supervised: journal?.phase === "REPLY_TERMINAL",
+			supervisedAttemptId: journal?.attemptId ?? null,
+			supervisedGitProofStored: !!sanitizePulseProof(journal?.gitProof),
 		};
 	}
 	return { boot, arm, pause, status };

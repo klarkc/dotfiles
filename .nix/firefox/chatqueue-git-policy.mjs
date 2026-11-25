@@ -7,6 +7,8 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENTS } from "./chatqueue-recurrence-core.mjs";
 import { parseOperationalTemplates } from "./chatqueue-operational-client.mjs";
+import { verifyOwnPulsePair } from "./chatqueue-pulse-proof.mjs";
+import { validatePulseQuery } from "./chatqueue-pulse-proof-schema.mjs";
 
 const refs = ["refs/heads/main", "refs/heads/scheduling-runtime"];
 const paths = [
@@ -109,6 +111,8 @@ export function collectGitPolicy({
 	readHeads,
 	readBlob,
 	includePrompt = false,
+	pulseQuery = null,
+	readPulseProof,
 }) {
 	if (!AGENTS.includes(agent)) return deny("UNKNOWN_AGENT");
 	if (!validOrigin(expectedOrigin)) return deny("EXPECTED_ORIGIN_REQUIRED");
@@ -140,6 +144,12 @@ export function collectGitPolicy({
 				.update(parseOperationalTemplates(item.text)[agent])
 				.digest("hex");
 		}
+		const pulseProof =
+			pulseQuery === null
+				? null
+				: validatePulseQuery(pulseQuery) && typeof readPulseProof === "function"
+					? readPulseProof(before.main, agent, pulseQuery)
+					: null;
 		const after = parseRemoteHeads(readHeads());
 		if (readOrigin() !== expectedOrigin)
 			return deny("ORIGIN_CHANGED_DURING_READ");
@@ -151,6 +161,7 @@ export function collectGitPolicy({
 			heads: before,
 			blobs,
 			...(includePrompt ? { promptBlob, promptDigest } : {}),
+			...(pulseQuery !== null ? { pulseProof } : {}),
 		};
 	} catch {
 		// No raw exception: provider errors can contain private metadata.
@@ -163,6 +174,7 @@ export function readGitPolicy({
 	agent,
 	expectedOrigin,
 	includePrompt = false,
+	pulseQuery = null,
 }) {
 	if (!isAbsolute(repo ?? "")) return deny("ABSOLUTE_REPO_REQUIRED");
 	const git = (...args) =>
@@ -179,17 +191,21 @@ export function readGitPolicy({
 				GIT_OPTIONAL_LOCKS: "0",
 			},
 		});
+	const readBlob = (commit, path) => {
+		const blob = git("rev-parse", "--verify", commit + ":" + path).trim();
+		if (!oid(blob)) throw new Error("Invalid blob");
+		return { blob, text: git("cat-file", "blob", blob) };
+	};
 	return collectGitPolicy({
 		agent,
 		expectedOrigin,
 		includePrompt,
+		pulseQuery,
+		readPulseProof: (main, role, query) =>
+			verifyOwnPulsePair({ agent: role, main, query, git, readBlob }),
 		readOrigin: () => git("remote", "get-url", "origin").trim(),
 		readHeads: () => git("ls-remote", "--exit-code", "origin", ...refs),
-		readBlob: (commit, path) => {
-			const blob = git("rev-parse", "--verify", commit + ":" + path).trim();
-			if (!oid(blob)) throw new Error("Invalid blob");
-			return { blob, text: git("cat-file", "blob", blob) };
-		},
+		readBlob,
 	});
 }
 
@@ -199,6 +215,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		agent: process.argv[3],
 		expectedOrigin: process.env.CHATQUEUE_BROKER_ORIGIN,
 		includePrompt: process.env.CHATQUEUE_INCLUDE_PROMPT_BLOB === "1",
+		pulseQuery: JSON.parse(process.env.CHATQUEUE_PULSE_QUERY ?? "null"),
 	});
 	process.stdout.write(JSON.stringify(result) + "\n");
 	// Even PASS_ONLY is not permission to click or arm a browser.

@@ -9,6 +9,7 @@ const base = dirname(fileURLToPath(import.meta.url));
 const modules = [
 	"chatqueue-recurrence-core.mjs",
 	"chatqueue-local-controller.mjs",
+	"chatqueue-pulse-proof-schema.mjs",
 	"chatqueue-operational-client.mjs",
 	"chatqueue-operational-runtime.mjs",
 	"chatqueue-operational-browser.js",

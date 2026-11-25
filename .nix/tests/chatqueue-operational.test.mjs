@@ -76,12 +76,26 @@ const permitted = (agent, nonce, now) => ({
 	startedAt: now,
 	observedAt: now,
 });
+const syntheticProof = (agent, query, main = blob) => ({
+	status: "OWN_GIT_PAIR_VERIFIED",
+	agent,
+	attemptId: query.attemptId,
+	baselineMain: query.baselineMain,
+	main,
+	startedCommit: "1".repeat(40),
+	startedBlob: "2".repeat(40),
+	terminalCommit: query.terminalCommit ?? "3".repeat(40),
+	terminalBlob: "4".repeat(40),
+	runId: "synthetic-run",
+	operationId: "synthetic-operation",
+	terminalStatus: "PROGRESS",
+	providerEffectsVerified: false,
+});
 const attest = {
 	manualGo: true,
 	accountModelVerified: true,
 	originalQueueRetired: true,
 	qaVerified: true,
-	supervisedGitProofVerified: true,
 };
 const defer = () => {
 	let resolve;
@@ -257,10 +271,15 @@ test("actual loopback bridge transports prompt pin; client denies NO_GO", async 
 		reads = 0;
 	const bridge = await startPolicyBridge({
 		capability: token,
-		readPolicy: async (agent) => {
+		readPolicy: async (agent, query) => {
 			reads++;
 			const v = permitted(agent, "c".repeat(32), Date.now());
-			return go ? v : { ...v, status: "NO_GO", reasons: ["PRODUCTION_NO_GO"] };
+			return go
+				? {
+						...v,
+						...(query ? { pulseProof: syntheticProof(agent, query) } : {}),
+					}
+				: { ...v, status: "NO_GO", reasons: ["PRODUCTION_NO_GO"] };
 		},
 	});
 	try {
@@ -287,12 +306,20 @@ test("actual loopback bridge transports prompt pin; client denies NO_GO", async 
 		go = true;
 		assert.ok(await client(c, "coordinator"));
 		assert.equal(reads, 2);
+		const q = {
+			attemptId: "cqop-" + randomUUID(),
+			baselineMain: blob,
+			terminalCommit: "3".repeat(40),
+		};
+		const result = await client(c, "coordinator", q);
+		assert.equal(result.value.pulseProof.attemptId, q.attemptId);
+		assert.equal(result.value.pulseProof.providerEffectsVerified, false);
 		c.bindings[0].prompt = c.bindings[0].prompt.replace(
 			"No lanes.",
 			"Edited body.",
 		);
 		assert.equal(await client(c, "coordinator"), null);
-		assert.equal(reads, 3);
+		assert.equal(reads, 4);
 	} finally {
 		await bridge.stop();
 	}
@@ -340,6 +367,11 @@ function fixture(agent = "coordinator", shared) {
 			const s = base.data.get(key("STATE")).state;
 			assert.equal(s.phase, "PREPARED");
 			assert.ok(content.endsWith(s.attemptId));
+			const journal = base.data.get(key("SUPERVISED"));
+			if (journal?.attemptId === s.attemptId) {
+				assert.equal(journal.phase, "PREPARED");
+				assert.equal(journal.baselineMain, blob);
+			}
 			base.clicks.push({ agent, content, at: base.now, id: s.attemptId });
 			draft = "";
 			receipt = true;
@@ -351,19 +383,28 @@ function fixture(agent = "coordinator", shared) {
 			return { observedFinalAssistantResponse: true, noActiveGeneration: true };
 		},
 	};
-	const readEvidence = async (_cfg, id) => {
+	const readEvidence = async (_cfg, id, query = null) => {
 		base.reads++;
 		if (base.readHook) await base.readHook(base.reads);
 		if (!base.allow) return null;
 		const nonce = randomUUID().replace(/-/g, "");
 		return {
-			value: permitted(id, nonce, base.now),
+			value: {
+				...permitted(id, nonce, base.now),
+				...(query && base.proofAllowed === true
+					? {
+							pulseProof:
+								base.proofOverride?.(id, query) ?? syntheticProof(id, query),
+						}
+					: {}),
+			},
 			context: {
 				agent: id,
 				nonce,
 				promptBlob: oid,
 				promptDigest: digestFor(id),
 				requestedAt: base.now,
+				pulseQuery: query,
 			},
 		};
 	};
@@ -450,20 +491,44 @@ test("four independent roles, one supervised tick each, exact durable attempt, n
 	assert.deepEqual(new Set(base.clicks.map((c) => c.agent)), new Set(AGENTS));
 	assert.equal(new Set(base.clicks.map((c) => c.id)).size, 4);
 });
-test("recurrence requires previous supervised proof and explicit Git attestation; respects reply cooldown", async () => {
+test("recurrence requires independently read supervised Git proof; respects reply cooldown", async () => {
 	const f = fixture();
 	await f.runtime.boot();
 	assert.equal(await f.runtime.arm("recurrence", attest), false);
 	await f.runtime.arm("supervised", attest);
 	await f.fire();
+	// A true legacy human flag must not grant recurrence without a Git pair.
 	assert.equal(
 		await f.runtime.arm("recurrence", {
 			...attest,
-			supervisedGitProofVerified: false,
+			supervisedGitProofVerified: true,
 		}),
 		false,
 	);
+	assert.equal(f.base.timers.size, 0);
+	f.base.proofAllowed = true;
+	for (const patch of [
+		{ attemptId: "cqop-" + randomUUID() },
+		{ baselineMain: "5".repeat(40) },
+		{ agent: "platformmanager" },
+		{ main: "6".repeat(40) },
+		{ terminalStatus: "STARTED" },
+		{ providerEffectsVerified: true },
+		{ startedCommit: null },
+	]) {
+		f.base.proofOverride = (agent, q) => ({
+			...syntheticProof(agent, q),
+			...patch,
+		});
+		assert.equal(await f.runtime.arm("recurrence", attest), false);
+		assert.equal(f.base.timers.size, 0);
+	}
+	delete f.base.proofOverride;
 	assert.equal(await f.runtime.arm("recurrence", attest), true);
+	const journal = f.base.data.get(f.key("SUPERVISED"));
+	assert.equal(journal.gitProof.attemptId, f.base.clicks[0].id);
+	assert.equal(journal.gitProof.providerEffectsVerified, false);
+	assert.equal(journal.gitProof.baselineMain, blob);
 	const first = f.base.clicks[0];
 	await f.fire();
 	await f.fire();
@@ -582,4 +647,40 @@ test("malformed durable state and changed role binding fail closed without erasi
 	f.base.data.set(f.key("STATE"), structuredClone(original));
 	await assert.rejects(f.runtime.boot());
 	assert.deepEqual(f.base.data.get(f.key("STATE")), original);
+});
+
+test("recurrence rearm independently rechecks pinned proof; loss of proof before click blocks replay", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	await f.fire();
+	f.base.proofAllowed = true;
+	assert.equal(await f.runtime.arm("recurrence", attest), true);
+	const terminal = f.base.data.get(f.key("SUPERVISED")).gitProof.terminalCommit;
+	await f.fire();
+	await f.runtime.pause();
+	let queried;
+	f.base.proofOverride = (agent, q) => {
+		queried = q;
+		return syntheticProof(agent, q);
+	};
+	assert.equal(await f.runtime.arm("recurrence", attest), true);
+	assert.equal(queried.terminalCommit, terminal);
+	const before = f.base.clicks.length;
+	f.base.proofAllowed = false;
+	await f.fire();
+	assert.equal(f.base.clicks.length, before);
+	assert.equal((await f.runtime.status()).stopped, true);
+});
+test("legacy uncorrelated supervised record cannot grant recurrence", async () => {
+	const f = fixture();
+	await f.runtime.boot();
+	await f.runtime.arm("supervised", attest);
+	await f.fire();
+	const record = f.base.data.get(f.key("SUPERVISED"));
+	delete record.baselineMain;
+	delete record.phase;
+	f.base.proofAllowed = true;
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+	assert.equal(f.base.timers.size, 0);
 });

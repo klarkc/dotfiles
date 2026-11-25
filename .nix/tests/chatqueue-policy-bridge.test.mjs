@@ -104,7 +104,7 @@ test("wrong method, host, path, token and malformed bodies never read Git", asyn
 				assert.equal((await send(port, opts)).code, 403);
 			for (const opts of [
 				{ body: "{}" },
-				{ body: "x".repeat(257) },
+				{ body: "x".repeat(385) },
 				{ body: JSON.stringify({ agent: "other", nonce }) },
 				{
 					body: JSON.stringify({

@@ -1,6 +1,10 @@
 // Browser-neutral validation of private bindings and fresh bridge evidence.
 // A valid evidence packet is not authority to arm or click.
 import { AGENTS } from "./chatqueue-recurrence-core.mjs";
+import {
+	validatePulseQuery,
+	pulseProofMatches,
+} from "./chatqueue-pulse-proof-schema.mjs";
 const policyPaths = [
 	"coordination/organization.json",
 	"scheduling/state.json",
@@ -104,14 +108,24 @@ export function operationalMessage(binding, attemptId) {
 	// correlation value. It must NOT become a provider run_id/operation_id.
 	return (
 		binding.prompt +
-		"\n\nBrowser delivery correlation only (not run_id or operation_id): " +
+		"\n\nIf this invocation legitimately creates a NEW OWN STARTED and its matching terminal, include the exact browser_delivery_id field below in BOTH pulse records. Preserve prior run/operation IDs during recovery; never create a pulse solely to prove delivery. This is correlation only, not provider-effect proof or authorization.\nBrowser delivery correlation only (not run_id or operation_id): " +
+		attemptId +
+		"\nbrowser_delivery_id: " +
 		attemptId
 	);
 }
 
 export function freshOperationalEvidence(
 	value,
-	{ agent, nonce, promptBlob, promptDigest, requestedAt, now },
+	{
+		agent,
+		nonce,
+		promptBlob,
+		promptDigest,
+		requestedAt,
+		now,
+		pulseQuery = null,
+	},
 ) {
 	return (
 		!!value &&
@@ -131,6 +145,13 @@ export function freshOperationalEvidence(
 		oid(value.heads?.main) &&
 		oid(value.heads?.runtime) &&
 		policyPaths.every((path) => oid(value.blobs?.[path])) &&
+		(pulseQuery === null ||
+			pulseProofMatches(
+				value.pulseProof,
+				agent,
+				pulseQuery,
+				value.heads.main,
+			)) &&
 		Number.isSafeInteger(requestedAt) &&
 		Number.isSafeInteger(now) &&
 		Number.isSafeInteger(value.startedAt) &&
@@ -153,8 +174,12 @@ async function sha256(text) {
 		.join("");
 }
 export function makeOperationalPolicyClient({ request, clock, randomNonce }) {
-	return async function readEvidence(config, agent) {
-		if (!validateOperationalConfig(config) || !AGENTS.includes(agent))
+	return async function readEvidence(config, agent, pulseQuery = null) {
+		if (
+			!validateOperationalConfig(config) ||
+			!AGENTS.includes(agent) ||
+			(pulseQuery !== null && !validatePulseQuery(pulseQuery))
+		)
 			return null;
 		let promptDigest;
 		try {
@@ -178,7 +203,11 @@ export function makeOperationalPolicyClient({ request, clock, randomNonce }) {
 					"Content-Type": "application/json",
 					Authorization: "Bearer " + config.bridge.capability,
 				},
-				data: JSON.stringify({ agent, nonce }),
+				data: JSON.stringify({
+					agent,
+					nonce,
+					...(pulseQuery === null ? {} : { pulseQuery }),
+				}),
 			});
 			if (
 				response?.status !== 200 ||
@@ -194,6 +223,7 @@ export function makeOperationalPolicyClient({ request, clock, randomNonce }) {
 				promptBlob: config.promptBlob,
 				promptDigest,
 				requestedAt,
+				pulseQuery,
 			};
 			return freshOperationalEvidence(value, { ...context, now: clock() })
 				? { value, context }

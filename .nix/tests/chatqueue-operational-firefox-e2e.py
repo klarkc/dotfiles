@@ -41,6 +41,7 @@ TOKEN = secrets.token_hex(32)
 COOLDOWN = 3000
 COUNTS = dict.fromkeys(ROLES, 0)
 DENY_AT = {}
+PROOFS = {}  # Synthetic externally supplied proof; never infer it from DOM completion.
 MUTEX = threading.Lock()
 
 PAGE = """
@@ -102,16 +103,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers["Content-Length"])
-            assert 0 < length <= 256
+            assert 0 < length <= 384
             value = json.loads(self.rfile.read(length))
             role, nonce = value["agent"], value["nonce"]
             assert role in ROLES and re.fullmatch(r"[0-9a-f]{32,64}", nonce)
+            query = value.get("pulseQuery")
+            if query is not None:
+                assert set(query) in ({"attemptId", "baselineMain"}, {"attemptId", "baselineMain", "terminalCommit"})
+                assert re.fullmatch(r"cqop-[0-9a-f-]{36}", query["attemptId"])
+                assert re.fullmatch(r"[0-9a-f]{40}", query["baselineMain"])
+
         except Exception:
             self.send_error(400)
             return
         with MUTEX:
             COUNTS[role] += 1
             denied = COUNTS[role] >= DENY_AT.get(role, 10**9)
+            proof = PROOFS.get(role) if query else None
+            if proof and (
+                proof["attemptId"] != query["attemptId"]
+                or proof["baselineMain"] != query["baselineMain"]
+                or ("terminalCommit" in query and proof["terminalCommit"] != query["terminalCommit"])
+            ):
+                proof = None
         now = int(time.time() * 1000)
         result = {
             "agent": role,
@@ -134,6 +148,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 )
             },
         }
+        if proof is not None:
+            result["pulseProof"] = proof
         self.respond(200, json.dumps(result).encode(), "application/json")
 
     def respond(self, code, body, content_type):
@@ -289,6 +305,32 @@ def main():
 
         role = ROLES[0]
         driver.switch_to.window(tabs[role])
+        # A completed supervised browser reply alone must not start recurrence.
+        menu(driver, "Arm recurrence")
+        WebDriverWait(driver, 8).until(
+            lambda d: d.execute_script("return window.__opTest.alerts.some(a=>a.includes('Arm refused'))")
+        )
+        assert stopped(driver, role) and count(driver, "send") == 1
+        print("PASS: recurrence refused without independently supplied synthetic Git evidence", flush=True)
+        for r in ROLES:
+            driver.switch_to.window(tabs[r])
+            journal = driver.execute_script(
+                "return JSON.parse(localStorage.getItem('CQOP_V1:'+arguments[0]+':SUPERVISED'))",
+                r,
+            )
+            assert journal["phase"] == "REPLY_TERMINAL"
+            assert journal["baselineMain"] == "a" * 40
+            assert journal["attemptId"] in events(driver)[0]["body"]
+            with MUTEX:
+                PROOFS[r] = {
+                    "status": "OWN_GIT_PAIR_VERIFIED", "agent": r,
+                    "attemptId": journal["attemptId"], "baselineMain": journal["baselineMain"],
+                    "main": "a" * 40, "startedCommit": "1" * 40, "startedBlob": "2" * 40,
+                    "terminalCommit": "3" * 40, "terminalBlob": "4" * 40,
+                    "runId": "synthetic-run", "operationId": "synthetic-operation",
+                    "terminalStatus": "PROGRESS", "providerEffectsVerified": False,
+                }
+        driver.switch_to.window(tabs[role])
         menu(driver, "Arm recurrence")
         WebDriverWait(driver, 18).until(lambda d: count(d, "send") == 2 and count(d, "reply") == 2 and state(d, role)["phase"] == "COOLDOWN")
         menu(driver, "Pause this role")
@@ -297,7 +339,7 @@ def main():
         assert ev[2]["at"] - ev[1]["at"] >= COOLDOWN
         assert count(driver, "send") == 2
         assert ev[0]["body"] != ev[2]["body"]
-        print("PASS: recurrence after supervised attestation, exact distinct correlation and cooldown", flush=True)
+        print("PASS: recurrence after independent synthetic Git-pair proof, exact distinct correlation and cooldown", flush=True)
 
         role = ROLES[1]
         driver.switch_to.window(tabs[role])

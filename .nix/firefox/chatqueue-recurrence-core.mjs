@@ -59,7 +59,32 @@ export function authorizeFirstTick(state, gates, now) {
 	};
 }
 
-export function prepareSend(state, attemptId, now, preflight) {
+// LAB represents a synthetic effects-free operation. Broker admission
+// concerns delivery of an invocation ONLY; the canonical agent protocol
+// must independently reconcile its OWN prior run and provider effects.
+export function sendPreflightVerified(preflight, admission = "lab") {
+	if (
+		preflight?.identityVerified !== true ||
+		preflight?.notGenerating !== true ||
+		preflight?.threeLegacyGatesOff !== true
+	)
+		return false;
+	if (admission === "lab") return preflight.noUnreconciledEffects === true;
+	return (
+		admission === "broker" &&
+		preflight.browserDeliveryReconciled === true &&
+		preflight.externalEffectDisposition === "AGENT_MUST_RECONCILE" &&
+		preflight.noUnreconciledEffects === undefined
+	);
+}
+
+export function prepareSend(
+	state,
+	attemptId,
+	now,
+	preflight,
+	admission = "lab",
+) {
 	required(validTime(now), "Invalid time");
 	required(validId(attemptId), "Missing stable attempt ID");
 	required(
@@ -71,10 +96,7 @@ export function prepareSend(state, attemptId, now, preflight) {
 		"Not eligible until after terminal reply and cooldown",
 	);
 	required(
-		preflight?.identityVerified &&
-			preflight?.notGenerating &&
-			preflight?.threeLegacyGatesOff &&
-			preflight?.noUnreconciledEffects,
+		sendPreflightVerified(preflight, admission),
 		"Fresh send preflight not proven",
 	);
 	return {

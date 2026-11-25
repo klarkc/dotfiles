@@ -317,7 +317,7 @@
 							binding.agent +
 							" only? Confirm signed host and exact account/workspace/model, completed same-chat bootstrap, original queue retired, independent operational QA, all gates checked. " +
 							(mode === "recurrence"
-								? "Confirm OWN STARTED and terminal Git proof of the supervised tick."
+								? "The executor must independently verify OWN STARTED and terminal Git proof of the supervised tick."
 								: "Only ONE supervised send."),
 					)
 				)
@@ -327,12 +327,11 @@
 					accountModelVerified: true,
 					originalQueueRetired: true,
 					qaVerified: true,
-					supervisedGitProofVerified: mode === "recurrence",
 				});
 				if (!ok) window.alert("Arm refused; no automatic retry.");
 			};
 			menu("Arm supervised (one tick)", () => arm("supervised"));
-			menu("Arm recurrence (after verified supervised Git proof)", () =>
+			menu("Arm recurrence (requires verified supervised Git pair)", () =>
 				arm("recurrence"),
 			);
 		})

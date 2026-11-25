@@ -12,6 +12,7 @@ import {
 	recordReplyTerminal,
 	recordSent,
 	recoverAfterRestart,
+	sendPreflightVerified,
 } from "./chatqueue-recurrence-core.mjs";
 
 function assertAgent(agent) {
@@ -27,7 +28,10 @@ export function makeLocalController({
 	clock,
 	transport,
 	paused,
+	admission = "lab",
 }) {
+	if (!["lab", "broker"].includes(admission))
+		throw new Error("Unknown admission scope");
 	for (const [key, fn] of Object.entries({
 		read,
 		write,
@@ -77,15 +81,16 @@ export function makeLocalController({
 			if (!due(state, clock())) return { status: "NOT_DUE" };
 
 			const preflight = await transport.preflight(agent, content);
-			if (
-				!preflight?.identityVerified ||
-				!preflight?.notGenerating ||
-				!preflight?.threeLegacyGatesOff ||
-				!preflight?.noUnreconciledEffects
-			)
+			if (!sendPreflightVerified(preflight, admission))
 				return { status: "SKIP_NOT_READY" };
 
-			const prepared = prepareSend(state, attemptId, clock(), preflight);
+			const prepared = prepareSend(
+				state,
+				attemptId,
+				clock(),
+				preflight,
+				admission,
+			);
 			await write(agent, prepared); // MUST happen before DOM writes/clicks.
 			try {
 				if (await paused(agent)) throw new Error("Paused before composing");

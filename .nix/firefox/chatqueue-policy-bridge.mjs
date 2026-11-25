@@ -8,6 +8,10 @@ import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENTS } from "./chatqueue-recurrence-core.mjs";
+import {
+	validatePulseQuery,
+	sanitizePulseProof,
+} from "./chatqueue-pulse-proof-schema.mjs";
 
 const exec = promisify(execFile);
 const tokenPattern = /^[0-9a-f]{64}$/;
@@ -77,6 +81,9 @@ function sanitize(agent, value) {
 			/^[0-9a-f]{64}$/.test(value.promptDigest)
 		)
 			result.promptDigest = value.promptDigest;
+		const proof = sanitizePulseProof(value.pulseProof);
+		if (proof && proof.agent === agent && proof.main === value.heads.main)
+			result.pulseProof = proof;
 		result.blobs = Object.fromEntries(
 			policyPaths.map((path) => [path, value.blobs[path]]),
 		);
@@ -142,7 +149,7 @@ export async function startPolicyBridge({
 				req.headers["transfer-encoding"] !== undefined ||
 				!Number.isSafeInteger(length) ||
 				length < 1 ||
-				length > 256
+				length > 384
 			) {
 				reject(400, "BRIDGE_INVALID_BODY");
 				return;
@@ -152,7 +159,7 @@ export async function startPolicyBridge({
 				let body = "";
 				for await (const chunk of req) {
 					body += chunk.toString("utf8");
-					if (Buffer.byteLength(body) > 256) throw new Error("Oversize body");
+					if (Buffer.byteLength(body) > 384) throw new Error("Oversize body");
 				}
 				if (Buffer.byteLength(body) !== length)
 					throw new Error("Body length mismatch");
@@ -160,7 +167,11 @@ export async function startPolicyBridge({
 				if (
 					!input ||
 					Array.isArray(input) ||
-					Object.keys(input).sort().join(",") !== "agent,nonce" ||
+					!["agent,nonce", "agent,nonce,pulseQuery"].includes(
+						Object.keys(input).sort().join(","),
+					) ||
+					(input.pulseQuery !== undefined &&
+						!validatePulseQuery(input.pulseQuery)) ||
 					!AGENTS.includes(input.agent) ||
 					typeof input.nonce !== "string" ||
 					!noncePattern.test(input.nonce)
@@ -175,7 +186,9 @@ export async function startPolicyBridge({
 				return;
 			}
 			const startedAt = clock();
-			const pending = Promise.resolve().then(() => readPolicy(input.agent));
+			const pending = Promise.resolve().then(() =>
+				readPolicy(input.agent, input.pulseQuery ?? null),
+			);
 			activeRead = pending;
 			try {
 				const evidence = sanitize(input.agent, await pending);
@@ -274,8 +287,13 @@ export async function createPrivatePolicyCache({ runtimeDir, expectedOrigin }) {
 	}
 	return {
 		root,
-		async readPolicy(agent) {
-			if (closed || reading || !AGENTS.includes(agent))
+		async readPolicy(agent, pulseQuery = null) {
+			if (
+				closed ||
+				reading ||
+				!AGENTS.includes(agent) ||
+				(pulseQuery !== null && !validatePulseQuery(pulseQuery))
+			)
 				return denied("CACHE_NOT_READY");
 			reading = true;
 			try {
@@ -306,6 +324,7 @@ export async function createPrivatePolicyCache({ runtimeDir, expectedOrigin }) {
 						...env,
 						CHATQUEUE_BROKER_ORIGIN: expectedOrigin,
 						CHATQUEUE_INCLUDE_PROMPT_BLOB: "1",
+						CHATQUEUE_PULSE_QUERY: JSON.stringify(pulseQuery),
 					},
 					encoding: "utf8",
 					timeout: 45_000,

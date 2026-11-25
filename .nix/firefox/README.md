@@ -511,9 +511,12 @@ until an explicitly admitted signed-menu action.
   under the short click/Pause fence. This is not an atomic transaction with
   remote Git. The existing role contract still reconciles provider effects.
 - Each send uses the verbatim canonical template plus one explicitly labeled
-  browser correlation ID, not a provider run_id or operation_id. This is
-  necessary to distinguish identical repeated templates from old virtualized
-  turns. Independent operational QA must review this suffix.
+  browser correlation ID, not a provider run_id or operation_id. If the
+  invocation legitimately creates a new OWN STARTED and matching terminal,
+  both own pulse records must include the same exact browser_delivery_id
+  field. Never write a pulse solely to obtain evidence or overwrite an older
+  UNKNOWN identity. The suffix distinguishes repeated browser invocations and
+  correlates them with Git readback; independent QA must review the contract.
 - Distinct GM storage namespace, durable per-role state and readback, a
   per-document in-memory lease, shared role lock and short fence. Boot,
   duplicate document and Pause revoke the lease; startup/reload never arms.
@@ -523,8 +526,25 @@ until an explicitly admitted signed-menu action.
   subsequent arm; there is deliberately no automatic clear/retry menu.
 - The first signed-menu Arm is supervised, exactly one send. Recurrence is
   separately admitted only after a completed supervised browser attempt and
-  operator attestation of OWN STARTED/terminal Git proof. A browser terminal
-  receipt does not prove those external effects. Cooldown is 360 seconds
+  independently verified OWN STARTED/terminal Git pair. The executor durably
+  stores the final pre-click main baseline before clicking, then records the
+  terminal browser receipt without asserting external effects. It requests
+  a bounded proof for the exact attempt and baseline through the same passive
+  bridge. Within two fresh remote HEAD reads the Git reader verifies two
+  own-path-only commits with single parents, exact blobs, ancestry, matching
+  agent/run/operation/correlation and a PROGRESS/WAITING/IDLE terminal. Other
+  agents may advance main between commits. The proof is pinned to the verified
+  terminal commit and rechecked against fresh main on recurrence Arm,
+  preparation and final click. An older journal without the baseline and
+  correlation cannot grant recurrence; a human confirmation or DOM-only
+  completion is insufficient. A prior unclosed STARTED must be recovered by
+  the agent under the original IDs; recovery alone is not a new supervised
+  STARTED/terminal pair, so a later new supervised run is needed. The proof
+  explicitly states providerEffectsVerified=false, not a claim of reconciled
+  Gmail/Cloud/other effects. The controller's broker admission concerns only
+  browser delivery state (browserDeliveryReconciled); external effects remain
+  AGENT_MUST_RECONCILE under the canonical role contract. LAB admission keeps
+  its synthetic noUnreconciledEffects requirement. Cooldown is 360 seconds
   after the verified terminal response; Pause or missing/denied evidence
   stops recurrence rather than looping. Four roles use the same passive bridge,
   serializing policy reads without holding the click fence.
