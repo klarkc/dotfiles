@@ -1,4 +1,4 @@
-// Passive, local-only Git policy evidence transport. No browser, timer,
+// Passive, local-only Git evidence and lock transport. No browser, timer,
 // scheduler, install, or send authority. Nothing runs on import.
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -8,6 +8,11 @@ import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENTS } from "./chatqueue-recurrence-core.mjs";
+import {
+	makeBridgeLockTable,
+	acquireBridgeGenerationGuard,
+} from "./chatqueue-bridge-locks.mjs";
+import { validLockInput } from "./chatqueue-bridge-lock-protocol.mjs";
 import {
 	validatePulseQuery,
 	sanitizePulseProof,
@@ -95,6 +100,7 @@ export async function startPolicyBridge({
 	capability,
 	readPolicy,
 	clock = Date.now,
+	lockTable = null,
 }) {
 	if (
 		typeof capability !== "string" ||
@@ -126,7 +132,7 @@ export async function startPolicyBridge({
 				req.socket.remoteAddress !== "127.0.0.1" ||
 				req.headers.host !== "127.0.0.1:" + port ||
 				req.method !== "POST" ||
-				req.url !== "/v1/evidence"
+				!(req.url === "/v1/evidence" || (req.url === "/v1/lock" && lockTable))
 			) {
 				reject(403, "BRIDGE_REQUEST_DENIED");
 				return;
@@ -164,6 +170,16 @@ export async function startPolicyBridge({
 				if (Buffer.byteLength(body) !== length)
 					throw new Error("Body length mismatch");
 				input = JSON.parse(body);
+				if (req.url === "/v1/lock") {
+					if (!validLockInput(input)) throw new Error("Invalid lock request");
+					const result = lockTable.handle(input);
+					if (!result) {
+						reject(503, "BRIDGE_BUSY_OR_STOPPED");
+						return;
+					}
+					send(200, result);
+					return;
+				}
 				if (
 					!input ||
 					Array.isArray(input) ||
@@ -232,6 +248,7 @@ export async function startPolicyBridge({
 				server.closeAllConnections();
 			});
 			if (pending) await pending.catch(() => {});
+			return lockTable ? lockTable.close() : true;
 		},
 	};
 }
@@ -362,16 +379,19 @@ export async function createPrivatePolicyCache({ runtimeDir, expectedOrigin }) {
 async function main() {
 	if (process.argv[2] !== "--serve")
 		throw new Error("Explicit --serve required");
-	const cache = await createPrivatePolicyCache({
-		runtimeDir: process.env.XDG_RUNTIME_DIR,
-		expectedOrigin: process.env.CHATQUEUE_BROKER_ORIGIN,
-	});
-	let bridge;
+	const guard = await acquireBridgeGenerationGuard(process.env.XDG_RUNTIME_DIR);
+	let bridge, cache;
+	let clean = false;
 	try {
+		cache = await createPrivatePolicyCache({
+			runtimeDir: process.env.XDG_RUNTIME_DIR,
+			expectedOrigin: process.env.CHATQUEUE_BROKER_ORIGIN,
+		});
 		const capability = randomBytes(32).toString("hex");
 		bridge = await startPolicyBridge({
 			capability,
 			readPolicy: cache.readPolicy,
+			lockTable: makeBridgeLockTable(),
 		});
 		const settings = join(cache.root, "bridge.json");
 		await writeFile(
@@ -380,17 +400,23 @@ async function main() {
 			{ mode: 0o600, flag: "wx" },
 		);
 		process.stdout.write(
-			"Passive policy bridge ready; private settings generated in runtime directory.\n",
+			"Passive policy/lock bridge ready; private settings generated in runtime directory.\n",
 		);
 		await new Promise((resolve) => {
 			process.once("SIGINT", resolve);
 			process.once("SIGTERM", resolve);
 		});
 	} finally {
-		if (bridge) await bridge.stop();
-		// Do not delete a cache while an outstanding read is in progress.
-		// A refused cleanup leaves only this private generated runtime directory.
-		await cache.close();
+		clean = bridge ? await bridge.stop() : true;
+		if (cache) await cache.close();
+		// Never silently clear an orphaned generation. A clean shutdown can
+		// remove the guard only when no grant or write remains pending.
+		if (!(await guard.release(clean))) {
+			process.stderr.write(
+				"Unreconciled bridge generation retained; full browser stop and explicit recovery required.\n",
+			);
+			process.exitCode = 2;
+		}
 	}
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

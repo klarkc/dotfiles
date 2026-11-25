@@ -43,6 +43,52 @@ COUNTS = dict.fromkeys(ROLES, 0)
 DENY_AT = {}
 PROOFS = {}  # Synthetic externally supplied proof; never infer it from DOM completion.
 MUTEX = threading.Lock()
+LOCK_PORT = None
+
+
+@contextlib.contextmanager
+def lock_fixture_bridge():
+    """Actual Node lock endpoint; Python only proxies fixture same-origin POSTs."""
+    global LOCK_PORT
+    assert LOCK_PORT is None
+    node = shutil.which("node")
+    assert node
+    source = """
+import {startPolicyBridge} from './chatqueue-policy-bridge.mjs';
+import {makeBridgeLockTable} from './chatqueue-bridge-locks.mjs';
+const chunks=[];
+for await(const c of process.stdin){chunks.push(c);}
+const capability=Buffer.concat(chunks).toString('utf8');
+const bridge=await startPolicyBridge({capability,readPolicy:()=>{throw Error("No real Git in fixture")},lockTable:makeBridgeLockTable()});
+console.log(bridge.port);
+process.once("SIGTERM",async()=>{const clean=await bridge.stop();process.exitCode=clean?0:2;});
+"""
+    proc = subprocess.Popen(
+        [node, "--input-type=module", "-e", source], cwd=ROOT,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        proc.stdin.write(TOKEN)
+        proc.stdin.close()
+        import select
+        assert select.select([proc.stdout], [], [], 15)[0], "Lock fixture startup timeout"
+        LOCK_PORT = int(proc.stdout.readline().strip())
+        assert 1024 <= LOCK_PORT <= 65535
+        yield
+    finally:
+        LOCK_PORT = None
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        # A failed test may deliberately leave an orphan; do not mistake
+        # fixture process cleanup for safe operational generation recovery.
+        proc.stdout.close()
+        proc.stderr.close()
 
 PAGE = """
 <!doctype html><html><head><meta charset="utf-8"><title>Operational synthetic fixture</title>
@@ -98,7 +144,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.respond(200, PAGE.encode(), "text/html; charset=utf-8")
 
     def do_POST(self):
-        if self.path != "/v1/evidence" or self.headers.get("Authorization") != "Bearer " + TOKEN:
+        if self.path not in ("/v1/evidence", "/v1/lock") or self.headers.get("Authorization") != "Bearer " + TOKEN:
             self.send_error(403)
             return
         try:
@@ -107,6 +153,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             value = json.loads(self.rfile.read(length))
             role, nonce = value["agent"], value["nonce"]
             assert role in ROLES and re.fullmatch(r"[0-9a-f]{32,64}", nonce)
+            if self.path == "/v1/lock":
+                assert LOCK_PORT is not None
+                from urllib.request import Request, urlopen
+                from urllib.error import HTTPError
+                req = Request(
+                    f"http://127.0.0.1:{LOCK_PORT}/v1/lock",
+                    data=json.dumps(value).encode(),
+                    headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urlopen(req, timeout=5) as response:
+                        self.respond(response.status, response.read(2048), "application/json")
+                except HTTPError as exc:
+                    self.respond(exc.code, exc.read(2048), "application/json")
+                return
             query = value.get("pulseQuery")
             if query is not None:
                 assert set(query) in ({"attemptId", "baselineMain"}, {"attemptId", "baselineMain", "terminalCommit"})
@@ -166,8 +228,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 SHIM = """
 window.__opTest={menus:[],alerts:[],confirm:true};
-window.GM_getValue=(key,fallback)=>{const raw=localStorage.getItem(key);return raw===null?fallback:JSON.parse(raw)};
-window.GM_setValue=(key,value)=>localStorage.setItem(key,JSON.stringify(value));
+window.GM={getValue:async(key,fallback)=>{const raw=localStorage.getItem(key);return raw===null?fallback:JSON.parse(raw)},setValue:async(key,value)=>localStorage.setItem(key,JSON.stringify(value))};
 window.GM_registerMenuCommand=(name,callback)=>window.__opTest.menus.push({name,callback});
 window.GM_xmlhttpRequest=opts=>fetch(opts.url,{method:opts.method,headers:opts.headers,body:opts.data,redirect:"error",credentials:"omit"})
  .then(async response=>opts.onload({status:response.status,finalUrl:response.url,responseText:await response.text()})).catch(opts.onerror);
@@ -378,4 +439,5 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    with lock_fixture_bridge():
+        raise SystemExit(main())

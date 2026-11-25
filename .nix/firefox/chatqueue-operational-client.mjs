@@ -164,7 +164,7 @@ export function freshOperationalEvidence(
 	);
 }
 
-async function sha256(text) {
+export async function sha256(text) {
 	const bytes = await crypto.subtle.digest(
 		"SHA-256",
 		new TextEncoder().encode(text),

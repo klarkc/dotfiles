@@ -10,6 +10,8 @@ const modules = [
 	"chatqueue-recurrence-core.mjs",
 	"chatqueue-local-controller.mjs",
 	"chatqueue-pulse-proof-schema.mjs",
+	"chatqueue-bridge-lock-protocol.mjs",
+	"chatqueue-bridge-lock-client.mjs",
 	"chatqueue-operational-client.mjs",
 	"chatqueue-operational-runtime.mjs",
 	"chatqueue-operational-browser.js",
@@ -17,7 +19,7 @@ const modules = [
 const strip = (source) =>
 	source
 		.replace(/^import\s+\{[\s\S]*?\}\s+from\s+"\.\/[^"]+";\s*/gm, "")
-		.replace(/\bexport (function|const)\b/g, "$1");
+		.replace(/\bexport (async function|function|const)\b/g, "$1");
 const source = modules
 	.map((n) => strip(readFileSync(join(base, n), "utf8").trimEnd()))
 	.join("\n");
@@ -33,8 +35,8 @@ const metadata = [
 	"// @match        https://chatgpt.com/g/*/c/*",
 	"// @run-at       document-idle",
 	"// @inject-into  content",
-	"// @grant        GM_getValue",
-	"// @grant        GM_setValue",
+	"// @grant        GM.getValue",
+	"// @grant        GM.setValue",
 	"// @grant        GM_registerMenuCommand",
 	"// @grant        GM_xmlhttpRequest",
 	"// @connect      127.0.0.1",

@@ -520,10 +520,13 @@ until an explicitly admitted signed-menu action.
 - Distinct GM storage namespace, durable per-role state and readback, a
   per-document in-memory lease, shared role lock and short fence. Boot,
   duplicate document and Pause revoke the lease; startup/reload never arms.
-  PREPARED/AWAITING_REPLY are recovered as REVIEW with the same attempt ID.
-  No retry of an ambiguous send, no overwrite of an existing draft or old
-  role state on a changed binding. REVIEW requires reconciliation before any
-  subsequent arm; there is deliberately no automatic clear/retry menu.
+  When the long lock is available, PREPARED/AWAITING_REPLY are recovered as
+  REVIEW with the same attempt ID. An in-flight document destruction may
+  instead orphan a bridge grant: keep the original state/attempt and refuse
+  arm until the explicit orphan recovery described below. No retry of an
+  ambiguous send, no overwrite of an existing draft or old role state on a
+  changed binding. REVIEW requires reconciliation before any subsequent arm;
+  there is deliberately no automatic clear/retry menu.
 - The first signed-menu Arm is supervised, exactly one send. Recurrence is
   separately admitted only after a completed supervised browser attempt and
   independently verified OWN STARTED/terminal Git pair. The executor durably
@@ -557,8 +560,11 @@ Commands:
 
 The last target uses real isolated headless Firefox with synthetic project
 paths, a local HTTP fixture and GM shims; it does not use the user's profile
-or visit ChatGPT. The Node suite also uses the real loopback bridge against
-synthetic policy. Neither is signed Violentmonkey proof.
+or visit ChatGPT. The fixture proxies lock RPCs to the actual Node lock
+endpoint, with synthetic Git evidence. The Node suite also uses the real
+loopback bridge and verifies both fence orders, exact owners, stale GM
+cache, lost grant/release receipts and pending writes. Neither the shim
+nor a synthetic Git pair is proof of real broker effects.
 
 Private provisioning (not installation): the existing passive bridge's
 explicit launch creates a private runtime bridge.json. The config compiler
@@ -578,8 +584,13 @@ Provisioning that object into the signed manager's isolated storage requires
 a separately verified extension-native procedure. Do not put capabilities in
 the page DOM, chat, URL, logs, source bundle or Nix store. No live signed
 installation/provisioning is performed by the build or tests. A bridge restart
-invalidates its old ephemeral port/capability; reprovision and manually rearm
-only after checking the paused state and reconciling any pending attempt.
+invalidates its old ephemeral port/capability. Do not update the config in
+running documents. Pause all roles, stop the old bridge, close every old
+browser document (a full browser exit is the conservative procedure), verify
+the exact retained GM journals and reopen the four same-chat bindings with
+the new configuration reviewed=false. Reconcile uncertain attempts before
+manual rearm. Do not clear storage or reinstall as a different script to
+avoid REVIEW.
 
 Do not mark reviewed=true or enable operational Git gates until exact-source
 independent QA, signed host evidence (including the real privileged HTTP
@@ -590,3 +601,90 @@ are not a live operational GO. The signed LAB and original queue remain
 unchanged. This code does not independently resolve provider UNKNOWN effects,
 automatically rebind a rollover conversation, or prove crash recovery in a
 real signed host; those remain operational verification/reconciliation steps.
+
+### Signed content-script Web Locks incompatibility and bridge-owned fences
+
+Firefox Bugzilla 1873028 describes a content-script Promise permission
+failure in Web Locks. The isolated signed Violentmonkey host reproduced it,
+including a minimal synchronous callback and both the sandbox Promise and
+window.Promise. The operational adapter must stay in the privileged content
+realm; no unsafeWindow, page-realm Promise, exported privileged callback,
+Xray bypass, disabled signature, or page-accessible capability is used.
+
+The original passive Git bridge now optionally accepts authenticated bounded
+POST /v1/lock requests (production --serve always enables that endpoint).
+Only four fixed role locks, four fixed short fences and the global policy
+read lock exist. A per-request nonce and per-acquisition owner identify
+grants. Release requires the exact owner; ownership is never reused in a
+generation. Waiting clients may retry an explicitly witnessed BUSY only.
+No lock expires, is stolen, or is released on socket loss. An uncertain
+acquisition cannot invoke the callback. An uncertain release poisons the
+document after its callback has finished. No Git action or browser tick is
+initiated by the bridge.
+
+The short fence is still held across final GM/lease and fresh Git checks
+and the synchronous DOM click, or durable Pause revocation. There is no
+remote Git IO under that fence (local lock/witness HTTP is required).
+The role lock spans the attempt. Long-to-short lock order is unchanged.
+This is not a lease with timeout-based takeover. Failed reads/writes and
+ambiguous transport fail closed; Pause is acknowledged only after its
+fenced write/readback and release are verified.
+
+The operational adapter now uses the asynchronous native GM.getValue and
+GM.setValue APIs. Actual GM remains the durable journal. The bridge stores
+only a SHA-256 witness per role/key and pending transaction identity, not
+raw GM records, prompts, paths or capabilities in its witness table.
+A serialized write must obtain BEGUN under the correct lock, await the
+actual GM write, verify the GM readback hash, then receive COMMITTED.
+An incomplete write blocks matching reads and release of its owner;
+a stale tab cache cannot satisfy the current witness. The first witness
+is seeded from a freshly loaded, retained GM store. This relies on the
+explicit trusted provisioning/lifecycle procedure, not on arbitrary
+manual edits or proof of persistence across sudden OS power loss.
+
+The production CLI acquires an atomic directory in the private
+XDG_RUNTIME_DIR named chatqueue-operational-bridge-active before starting.
+A second production generation is refused. Clean stop releases the
+guard only when the lock and pending-write tables are empty. Unknown
+shutdown or orphaned lock leaves the guard; do not auto-restart or
+reclaim by elapsed time, PID disappearance or network failure. The
+bridge is not an independent scheduler or an authority to send.
+
+**Orphan recovery (deliberately conservative):** keep remote GO disabled
+and the old queue paused. Stop the executor and all Firefox processes
+that could run the old userscript, and verify the bridge process has
+exited and the browser documents can no longer click. Preserve the GM
+store and every original attempt/run/operation ID. Only then, under
+explicit operator recovery, remove the empty retained generation guard
+if present. Start a new explicit bridge, provision its new private
+config while no old document can execute, and reload the same four
+routes without arming. Boot converts the original PREPARED/AWAITING_REPLY
+to REVIEW when the fresh long lock is available. Never clear REVIEW
+merely because the bridge or page restarted; reconcile exact receipts
+and external Git/provider effects first. There is no auto-replay or
+automatic REVIEW clearing. A normal same-tab in-flight reload can
+require this recovery instead of immediate REVIEW. A duplicate that
+successfully revokes a live predecessor allows that predecessor to
+finish its safe REVIEW transition and release normally.
+
+**Opt-in signed-host fixture:** after building the exact source, run
+.nix/tests/chatqueue-operational-signed-fixture.py with the pinned Nix
+Python/Selenium and geckodriver used by firefox.ChatQueueOperationalE2E.
+Pass --signed-xpi /absolute/path/to/locally-available-signed-addon.xpi
+and --confirm-file /absolute/private/runtime/confirmation. The harness
+creates a disposable browser profile, installs the existing signed
+Violentmonkey with signature checks unchanged, and requires a native
+installation confirmation for the exact loopback-only fixture before
+the confirmation file is created. Never point it at the live profile.
+It uses a temporary copy with fixture-only name/match/origin/shorter
+clocks and explicit synthetic GM config/menu controls; it never visits
+ChatGPT or real agent chats. The actual GM APIs, privileged HTTP,
+lock/witness endpoint, runtime and DOM delivery logic are exercised.
+Positive results cover all four synthetic roles, unreviewed denial,
+supervised one-shot, recurrence refusal without external proof,
+correlated synthetic proof, cooldown, Pause, duplicate/reload REVIEW
+and in-flight document reload preserving the attempt with no replay.
+This is real signed-host integration evidence with synthetic inputs,
+not actual broker ticks or a substitute for exact route/model/bootstrap
+verification and explicit manual GO. No operational install or
+automatic bridge start is performed by any build/test target.

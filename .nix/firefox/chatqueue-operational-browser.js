@@ -8,15 +8,15 @@
 		!OPERATIONAL_PATH.test(location.pathname) ||
 		location.search ||
 		location.hash ||
-		typeof GM_getValue !== "function" ||
-		typeof GM_setValue !== "function" ||
+		typeof GM === "undefined" ||
+		typeof GM.getValue !== "function" ||
+		typeof GM.setValue !== "function" ||
 		typeof GM_registerMenuCommand !== "function" ||
-		typeof GM_xmlhttpRequest !== "function" ||
-		!navigator.locks?.request
+		typeof GM_xmlhttpRequest !== "function"
 	)
 		return;
 	const path = location.pathname;
-	const getConfig = async () => await GM_getValue(OPERATIONAL_CONFIG_KEY, null);
+	const getConfig = async () => await GM.getValue(OPERATIONAL_CONFIG_KEY, null);
 	const visible = (e) =>
 		!!e &&
 		!e.hidden &&
@@ -228,12 +228,6 @@
 			throw new Error("Terminal reply unverified");
 		},
 	};
-	const lock = async (name, ifAvailable, fn) =>
-		await navigator.locks.request(
-			name,
-			{ mode: "exclusive", ...(ifAvailable ? { ifAvailable: true } : {}) },
-			(l) => (l ? fn() : { status: "SKIP_IN_PROGRESS" }),
-		);
 	const request = (opts) =>
 		new Promise((resolve, reject) => {
 			GM_xmlhttpRequest({
@@ -256,12 +250,24 @@
 			const binding = config.bindings.find((b) => b.path === path);
 			if (!binding) return;
 			const prefix = "CQOP_V1:" + binding.agent + ":";
+			const locks = makeBridgeLockClient({
+				agent: binding.agent,
+				bridge: config.bridge,
+				request,
+				randomNonce: () => crypto.randomUUID().replace(/-/g, ""),
+				clock: Date.now,
+				sleep,
+				digest: sha256,
+				readGM: async (key) => await GM.getValue(prefix + key, null),
+				writeGM: async (key, value) => await GM.setValue(prefix + key, value),
+			});
+			const lock = locks.lock;
 			const runtime = makeOperationalRuntime({
 				agent: binding.agent,
 				path,
 				getConfig,
-				read: async (key) => await GM_getValue(prefix + key, null),
-				write: async (key, value) => await GM_setValue(prefix + key, value),
+				read: locks.read,
+				write: locks.write,
 				lock,
 				clock: Date.now,
 				randomId: () => crypto.randomUUID(),
