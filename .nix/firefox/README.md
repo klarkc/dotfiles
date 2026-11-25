@@ -652,6 +652,19 @@ bridge is not an independent scheduler or an authority to send.
 
 ### Paused supervised review and pristine conversation rollover
 
+Long user prompts can be rendered as a unique plain-text leaf
+(`div.whitespace-pre-wrap`) plus a localized expansion button and a separate
+aria-hidden ellipsis. The browser adapter checks the entire leaf text, not
+just an attempt ID or a matching substring. It permits only the observed
+expansion UI outside that leaf and rejects extra text, ambiguous leaves,
+unknown controls and media. A simple unadorned user bubble remains supported.
+Several hidden assistant reasoning headings may share the final turn group.
+All must belong to that single group, after the user bubble, with exactly
+one visible last heading. Terminal evidence requires nonempty structural
+assistant reply text and exactly one visible enabled Copy action outside
+the reply body. The bootstrap marker must be in the visible assistant
+reply, never user text or hidden reasoning. Unknown structure stays NO_GO.
+
 A temporarily absent virtualized user receipt during generation is not
 completion or failure by itself. The operational observer resets its stability
 window when evidence disappears. It still rejects an explicitly duplicated

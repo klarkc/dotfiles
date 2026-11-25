@@ -111,23 +111,41 @@ PAGE = """
  send.addEventListener("click",()=>form.requestSubmit());
  const toggle=()=>{if(box.textContent.trim()){if(!send.isConnected)form.append(send)}else send.remove()};
  box.addEventListener("input",toggle);
+ // The real long-prompt DOM includes a distinct text leaf, an aria-hidden
+ // ellipsis and localized expansion control. Hidden reasoning headings and
+ // the visible final heading share one conversation turn group.
+ const expandedUser=(body)=>{
+  const bubble=document.createElement("div");bubble.setAttribute("data-user-message-bubble","");
+  const wrapper=document.createElement("div"),content=document.createElement("div");
+  content.className="whitespace-pre-wrap";content.textContent=body;
+  const ellipsis=document.createElement("span");ellipsis.setAttribute("aria-hidden","true");ellipsis.textContent="…";
+  const expand=document.createElement("button");expand.type="button";expand.textContent="Mostrar mais";
+  wrapper.append(content,ellipsis,expand);bubble.append(wrapper);return bubble;
+ };
+ const appendReply=(group,body,hiddenCount)=>{
+  for(let i=0;i<hiddenCount;i++){const wrapper=document.createElement("div");wrapper.hidden=true;
+   const h=document.createElement("h4");h.dataset.conversationRole="assistant";h.textContent="Reasoning";
+   wrapper.append(h);group.append(wrapper);}
+  const final=document.createElement("div"),heading=document.createElement("h4"),reply=document.createElement("div");
+  heading.dataset.conversationRole="assistant";heading.textContent="ChatGPT disse:";reply.textContent=body;final.append(heading,reply);
+  const actions=document.createElement("div"),copy=document.createElement("button");copy.type="button";copy.setAttribute("aria-label","Copiar");copy.textContent="Copiar";actions.append(copy);
+  group.append(final,actions);
+ };
  const key="CQOP_FIXTURE_EVENTS:"+role;
  const events=()=>JSON.parse(localStorage.getItem(key)||"[]");
  const record=(type,body)=>localStorage.setItem(key,JSON.stringify([...events(),{type,body,at:Date.now()}]));
- window.__opFixture={events};
+ window.__opFixture={events,expandedUser,appendReply};
  form.addEventListener("submit",e=>{
   e.preventDefault();if(stop.style.display!=="none")return;
   const body=box.innerText.trim();
   if(!body.startsWith("ONE tick ONLY")||!body.includes("agent_id="+role)||!body.includes("Browser delivery correlation only"))return;
   const turn=document.createElement("article");turn.setAttribute("data-virtualized-turn","");
-  const user=document.createElement("div");user.setAttribute("data-user-message-bubble","");user.textContent=body;turn.append(user);messages.append(turn);
+  const group=document.createElement("div");group.className="group flex flex-col";
+  group.append(expandedUser(body));turn.append(group);messages.append(turn);
   box.textContent="";toggle();stop.style.display="block";record("send",body);
   setTimeout(()=>{
-   const a=document.createElement("div");a.className="group flex flex-col";
-   const h=document.createElement("h4");h.dataset.conversationRole="assistant";h.textContent="Assistant";
-   const p=document.createElement("p");p.textContent="Synthetic terminal result";
-   const c=document.createElement("button");c.type="button";c.setAttribute("aria-label","Copy");c.textContent="Copy";
-   a.append(h,p,c);turn.append(a);stop.style.display="none";record("reply","Synthetic terminal result");
+   appendReply(group,"Synthetic terminal result",3);
+   stop.style.display="none";record("reply","Synthetic terminal result");
   },Number(localStorage.getItem("CQOP_DELAY:"+role)||800));
  });
 })();
@@ -306,6 +324,68 @@ def boot(driver, bundle, role, config=None, expected_path=None):
     )
 
 
+def check_receipt_dom(driver, binding):
+    """Only the read-only source prefix is evaluated in the isolated fixture."""
+    src = (ROOT / "chatqueue-operational-browser.js").read_text()
+    pure = src[src.index("\tconst visible ="):src.index("\tconst dom = {")]
+    assert ".click(" not in pure and "GM." not in pure and "execCommand" not in pure
+    checks = r"""
+      const binding=arguments[0],origin=location.origin,path=location.pathname;
+    """ + pure + r"""
+      const marker=document.getElementById("marker"),saved=marker.textContent;
+      const token=binding.agent.toUpperCase()+"_BOOTSTRAP_READY",prompt="Synthetic exact prompt.\n"+token;
+      const messages=document.getElementById("messages"),turn=document.createElement("article");
+      const group=document.createElement("div");group.className="group flex flex-col";turn.setAttribute("data-virtualized-turn","");
+      const bubble=window.__opFixture.expandedUser(prompt),wrapper=bubble.firstElementChild;
+      group.append(bubble);window.__opFixture.appendReply(group,"Synthetic terminal result",3);
+      turn.append(group);messages.append(turn);marker.textContent="No bootstrap";
+      try {
+        const result={};
+        result.exact=receiptMatches(prompt).length===1&&!!terminalSnapshot(binding,prompt);
+        result.userMarkerDenied=!ready(binding,"",true);
+        const reply=group.querySelectorAll('[data-conversation-role="assistant"]')[3].nextElementSibling;
+        reply.textContent=token;
+        result.assistantMarkerAccepted=ready(binding,"",true);
+        reply.textContent="Synthetic terminal result";
+        const extra=document.createElement("span");extra.textContent="Unexpected extra text";wrapper.append(extra);
+        result.extraTextDenied=receiptMatches(prompt).length===0;
+        extra.remove();
+        const extraLeaf=document.createElement("div");extraLeaf.className="whitespace-pre-wrap";extraLeaf.textContent=prompt;wrapper.append(extraLeaf);
+        result.ambiguousBodyDenied=receiptMatches(prompt).length===0;
+        extraLeaf.remove();
+        const unknownControl=document.createElement("button");wrapper.append(unknownControl);
+        result.unknownControlDenied=receiptMatches(prompt).length===0;unknownControl.remove();
+        const media=document.createElement("img");wrapper.append(media);
+        result.extraMediaDenied=receiptMatches(prompt).length===0;media.remove();
+        const extraHeading=group.querySelector('[data-conversation-role="assistant"]');
+        extraHeading.parentElement.hidden=false;
+        result.multipleVisibleDenied=!terminalSnapshot(binding,prompt);
+        extraHeading.parentElement.hidden=true;
+        const other=document.createElement("div");other.className="group flex flex-col";
+        window.__opFixture.appendReply(other,"Unrelated response",0);turn.append(other);
+        result.otherGroupDenied=!terminalSnapshot(binding,prompt);
+        other.remove();
+        const copy=group.querySelector('button[aria-label="Copiar"]'),actions=copy.parentElement;
+        reply.append(copy);
+        result.copyInsideReplyDenied=!terminalSnapshot(binding,prompt);
+        actions.append(copy);
+        const duplicateCopy=copy.cloneNode(true);actions.append(duplicateCopy);
+        result.duplicateCopyDenied=!terminalSnapshot(binding,prompt);duplicateCopy.remove();
+        const extraBubble=turn.cloneNode(true);messages.append(extraBubble);
+        let duplicateDenied=false;try{terminalSnapshot(binding,prompt)}catch{duplicateDenied=true;}
+        result.duplicateTurnDenied=duplicateDenied;extraBubble.remove();
+        group.append(bubble);
+        result.reorderedUserDenied=!terminalSnapshot(binding,prompt);
+        group.prepend(bubble);
+        result.exactRestored=!!terminalSnapshot(binding,prompt);
+        return result;
+      } finally {turn.remove();marker.textContent=saved;}
+    """
+    result = driver.execute_script(checks, binding)
+    assert result and all(result.values()), result
+    print("PASS: exact expanded user body + one visible final heading; reject extra text, ambiguity, user bootstrap, unrelated/duplicate copy or turn", flush=True)
+
+
 def main():
     if not shutil.which("geckodriver"):
         raise SystemExit("Use pinned Nix test target")
@@ -352,6 +432,7 @@ def main():
             boot(driver, bundle, role, cfg if index == 0 else None)
             tabs[role] = driver.current_window_handle
             assert count(driver, "send") == 0
+        check_receipt_dom(driver, cfg["bindings"][-1])
         menu(driver, "Arm supervised")
         WebDriverWait(driver, 8).until(lambda d: d.execute_script("return window.__opTest.alerts.some(a=>a.includes('not approved'))"))
         assert count(driver, "send") == 0

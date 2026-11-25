@@ -100,6 +100,14 @@ def run(args):
         await GM.setValue(OPERATIONAL_CONFIG_KEY,FIXTURE_CONFIG);
         location.reload();
     });
+    fixtureButton("Prepare synthetic successor",async()=>{
+        const cfg=await GM.getValue(OPERATIONAL_CONFIG_KEY,null);
+        if(!cfg||cfg.reviewed||!cfg.bindings.some(b=>b.agent==="coordinator"&&b.path===location.pathname))return;
+        await GM.setValue(OPERATIONAL_CONFIG_KEY,{
+            ...cfg, bindings:cfg.bindings.map(b=>b.agent==="coordinator"?{...b,path:"/g/example-project/c/example-coordinator-successor"}:b)
+        });
+        window.alert("Synthetic successor configured; no send");
+    });
     fixtureButton("Review synthetic config",async()=>{
         const cfg=await GM.getValue(OPERATIONAL_CONFIG_KEY,null);
         if(!cfg||cfg.reviewed)return;
@@ -231,6 +239,28 @@ def run(args):
         button("Check policy").click()
         assert "evidence only" in accept_alert()
         print("PASS: signed GM config, actual privileged HTTP/lock RPC, inert boot and unreviewed denial", flush=True)
+        # The old document is retired by navigation; only a synthetic
+        # pristine config is edited via actual privileged GM storage.
+        button("Prepare synthetic successor").click()
+        assert "Synthetic successor configured" in accept_alert()
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.add("coordinator")
+        driver.get(origin + "/g/example-project/c/example-coordinator-successor")
+        await_menus()
+        before = status()
+        assert before["bindingMigrationRequired"] and before["cycle"] == 0 and before["stopped"], before
+        button("Migrate pristine paused binding").click()
+        assert "Migrate this role" in accept_alert()
+        assert "Pristine binding migrated" in accept_alert()
+        after = status()
+        assert not after["bindingMigrationRequired"] and after["phase"] == "PAUSED" and after["cycle"] == 0 and after["stopped"] and not after["leased"], after
+        assert count("send") == 0
+        driver.refresh()
+        await_menus()
+        assert not status()["bindingMigrationRequired"]
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.remove("coordinator")
+        print("PASS: signed GM pristine rollover, witnessed state, zero sends", flush=True)
         button("Review synthetic config").click()
         await_menus()
         assert status()["reviewed"] is True
@@ -243,11 +273,39 @@ def run(args):
             s = status()
             assert s["cycle"] == 0 and s["stopped"], s
             tabs[role] = driver.current_window_handle
+            if role == "qualitymanager":
+                driver.execute_script("localStorage.setItem('CQOP_DELAY:qualitymanager','5500')")
             arm("supervised")
             wait(lambda _: count("send") == 1)
-            wait(lambda _: count("reply") == 1)
-            s = wait_status(lambda s: s["phase"] == "COOLDOWN" and s["stopped"] and s["supervised"])
-            assert s["cycle"] == 1 and s["supervisedGitProofStored"] is False
+            if role == "qualitymanager":
+                s = wait_status(lambda s: s["phase"] == "AWAITING_REPLY")
+                attempt = s["attemptId"]
+                driver.execute_script("""
+                    const m=document.getElementById('messages'),duplicate=m.lastElementChild.cloneNode(true);
+                    duplicate.id='fixture-duplicate';m.append(duplicate);
+                """)
+                s = wait_status(lambda s: s["phase"] == "REVIEW" and s["stopped"])
+                assert s["attemptId"] == attempt
+                driver.execute_script("document.getElementById('fixture-duplicate').remove()")
+                wait(lambda _: count("reply") == 1)
+                assert proof(role, s) == attempt
+                with fixture.MUTEX:
+                    fixture.PAUSED_ROLES.add(role)
+                button("Reconcile supervised REVIEW").click()
+                assert "Reconcile only the exact" in accept_alert()
+                assert "Exact attempt reconciled" in accept_alert()
+                s = status()
+                assert s["phase"] == "PAUSED" and s["stopped"] and not s["leased"] and s["attemptId"] is None
+                assert s["supervisedAttemptId"] == attempt and s["supervisedGitProofStored"]
+                with fixture.MUTEX:
+                    fixture.PAUSED_ROLES.remove(role)
+                driver.execute_script("localStorage.removeItem('CQOP_DELAY:qualitymanager')")
+                print("PASS: signed GM paused REVIEW reconciliation of same attempt, no resend", flush=True)
+            else:
+                wait(lambda _: count("reply") == 1)
+                s = wait_status(lambda s: s["phase"] == "COOLDOWN" and s["stopped"] and s["supervised"])
+                assert s["supervisedGitProofStored"] is False
+            assert s["cycle"] == 1
             assert count("send") == 1
             assert not driver.execute_script("return Object.keys(localStorage).some(k=>k.startsWith('CQOP_V1:'))")
             if role == "coordinator":

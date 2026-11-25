@@ -67,22 +67,129 @@
 		);
 		return rows.length === 1 ? rows[0] : null;
 	};
-	const assistant = (t) => {
-		const headings = [
-			...(t?.querySelectorAll('[data-conversation-role="assistant"]') ?? []),
-		];
-		if (headings.length !== 1) return null;
-		const a = headings[0].closest("div.group.flex.flex-col");
-		return a && t.contains(a) && visible(a) ? a : null;
+	// Expanded/line-clamped plain user messages may include an ellipsis and
+	// a localized expansion control in the bubble. Only project an exact,
+	// unique leaf text body when every other nonblank text node is accounted
+	// for by that observed UI structure. Never strip arbitrary suffix text.
+	const userMessageText = (t) => {
+		const bubble = user(t);
+		if (!bubble) return null;
+		const bodies = [...bubble.querySelectorAll("div.whitespace-pre-wrap")];
+		if (bodies.length === 0) return textOf(bubble);
+		const body = bodies[0];
+		if (bodies.length !== 1 || !visible(body) || body.children.length !== 0)
+			return null;
+		const text = textOf(body);
+		if (!text || norm(body.textContent) !== text) return null;
+		const controls = [...bubble.querySelectorAll("button,[role=button]")];
+		if (
+			controls.length > 1 ||
+			controls.some(
+				(e) =>
+					e.tagName !== "BUTTON" ||
+					!visible(e) ||
+					e.contains(body) ||
+					!/^(?:Mostrar (?:mais|menos)|Show (?:more|less))$/i.test(textOf(e)),
+			) ||
+			bubble.querySelector(
+				"img,video,audio,iframe,object,embed,canvas,input,textarea,[contenteditable=true]",
+			)
+		)
+			return null;
+		const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+		let ellipses = 0;
+		while (walker.nextNode()) {
+			const node = walker.currentNode;
+			const part = norm(node.nodeValue);
+			if (!part || body.contains(node)) continue;
+			if (controls.length === 1 && controls[0].contains(node)) continue;
+			const parent = node.parentElement;
+			if (
+				controls.length === 1 &&
+				parent?.tagName === "SPAN" &&
+				parent.getAttribute("aria-hidden") === "true" &&
+				/^(?:\.\.\.|…)$/.test(part) &&
+				++ellipses === 1
+			)
+				continue;
+			return null;
+		}
+		return text;
 	};
-	const terminal = (a) => {
-		const copy = a?.querySelector(
-			'button[data-testid="copy-turn-action-button"],button[aria-label="Copy"],button[aria-label="Copiar"]',
+	const headingsIn = (t) => [
+		...(t?.querySelectorAll('[data-conversation-role="assistant"]') ?? []),
+	];
+	const assistant = (t) => {
+		const headings = headingsIn(t),
+			bubble = user(t);
+		if (
+			!headings.length ||
+			!bubble ||
+			headings.some(
+				(h) =>
+					bubble.contains(h) ||
+					!(
+						bubble.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING
+					),
+			)
+		)
+			return null;
+		// Several hidden reasoning/tool headings can precede the one visible
+		// final heading, but all must belong to the same unique turn group.
+		const a = headings[0].closest("div.group.flex.flex-col");
+		if (
+			!a ||
+			!t.contains(a) ||
+			!visible(a) ||
+			headings.some((h) => h.closest("div.group.flex.flex-col") !== a)
+		)
+			return null;
+		const active = headings.filter(visible);
+		return active.length === 1 && active[0] === headings.at(-1) ? a : null;
+	};
+	const assistantReplyNodes = (a) => {
+		const h = headingsIn(a).at(-1);
+		if (!h || !visible(h) || !h.parentElement || !a.contains(h.parentElement))
+			return [];
+		const siblings = [...h.parentElement.children].slice(
+			[...h.parentElement.children].indexOf(h) + 1,
 		);
-		return visible(copy) && !copy.disabled;
+		const roleOrUser = "[data-conversation-role],[data-user-message-bubble]";
+		if (
+			siblings.some((e) => e.matches(roleOrUser) || e.querySelector(roleOrUser))
+		)
+			return [];
+		return siblings.filter(
+			(e) => visible(e) && !e.matches("button,[role=button]"),
+		);
+	};
+	const assistantReply = (a) =>
+		assistantReplyNodes(a)
+			.map((e) => e.innerText ?? "")
+			.join("\n")
+			.trim();
+	const terminal = (a) => {
+		const copies = [
+			...(a?.querySelectorAll(
+				'button[data-testid="copy-turn-action-button"],button[aria-label="Copy"],button[aria-label="Copiar"]',
+			) ?? []),
+		].filter(visible);
+		const h = headingsIn(a).at(-1),
+			nodes = assistantReplyNodes(a);
+		const copy = copies[0];
+		return (
+			copies.length === 1 &&
+			!copy.disabled &&
+			!!h &&
+			!!(h.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+			!copy.closest("[data-user-message-bubble]") &&
+			nodes.length > 0 &&
+			!nodes.some((e) => e.contains(copy)) &&
+			!!assistantReply(a)
+		);
 	};
 	const receiptMatches = (message) =>
-		turns().filter((t) => textOf(user(t)) === norm(message));
+		turns().filter((t) => userMessageText(t) === norm(message));
 	const receipt = (message) => {
 		const matches = receiptMatches(message);
 		return matches.length === 1 ? matches[0] : null;
@@ -90,30 +197,17 @@
 	const bootstrap = (b) =>
 		turns().some((t) => {
 			const a = assistant(t);
-			if (!terminal(a)) return false;
-			// The modern group includes both sides; require the exact assistant
-			// portion, never a mention of a marker in the user's bootstrap prompt.
-			const heading = a.querySelector('[data-conversation-role="assistant"]');
-			if (!heading) return false;
-			const text = (a.innerText ?? "").split(
-				/ChatGPT disse:\s*|ChatGPT said:\s*/,
+			// Only the structural visible assistant reply can contain a
+			// bootstrap marker. Neither user text nor hidden reasoning counts.
+			return (
+				terminal(a) &&
+				assistantReply(a)
+					.split("\n")
+					.some(
+						(line) =>
+							line.trim() === b.agent.toUpperCase() + "_BOOTSTRAP_READY",
+					)
 			);
-			const reply =
-				text.length > 1
-					? text.at(-1)
-					: [...a.children]
-							.filter(
-								(e) =>
-									!e.contains(user(t)) &&
-									!e.querySelector("[data-user-message-bubble]"),
-							)
-							.map((e) => e.innerText ?? "")
-							.join("\n");
-			return reply
-				.split("\n")
-				.some(
-					(line) => line.trim() === b.agent.toUpperCase() + "_BOOTSTRAP_READY",
-				);
 		});
 	const ready = (b, draft, requireBootstrap = false) => {
 		const c = composer();
@@ -144,7 +238,7 @@
 	// terminal witness; an explicit duplicate or superseding turn is fatal.
 	const attemptTurn = (content) => {
 		const ts = turns();
-		const matches = ts.filter((t) => textOf(user(t)) === norm(content));
+		const matches = ts.filter((t) => userMessageText(t) === norm(content));
 		if (
 			matches.length > 1 ||
 			(matches.length === 1 && matches[0] !== ts.at(-1))
@@ -155,7 +249,9 @@
 	const terminalSnapshot = (b, content) => {
 		const t = attemptTurn(content);
 		const a = assistant(t);
-		return t && terminal(a) && ready(b, "") ? textOf(a) || null : null;
+		return t && terminal(a) && ready(b, "")
+			? norm(assistantReply(a)) || null
+			: null;
 	};
 	const dom = {
 		ready,
