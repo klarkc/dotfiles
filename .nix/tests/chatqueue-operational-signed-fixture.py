@@ -108,6 +108,23 @@ def run(args):
         });
         window.alert("Synthetic successor configured; no send");
     });
+    fixtureButton("Prepare synthetic PM successor",async()=>{
+        const cfg=await GM.getValue(OPERATIONAL_CONFIG_KEY,null);
+        if(!cfg||!cfg.reviewed||!cfg.bindings.some(b=>b.agent==="platformmanager"&&b.path===location.pathname))return;
+        await GM.setValue(OPERATIONAL_CONFIG_KEY,{
+            ...cfg, reviewed:false, bindings:cfg.bindings.map(b=>b.agent==="platformmanager"?{...b,path:"/g/example-project/c/example-platformmanager-successor"}:b)
+        });
+        window.alert("Synthetic PM successor configured; no send");
+    });
+    fixtureButton("Digest synthetic journals",async()=>{
+        const digests={};
+        for(const role of ["coordinator","platformmanager","businessmanager","qualitymanager"])
+            for(const key of ["GATE","STATE","SUPERVISED"]){
+                const k="CQOP_V1:"+role+":"+key;
+                digests[k]=await sha256(JSON.stringify(await GM.getValue(k,null)));
+            }
+        window.alert(JSON.stringify(digests));
+    });
     fixtureButton("Review synthetic config",async()=>{
         const cfg=await GM.getValue(OPERATIONAL_CONFIG_KEY,null);
         if(!cfg||cfg.reviewed)return;
@@ -172,10 +189,10 @@ def run(args):
             time.sleep(.2)
         raise AssertionError("Status condition not met")
 
-    def open_role(role, new=False):
+    def open_role(role, new=False, successor=False):
         if new:
             driver.switch_to.new_window("tab")
-        driver.get(f"{origin}/g/example-project/c/example-{role}")
+        driver.get(f"{origin}/g/example-project/c/example-{role}" + ("-successor" if successor else ""))
         wait(lambda _: driver.find_elements(By.ID, "cqop-signed-fixture-controls"))
 
     def await_menus():
@@ -361,20 +378,79 @@ def run(args):
 
         role = "platformmanager"
         driver.switch_to.window(tabs[role])
+        # Complete a historical recurrence, then move to the new synthetic
+        # route using real signed GM storage and witnessed locks.
+        arm("recurrence")
+        wait(lambda _: count("send") == 2 and count("reply") == 2)
+        s = wait_status(lambda s: s["phase"] == "COOLDOWN" and s["cycle"] == 2)
+        original_attempt = s["supervisedAttemptId"]
+        button("Pause this role").click()
+        assert "Pause acknowledged" in accept_alert()
+        assert status()["phase"] == "PAUSED"
+        latest = fixture.supply_history_proof(role, fixture.last_attempt(driver), "prior")
+        button("Digest synthetic journals").click()
+        before = json.loads(accept_alert())
+        button("Prepare synthetic PM successor").click()
+        assert "Synthetic PM successor configured" in accept_alert()
+        with fixture.MUTEX:
+            saved_pauses = set(fixture.PAUSED_ROLES)
+            fixture.PAUSED_ROLES.update(fixture.ROLES)
+        open_role(role, successor=True)
+        await_menus()
+        s = status()
+        assert s["bindingMigrationRequired"] and s["stopped"] and s["cycle"] == 2
+        button("Migrate historical PM binding").click()
+        assert "Migrate only the stopped PlatformManager history" in accept_alert()
+        prompt = wait(EC.alert_is_present(), 20)
+        assert "Latest completed OWN invocation evidence" in prompt.text
+        prompt.send_keys(json.dumps(latest))
+        prompt.accept()
+        assert "Historical binding migrated" in accept_alert()
+        s = status()
+        assert s["historicalMigration"] == "COMMITTED" and s["historicalBindingVerified"] and not s["bindingMigrationRequired"]
+        assert s["supervisedAttemptId"] == original_attempt and s["supervisedGitProofStored"]
+        assert s["phase"] == "PAUSED" and s["cycle"] == 2 and s["stopped"]
+        button("Digest synthetic journals").click()
+        after = json.loads(accept_alert())
+        assert all(after[k] == v for k, v in before.items() if k != "CQOP_V1:platformmanager:STATE")
+        assert count("send") == 2
+        button("Review synthetic config").click()
+        await_menus()
+        assert status()["reviewed"]
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.remove(role)
+        arm("recurrence")
+        assert "Arm refused" in accept_alert()
+        arm("bounded")
+        s = wait_status(lambda s: s["boundedStatus"] == "REPLY_TERMINAL" and s["stopped"], 30)
+        assert s["cycle"] == 3 and s["supervisedAttemptId"] == original_attempt
+        assert count("send") == 3 and count("reply") == 3
+        button("Digest synthetic journals").click()
+        bounded = json.loads(accept_alert())
+        assert all(bounded[k] == v for k, v in before.items() if k not in ("CQOP_V1:platformmanager:STATE", "CQOP_V1:platformmanager:GATE"))
+        time.sleep(fixture.COOLDOWN / 1000 + .3)
+        assert count("send") == 3
+        arm("recurrence")
+        assert "Arm refused" in accept_alert()
+        fixture.supply_history_proof(role, fixture.last_attempt(driver), "bounded")
+        print("PASS: signed GM historical binding, original and peer journal digests, bounded one send, distinct new Git proof required", flush=True)
         driver.execute_script("localStorage.setItem('CQOP_DELAY:platformmanager','20000')")
         arm("recurrence")
-        wait(lambda _: count("send") == 2)
+        wait(lambda _: count("send") == 4)
         s = wait_status(lambda s: s["phase"] == "AWAITING_REPLY")
         attempt = s["attemptId"]
-        assert attempt
-        open_role(role, new=True)
+        assert attempt and s["boundedGitProofStored"]
+        open_role(role, new=True, successor=True)
         await_menus()
         s = wait_status(lambda s: s["phase"] == "REVIEW" and s["stopped"], 25)
-        assert s["attemptId"] == attempt and count("send") == 2
+        assert s["attemptId"] == attempt and count("send") == 4
         driver.refresh()
         await_menus()
         s = wait_status(lambda s: s["phase"] == "REVIEW" and s["stopped"])
-        assert s["attemptId"] == attempt and count("send") == 2
+        assert s["attemptId"] == attempt and count("send") == 4
+        with fixture.MUTEX:
+            fixture.PAUSED_ROLES.clear()
+            fixture.PAUSED_ROLES.update(saved_pauses)
         print("PASS: real cross-document GM and bridge lock, duplicate/reload REVIEW, exact attempt preserved, zero replay", flush=True)
         # Destruction of the original document can leave a long lock
         # orphaned. Never release it on timeout or replay its attempt.

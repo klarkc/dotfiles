@@ -78,6 +78,8 @@ function sanitize(agent, value) {
 		reasons: [...value.reasons],
 	};
 	if (pinned) {
+		if (typeof value.peerRolesPaused === "boolean")
+			result.peerRolesPaused = value.peerRolesPaused;
 		result.heads = { main: value.heads.main, runtime: value.heads.runtime };
 		if (oidPattern.test(value.promptBlob ?? ""))
 			result.promptBlob = value.promptBlob;

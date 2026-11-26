@@ -444,13 +444,15 @@ function fixture(agent = "coordinator", shared) {
 		return {
 			value: {
 				...permitted(id, nonce, base.now),
+				peerRolesPaused: base.peersPaused === true,
 				...(purpose === "paused-recovery" && base.pausedRecovery
 					? { status: "NO_GO", reasons: ["ROLE_PAUSED", "PRODUCTION_NO_GO"] }
 					: {}),
 				...(query && base.proofAllowed === true
 					? {
-							pulseProof:
-								base.proofOverride?.(id, query) ?? syntheticProof(id, query),
+							pulseProof: base.proofOverride
+								? base.proofOverride(id, query)
+								: syntheticProof(id, query),
 						}
 					: {}),
 			},
@@ -1180,4 +1182,283 @@ test("non-preclick REVIEW is never cancelled even with same draft or proof", asy
 	assert.deepEqual(f.base.data.get(f.key("STATE")).state, altered);
 	assert.equal(f.base.clears ?? 0, 0);
 	assert.equal(f.base.clicks.length, 1);
+});
+
+const historyAttest = { ...recoveryAttest, oldDocumentsRetired: true };
+async function historyFixture() {
+	const old = fixture("platformmanager");
+	await old.runtime.boot();
+	const s = old.base.data.get(old.key("STATE")).state;
+	const first = {
+		attemptId: "cqop-" + randomUUID(),
+		baselineMain: blob,
+		terminalCommit: "3".repeat(40),
+	};
+	const latest = {
+		attemptId: "cqop-" + randomUUID(),
+		baselineMain: "5".repeat(40),
+		terminalCommit: "8".repeat(40),
+	};
+	const proofFor = (id, query) => {
+		if (query.attemptId === first.attemptId) return syntheticProof(id, first);
+		if (query.attemptId === latest.attemptId)
+			return {
+				...syntheticProof(id, latest),
+				startedCommit: "6".repeat(40),
+				startedBlob: "7".repeat(40),
+				terminalBlob: "9".repeat(40),
+				runId: "latest-run",
+				operationId: "latest-op",
+				terminalStatus: "WAITING",
+			};
+		return null;
+	};
+	const previous = {
+		path: old.path,
+		state: {
+			...s,
+			cycle: 11,
+			lastReplyAt: 900,
+			preservedUnknown: { attempt: "synthetic-unknown", status: "UNKNOWN" },
+		},
+	};
+	const journal = {
+		phase: "REPLY_TERMINAL",
+		path: old.path,
+		promptBlob: oid,
+		cycle: 1,
+		attemptId: first.attemptId,
+		baselineMain: first.baselineMain,
+		lastReplyAt: 500,
+		gitProof: proofFor("platformmanager", first),
+		reconciledReview: { synthetic: true },
+	};
+	old.base.data.set(old.key("STATE"), structuredClone(previous));
+	old.base.data.set(old.key("SUPERVISED"), structuredClone(journal));
+	old.base.config.reviewed = false;
+	old.base.config.bindings.find((b) => b.agent === "platformmanager").path =
+		"/g/example-project/c/platformmanager-successor";
+	old.base.allow = false;
+	old.base.pausedRecovery = true;
+	old.base.proofAllowed = true;
+	old.base.proofOverride = proofFor;
+	old.base.peersPaused = true;
+	const f = fixture("platformmanager", old.base);
+	const gate = structuredClone(f.base.data.get(f.key("GATE")));
+	return { f, previous, journal, gate, latest, first, proofFor };
+}
+
+test("PM historical binding migration preserves cycle 11, full original envelope, journal and peer state; no send or arm", async () => {
+	const { f, previous, journal, gate, latest } = await historyFixture();
+	f.base.data.set("businessmanager:STATE", {
+		phase: "REVIEW",
+		opaque: "preserve",
+	});
+	const peer = structuredClone(f.base.data.get("businessmanager:STATE"));
+	assert.equal(await f.runtime.migratePristineBinding(historyAttest), false);
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+		true,
+	);
+	const now = f.base.data.get(f.key("STATE"));
+	assert.equal(now.path, f.path);
+	assert.equal(now.state.cycle, 11);
+	assert.equal(now.state.lastReplyAt, previous.state.lastReplyAt);
+	assert.deepEqual(now.state.historyMigration.previous, previous);
+	assert.deepEqual(now.state.preservedUnknown, previous.state.preservedUnknown);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+	assert.deepEqual(f.base.data.get(f.key("GATE")), gate);
+	assert.deepEqual(f.base.data.get("businessmanager:STATE"), peer);
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+		true,
+	);
+	assert.deepEqual(f.base.data.get(f.key("STATE")), now);
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal(f.base.timers.size, 0);
+});
+
+test("PM historical migration denies stale or wrong proof, non-idle DOM, active peers, old document or changed config", async () => {
+	for (const mode of [
+		"attestation",
+		"dom",
+		"peers",
+		"proof",
+		"newer",
+		"review",
+		"wrong-project",
+		"duplicate",
+		"reviewed",
+		"prompt",
+		"lock",
+		"head-change",
+	]) {
+		const { f, previous, journal, latest, proofFor } = await historyFixture();
+		let a = historyAttest,
+			q = latest;
+		if (mode === "attestation") a = { ...a, oldDocumentsRetired: false };
+		if (mode === "dom") f.setReady(false);
+		if (mode === "peers") f.base.peersPaused = false;
+		if (mode === "proof") f.base.proofAllowed = false;
+		if (mode === "newer") q = { ...latest, terminalCommit: "e".repeat(40) };
+		if (mode === "review") {
+			const s = f.base.data.get(f.key("STATE")).state;
+			s.phase = "REVIEW";
+			s.attemptId = latest.attemptId;
+		}
+		if (mode === "wrong-project")
+			f.base.data.get(f.key("STATE")).path = "/g/other-project/c/old";
+		if (mode === "duplicate") f.base.config.bindings[0].path = previous.path;
+		if (mode === "reviewed") f.base.config.reviewed = true;
+		if (mode === "prompt") f.base.config.promptBlob = "e".repeat(40);
+		if (mode === "lock")
+			f.base.locks.set("CQOP_V1:ROLE:platformmanager", Promise.resolve());
+		if (mode === "head-change")
+			f.base.proofOverride = (id, query) => ({
+				...proofFor(id, query),
+				main: "e".repeat(40),
+			});
+		const before = structuredClone(f.base.data.get(f.key("STATE")));
+		assert.equal(await f.runtime.migrateHistoricalBinding(a, q), false, mode);
+		assert.deepEqual(f.base.data.get(f.key("STATE")), before, mode);
+		assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal, mode);
+		assert.equal(f.base.clicks.length, 0, mode);
+	}
+});
+
+test("PM historical migration resumes only exact witnessed pending transaction", async () => {
+	const { f, latest, journal } = await historyFixture();
+	f.base.writeHook = async (key, value) => {
+		if (key === "STATE" && value.path === f.path)
+			throw new Error("interrupted final migration");
+	};
+	await assert.rejects(
+		f.runtime.migrateHistoricalBinding(historyAttest, latest),
+	);
+	const staged = structuredClone(f.base.data.get(f.key("STATE")));
+	assert.equal(staged.state.historyMigration.phase, "PREPARED");
+	delete f.base.writeHook;
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, {
+			...latest,
+			terminalCommit: "e".repeat(40),
+		}),
+		false,
+	);
+	assert.deepEqual(f.base.data.get(f.key("STATE")), staged);
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+		true,
+	);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+	assert.equal(f.base.clicks.length, 0);
+});
+
+test("PM bounded rearm never overwrites original supervised proof and only enables later recurrence with new exact Git pair", async () => {
+	const { f, latest, journal, proofFor } = await historyFixture();
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+		true,
+	);
+	f.base.config.reviewed = true;
+	f.base.allow = true;
+	f.base.pausedRecovery = false;
+	assert.equal(await f.runtime.arm("supervised", attest), false);
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+	assert.equal(await f.runtime.arm("bounded", attest), true);
+	assert.equal(await f.runtime.arm("bounded", attest), false);
+	await f.fire();
+	const s = await f.runtime.status();
+	assert.equal(s.cycle, 12);
+	assert.equal(s.stopped, true);
+	assert.equal(f.base.clicks.length, 1);
+	assert.equal(f.base.timers.size, 0);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+	assert.equal(await f.runtime.arm("recurrence", attest), false);
+	const a = f.base.clicks[0].id;
+	f.base.proofOverride = (id, q) =>
+		q.attemptId === a
+			? {
+					...syntheticProof(id, q),
+					startedCommit: "b".repeat(40),
+					startedBlob: "c".repeat(40),
+					terminalCommit: "d".repeat(40),
+					terminalBlob: "e".repeat(40),
+					runId: "bounded-run",
+					operationId: "bounded-op",
+				}
+			: proofFor(id, q);
+	assert.equal(await f.runtime.arm("bounded", attest), false);
+	assert.equal(await f.runtime.arm("recurrence", attest), true);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+	await f.runtime.pause();
+});
+
+test("PM bounded rearm fails closed on final policy denial and reload; no second bounded attempt", async () => {
+	const { f, latest, journal } = await historyFixture();
+	assert.equal(
+		await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+		true,
+	);
+	f.base.config.reviewed = true;
+	f.base.allow = true;
+	f.base.pausedRecovery = false;
+	assert.equal(await f.runtime.arm("bounded", attest), true);
+	f.base.peersPaused = false;
+	await f.fire();
+	assert.equal(f.base.clicks.length, 0);
+	assert.equal(f.base.timers.size, 0);
+	f.base.peersPaused = true;
+	const reloaded = fixture("platformmanager", f.base);
+	await reloaded.runtime.boot();
+	assert.equal(await reloaded.runtime.arm("bounded", attest), false);
+	assert.equal(await reloaded.runtime.arm("recurrence", attest), false);
+	assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), journal);
+});
+
+test("PM historical migration refuses incomplete audit and cannot fall back to overwriting original journal", async () => {
+	for (const mode of [
+		"deleted",
+		"journal",
+		"target",
+		"pending",
+		"prior-state",
+		"prompt",
+	]) {
+		const { f, latest, journal } = await historyFixture();
+		assert.equal(
+			await f.runtime.migrateHistoricalBinding(historyAttest, latest),
+			true,
+		);
+		const state = f.base.data.get(f.key("STATE")).state;
+		if (mode === "deleted") delete state.historyMigration;
+		if (mode === "journal")
+			f.base.data.get(f.key("SUPERVISED")).reconciledReview = { changed: true };
+		if (mode === "target")
+			state.historyMigration.targetPath = "/g/example-project/c/wrong";
+		if (mode === "pending") state.historyMigration.phase = "PREPARED";
+		if (mode === "prior-state")
+			state.historyMigration.previous.state.preservedUnknown.status = "LOST";
+		if (mode === "prompt") f.base.config.promptBlob = "e".repeat(40);
+		const protectedJournal = structuredClone(
+			f.base.data.get(f.key("SUPERVISED")),
+		);
+		f.base.config.reviewed = true;
+		f.base.allow = true;
+		f.base.pausedRecovery = false;
+		await assert.rejects(
+			f.runtime.arm("supervised", attest),
+			/Historical binding/,
+			mode,
+		);
+		await assert.rejects(
+			f.runtime.arm("bounded", attest),
+			/Historical binding/,
+			mode,
+		);
+		assert.deepEqual(f.base.data.get(f.key("SUPERVISED")), protectedJournal);
+		if (mode !== "journal") assert.deepEqual(protectedJournal, journal);
+		assert.equal(f.base.timers.size, 0);
+		assert.equal(f.base.clicks.length, 0);
+	}
 });

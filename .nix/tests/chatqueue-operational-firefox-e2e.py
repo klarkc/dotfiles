@@ -43,6 +43,35 @@ COUNTS = dict.fromkeys(ROLES, 0)
 DENY_AT = {}
 PAUSED_ROLES = set()
 PROOFS = {}  # Synthetic externally supplied proof; never infer it from DOM completion.
+HISTORICAL_PROOFS = {}
+LATEST_ATTEMPTS = {}
+
+
+def synthetic_history_proof(role, attempt, phase):
+    # Distinct immutable Git identities supplied by the fixture, not DOM.
+    a, b, c, d = ("5", "6", "7", "8") if phase == "prior" else ("9", "b", "d", "e")
+    return {
+        "status": "OWN_GIT_PAIR_VERIFIED", "agent": role,
+        "attemptId": attempt, "baselineMain": "a" * 40,
+        "main": "a" * 40, "startedCommit": a * 40, "startedBlob": b * 40,
+        "terminalCommit": c * 40, "terminalBlob": d * 40,
+        "runId": "synthetic-" + phase + "-run", "operationId": "synthetic-" + phase + "-op",
+        "terminalStatus": "WAITING", "providerEffectsVerified": False,
+    }
+
+
+def supply_history_proof(role, attempt, phase):
+    proof = synthetic_history_proof(role, attempt, phase)
+    with MUTEX:
+        HISTORICAL_PROOFS[(role, attempt)] = proof
+        LATEST_ATTEMPTS[role] = attempt
+    return {k: proof[k] for k in ("attemptId", "baselineMain", "terminalCommit")}
+
+
+def last_attempt(driver):
+    sends = [e for e in events(driver) if e["type"] == "send"]
+    return re.search(r"browser_delivery_id: (cqop-[0-9a-f-]{36})$", sends[-1]["body"]).group(1)
+
 MUTEX = threading.Lock()
 LOCK_PORT = None
 
@@ -157,7 +186,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if urlparse(self.path).path not in [
             f"/g/example-project/c/example-{r}" for r in ROLES
-        ] + ["/g/example-project/c/example-coordinator-successor"]:
+        ] + ["/g/example-project/c/example-coordinator-successor", "/g/example-project/c/example-platformmanager-successor"]:
             self.send_error(404)
             return
         self.respond(200, PAGE.encode(), "text/html; charset=utf-8")
@@ -201,7 +230,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             COUNTS[role] += 1
             paused = role in PAUSED_ROLES
             denied = paused or COUNTS[role] >= DENY_AT.get(role, 10**9)
-            proof = PROOFS.get(role) if query else None
+            peer_paused = all(r in PAUSED_ROLES for r in ROLES if r != role)
+            proof = (HISTORICAL_PROOFS.get((role, query["attemptId"])) or PROOFS.get(role)) if query else None
+            if query and "terminalCommit" not in query and role in LATEST_ATTEMPTS and query["attemptId"] != LATEST_ATTEMPTS[role]:
+                proof = None
             if proof and (
                 proof["attemptId"] != query["attemptId"]
                 or proof["baselineMain"] != query["baselineMain"]
@@ -214,6 +246,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "nonce": nonce,
             "status": "NO_GO" if denied else "GIT_POLICY_PASS_ONLY",
             "runtimeAuthorized": False,
+            "peerRolesPaused": peer_paused,
             "reasons": (["ROLE_PAUSED", "PRODUCTION_NO_GO"] if paused
                         else ["PRODUCTION_NO_GO"] if denied else []),
             "startedAt": now,
@@ -321,7 +354,7 @@ def boot(driver, bundle, role, config=None, expected_path=None):
         driver.execute_script("localStorage.setItem('CQOP_V1:CONFIG',JSON.stringify(arguments[0]))", config)
     driver.execute_script(SHIM, bundle)
     WebDriverWait(driver, 10).until(
-        lambda d: d.execute_script("return window.__opTest?.menus?.length===8") and stopped(d, role)
+        lambda d: d.execute_script("return window.__opTest?.menus?.length===arguments[0]", 10 if role == "platformmanager" else 8) and stopped(d, role)
     )
 
 
@@ -592,6 +625,83 @@ def main():
         with MUTEX:
             PAUSED_ROLES.remove(role)
         print("PASS: pre-click denial, exact no-send draft cancellation and preserved REVIEW evidence after reload", flush=True)
+
+        # The PM journal has a historical cancelled pre-click attempt as well
+        # as its prior supervised proof. Complete one real synthetic recurrence,
+        # then retire its document and move the role without erasing either.
+        with MUTEX:
+            DENY_AT.pop(role, None)
+        menu(driver, "Arm recurrence")
+        WebDriverWait(driver, 18).until(lambda d: count(d, "send") == 2 and count(d, "reply") == 2 and state(d, role)["phase"] == "COOLDOWN")
+        menu(driver, "Pause this role")
+        WebDriverWait(driver, 10).until(lambda d: state(d, role)["phase"] == "PAUSED" and stopped(d, role) and d.execute_script("return window.__opTest.alerts.some(a=>a.includes('Pause acknowledged'))"))
+        latest = supply_history_proof(role, last_attempt(driver), "prior")
+        old = driver.execute_script("return JSON.parse(localStorage.getItem('CQOP_V1:platformmanager:STATE'))")
+        journal = driver.execute_script("return localStorage.getItem('CQOP_V1:platformmanager:SUPERVISED')")
+        protected = driver.execute_script("return Object.fromEntries(Object.entries(localStorage).filter(([k])=>k.startsWith('CQOP_V1:')&&!k.endsWith(':CONFIG')&&k!=='CQOP_V1:platformmanager:STATE'))")
+        assert old["state"]["cycle"] == 3
+        successor = "/g/example-project/c/example-platformmanager-successor"
+        cfg["reviewed"] = False
+        cfg["bindings"][1]["path"] = successor
+        with MUTEX:
+            saved_pauses = set(PAUSED_ROLES)
+            PAUSED_ROLES.update(ROLES)
+        driver.get(f"http://127.0.0.1:{port}" + successor)
+        boot(driver, bundle, role, cfg, expected_path=successor)
+        driver.execute_script("window.__opTest.prompt=JSON.stringify(arguments[0])", latest)
+        before_reads = COUNTS[role]
+        # Diagnostic uses the read-only DOM adapter on the synthetic document.
+        src = (ROOT / "chatqueue-operational-browser.js").read_text()
+        pure = src[src.index("\tconst visible ="):src.index("\tconst dom = {")]
+        readiness = driver.execute_script(
+            "const binding=arguments[0],origin=location.origin,path=location.pathname;" + pure +
+            "return {ready:ready(binding,'',true),route:route(),bootstrap:bootstrap(binding),busy:busy(),composer:!!composer()};",
+            cfg["bindings"][1],
+        )
+        assert readiness["ready"], readiness
+        menu(driver, "Migrate historical PM binding")
+        WebDriverWait(driver, 12).until(lambda d: d.execute_script("return window.__opTest.alerts.some(a=>a.includes('Historical binding migrated')||a.includes('Historical binding unchanged')||a.includes('Operation denied'))"))
+        assert driver.execute_script("return window.__opTest.alerts.some(a=>a.includes('Historical binding migrated'))"), {
+            "alerts": driver.execute_script("return window.__opTest.alerts"),
+            "policy_reads": COUNTS[role] - before_reads, "readiness": readiness,
+            "prior_phase": old["state"]["phase"], "prior_cycle": old["state"]["cycle"],
+            "journal_phase": json.loads(journal)["phase"], "journal_proof": bool(json.loads(journal).get("gitProof")),
+            "preclick_phases": [r["phase"] for r in old["state"].get("preclickReviews", [])],
+        }
+        migrated = state(driver, role)
+        assert migrated["historyMigration"]["previous"] == old
+        assert migrated["cycle"] == old["state"]["cycle"] and migrated["lastReplyAt"] == old["state"]["lastReplyAt"]
+        assert migrated["preclickReviews"] == old["state"]["preclickReviews"]
+        assert driver.execute_script("return Object.fromEntries(Object.entries(localStorage).filter(([k])=>k.startsWith('CQOP_V1:')&&!k.endsWith(':CONFIG')&&k!=='CQOP_V1:platformmanager:STATE'))") == protected
+        assert count(driver, "send") == 2
+        cfg["reviewed"] = True
+        driver.refresh()
+        boot(driver, bundle, role, cfg, expected_path=successor)
+        with MUTEX:
+            PAUSED_ROLES.remove(role)
+        menu(driver, "Arm recurrence")
+        WebDriverWait(driver, 8).until(lambda d: d.execute_script("return window.__opTest.alerts.some(a=>a.includes('Arm refused'))"))
+        assert stopped(driver, role)
+        menu(driver, "Arm bounded history")
+        WebDriverWait(driver, 22).until(lambda d: (state(d, role).get("historyMigration", {}).get("bounded") or {}).get("phase") == "REPLY_TERMINAL" and stopped(d, role))
+        assert state(driver, role)["cycle"] == 4
+        assert count(driver, "send") == 3 and count(driver, "reply") == 3
+        assert driver.execute_script("return localStorage.getItem('CQOP_V1:platformmanager:SUPERVISED')") == journal
+        time.sleep(COOLDOWN / 1000 + .3)
+        assert count(driver, "send") == 3
+        menu(driver, "Arm recurrence")
+        WebDriverWait(driver, 8).until(lambda d: d.execute_script("return window.__opTest.alerts.filter(a=>a.includes('Arm refused')).length>=2"))
+        assert stopped(driver, role)
+        supply_history_proof(role, last_attempt(driver), "bounded")
+        menu(driver, "Arm recurrence")
+        WebDriverWait(driver, 18).until(lambda d: count(d, "send") == 4 and count(d, "reply") == 4 and state(d, role)["phase"] == "COOLDOWN")
+        menu(driver, "Pause this role")
+        WebDriverWait(driver, 8).until(lambda d: stopped(d, role))
+        assert driver.execute_script("return localStorage.getItem('CQOP_V1:platformmanager:SUPERVISED')") == journal
+        with MUTEX:
+            PAUSED_ROLES.clear()
+            PAUSED_ROLES.update(saved_pauses)
+        print("PASS: PM historical binding migration preserves prior journals, bounded one send, no recurrence until distinct new Git pair", flush=True)
 
         role = ROLES[2]
         driver.switch_to.window(tabs[role])

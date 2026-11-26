@@ -21,6 +21,20 @@ import {
 } from "./chatqueue-pulse-proof-schema.mjs";
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const sameProof = (a, b) => {
+	const left = sanitizePulseProof(a),
+		right = sanitizePulseProof(b);
+	return !!left && !!right && same({ ...left, main: right.main }, right);
+};
+const pinnedQuery = (proof) => ({
+	attemptId: proof.attemptId,
+	baselineMain: proof.baselineMain,
+	terminalCommit: proof.terminalCommit,
+});
+const latestQuery = (proof) => ({
+	attemptId: proof.attemptId,
+	baselineMain: proof.baselineMain,
+});
 const opValidTime = (value) => Number.isSafeInteger(value) && value >= 0;
 const validAttempt = (value) =>
 	typeof value === "string" && /^cqop-[0-9a-f-]{36}$/.test(value);
@@ -126,27 +140,151 @@ export function makeOperationalRuntime({
 				});
 		});
 	};
+	// Only this PM historical rollover is supported. The original route,
+	// STATE and SUPERVISED record remain private and immutable evidence.
+	const historicalRecord = (record, journal, config) => {
+		const old = record?.previous;
+		const state = old?.state;
+		const proof = sanitizePulseProof(journal?.gitProof);
+		const latest = sanitizePulseProof(record?.latestProof);
+		return (
+			agent === "platformmanager" &&
+			record?.version === 1 &&
+			["PREPARED", "COMMITTED"].includes(record.phase) &&
+			record.targetPath === path &&
+			OPERATIONAL_PATH.test(old?.path ?? "") &&
+			old.path !== path &&
+			old.path.split("/")[2] === path.split("/")[2] &&
+			!!binding(config) &&
+			!config.bindings.some((item) => item.path === old.path) &&
+			Object.keys(old).sort().join(",") === "path,state" &&
+			validState(state, agent) &&
+			state.phase === PHASES.PAUSED &&
+			state.cycle > 1 &&
+			opValidTime(state.lastReplyAt) &&
+			state.lastReplyAt <= clock() &&
+			!Object.hasOwn(state, "historyMigration") &&
+			(!Object.hasOwn(state, "preclickReviews") ||
+				(Array.isArray(state.preclickReviews) &&
+					state.preclickReviews.every(
+						(r) => r?.phase === "CANCELLED_BEFORE_CLICK",
+					))) &&
+			journal?.phase === "REPLY_TERMINAL" &&
+			journal.path === old.path &&
+			journal.promptBlob === config?.promptBlob &&
+			Number.isSafeInteger(journal.cycle) &&
+			journal.cycle > 0 &&
+			journal.cycle < state.cycle &&
+			opValidTime(journal.lastReplyAt) &&
+			journal.lastReplyAt <= state.lastReplyAt &&
+			!!proof &&
+			proof.agent === agent &&
+			proof.attemptId === journal.attemptId &&
+			proof.baselineMain === journal.baselineMain &&
+			same(record.journal, journal) &&
+			!!latest &&
+			latest.agent === agent &&
+			latest.attemptId !== proof.attemptId &&
+			latest.terminalCommit !== proof.terminalCommit
+		);
+	};
+	const validHistory = (state, journal, config) => {
+		const h = state?.historyMigration;
+		if (!historicalRecord(h, journal, config) || h.phase !== "COMMITTED")
+			return false;
+		const { historyMigration, ...rest } = state;
+		const old = h.previous.state,
+			b = h.bounded;
+		if (b === null) return same(rest, old);
+		const preserved = (value) =>
+			Object.fromEntries(
+				Object.entries(value).filter(
+					([key]) =>
+						![
+							"phase",
+							"cycle",
+							"attemptId",
+							"nextEligibleAt",
+							"lastReplyAt",
+							"pendingReason",
+						].includes(key),
+				),
+			);
+		if (!same(preserved(rest), preserved(old))) return false;
+		if (
+			!b ||
+			!validAttempt(b.attemptId) ||
+			b.attemptId === journal.attemptId ||
+			b.attemptId === h.latestProof.attemptId ||
+			!/^[0-9a-f]{40}$/.test(b.baselineMain ?? "") ||
+			!["RESERVED", "REPLY_TERMINAL"].includes(b.phase) ||
+			state.cycle < old.cycle ||
+			!opValidTime(state.lastReplyAt) ||
+			state.lastReplyAt < old.lastReplyAt
+		)
+			return false;
+		if (b.phase === "RESERVED") {
+			return (
+				b.gitProof === null &&
+				state.cycle <= old.cycle + 1 &&
+				(state.attemptId === null || state.attemptId === b.attemptId)
+			);
+		}
+		return (
+			opValidTime(b.lastReplyAt) &&
+			b.lastReplyAt >= old.lastReplyAt &&
+			state.cycle >= old.cycle + 1 &&
+			state.lastReplyAt >= b.lastReplyAt &&
+			(b.gitProof === null
+				? state.cycle === old.cycle + 1 &&
+					state.attemptId === null &&
+					state.lastReplyAt === b.lastReplyAt &&
+					[PHASES.PAUSED, PHASES.COOLDOWN].includes(state.phase)
+				: pulseProofMatches(b.gitProof, agent, latestQuery(b), b.gitProof.main))
+		);
+	};
 	const readState = async () => {
 		const envelope = await read("STATE");
 		if (!envelope) return null;
 		if (envelope.path !== path || !validState(envelope.state, agent))
 			throw new Error("Prior role binding requires manual reconciliation");
+		if (agent === "platformmanager") {
+			const journal = await read("SUPERVISED");
+			const hasHistory = Object.hasOwn(envelope.state, "historyMigration");
+			if (
+				hasHistory
+					? !validHistory(envelope.state, journal, await getConfig())
+					: journal && journal.path !== path
+			)
+				throw new Error("Historical binding proof invalid or incomplete");
+		} else if (Object.hasOwn(envelope.state, "historyMigration")) {
+			throw new Error("Historical binding not supported for this role");
+		}
 		return envelope.state;
 	};
 	const writeState = async (state) => {
 		if (!validState(state, agent)) throw new Error("Invalid role state");
+		if (
+			Object.hasOwn(state, "historyMigration") &&
+			!validHistory(state, await read("SUPERVISED"), await getConfig())
+		)
+			throw new Error("Invalid historical binding state");
 		await writeChecked("STATE", { path, state });
 	};
 	const currentEvidence = async (l) => {
 		if (lease !== l || (await paused())) return null;
 		const packet = await lock("CQOP_V1:POLICY_READ", false, async () => {
 			if (lease !== l || (await paused())) return null;
-			return await readEvidence(l.config, agent, l.proofQuery ?? null);
+			return await readSendEvidence(
+				l.config,
+				l.proofQuery ?? null,
+				l.historySpec,
+			);
 		});
 		if (lease !== l || (await paused())) return null;
 		return packet;
 	};
-	const validPacket = (packet, pulseQuery = null) =>
+	const validSendPacket = (packet, pulseQuery = null) =>
 		!!packet &&
 		packet.context?.agent === agent &&
 		freshOperationalEvidence(packet.value, {
@@ -154,11 +292,32 @@ export function makeOperationalRuntime({
 			pulseQuery,
 			now: clock(),
 		});
+	const validPacket = (packet, query = null, spec = null) => {
+		if (!validSendPacket(packet, query)) return false;
+		if (!spec) return true;
+		const other = packet.historyPacket;
+		return (
+			validSendPacket(other, spec.query) &&
+			same(packet.value.heads, other.value.heads) &&
+			sameProof(packet.value.pulseProof, spec.original) &&
+			(!spec.expected || sameProof(other.value.pulseProof, spec.expected)) &&
+			(!spec.peersPaused ||
+				(packet.value.peerRolesPaused === true &&
+					other.value.peerRolesPaused === true)) &&
+			(!spec.baselineMain || packet.value.heads.main === spec.baselineMain)
+		);
+	};
+	const readSendEvidence = async (config, query, spec) => {
+		const packet = await readEvidence(config, agent, query);
+		if (!spec || !packet) return packet;
+		const other = await readEvidence(config, agent, spec.query);
+		return { ...packet, historyPacket: other };
+	};
 	const supervisedQuery = (journal, state, config) => {
 		if (
 			!journal ||
 			journal.phase !== "REPLY_TERMINAL" ||
-			journal.path !== path ||
+			(journal.path !== path && !validHistory(state, journal, config)) ||
 			journal.promptBlob !== config.promptBlob ||
 			!Number.isSafeInteger(journal.cycle) ||
 			journal.cycle < 1 ||
@@ -202,7 +361,7 @@ export function makeOperationalRuntime({
 			const valid =
 				!!l &&
 				priorBrowserTerminal &&
-				validPacket(p, l?.proofQuery ?? null) &&
+				validPacket(p, l?.proofQuery ?? null, l?.historySpec) &&
 				!(await paused()) &&
 				active?.lease === l &&
 				content === active.content &&
@@ -237,7 +396,7 @@ export function makeOperationalRuntime({
 				throw new Error("Attempt mismatch");
 			// No remote IO while holding the short fence. Recheck freshness inside it.
 			let packet = await currentEvidence(l);
-			if (!validPacket(packet, l.proofQuery ?? null)) {
+			if (!validPacket(packet, l.proofQuery ?? null, l.historySpec)) {
 				// At most one fresh policy reread, still before any click.
 				// No recomposition, cached admission, second attempt or replay.
 				const s = await readState();
@@ -251,7 +410,7 @@ export function makeOperationalRuntime({
 				)
 					packet = await currentEvidence(l);
 			}
-			if (!validPacket(packet, l.proofQuery ?? null))
+			if (!validPacket(packet, l.proofQuery ?? null, l.historySpec))
 				throw new Error("Final Git policy not proven");
 			await fence(async () => {
 				const state = await readState();
@@ -260,11 +419,24 @@ export function makeOperationalRuntime({
 					state.attemptId !== attemptId ||
 					(await paused()) ||
 					lease !== l ||
-					!validPacket(packet, l.proofQuery ?? null) ||
+					!validPacket(packet, l.proofQuery ?? null, l.historySpec) ||
 					!dom.ready(l.binding, content) ||
 					dom.receiptCount(content) !== 0
 				)
 					throw new Error("Final send admission denied");
+				if (l.mode === "bounded") {
+					// The single reserved ID and baseline were witnessed before READY.
+					// If remote HEAD advanced before the final click, deny instead of
+					// replacing the baseline or granting another bounded attempt.
+					const reserved = state.historyMigration?.bounded;
+					if (
+						reserved?.phase !== "RESERVED" ||
+						reserved.attemptId !== attemptId ||
+						reserved.baselineMain !== packet.value.heads.main ||
+						state.cycle !== state.historyMigration.previous.state.cycle + 1
+					)
+						throw new Error("Bounded reservation not proven");
+				}
 				if (l.mode === "supervised") {
 					// Persist the exact final Git baseline before crossing the click
 					// boundary. A restart or uncertain send cannot manufacture proof.
@@ -285,7 +457,7 @@ export function makeOperationalRuntime({
 					current.attemptId !== attemptId ||
 					(await paused()) ||
 					lease !== l ||
-					!validPacket(packet, l.proofQuery ?? null) ||
+					!validPacket(packet, l.proofQuery ?? null, l.historySpec) ||
 					!dom.ready(l.binding, content) ||
 					dom.receiptCount(content) !== 0
 				)
@@ -321,6 +493,14 @@ export function makeOperationalRuntime({
 	async function boot() {
 		const cfg = await getConfig();
 		if (!binding(cfg)) return false;
+		const previous = await read("STATE");
+		if (
+			agent === "platformmanager" &&
+			previous &&
+			(previous.path !== path ||
+				Object.hasOwn(previous.state ?? {}, "historyMigration"))
+		)
+			await readState(); // fail closed before touching GATE on incomplete migration
 		await revoke();
 		const result = await controller.boot(agent);
 		booted = !!result && result.agentId === agent;
@@ -339,7 +519,8 @@ export function makeOperationalRuntime({
 					try {
 						if (lease !== l || (await paused()) || lease !== l || active)
 							return;
-						const attemptId = "cqop-" + randomId();
+						const attemptId =
+							l.mode === "bounded" ? l.boundedAttemptId : "cqop-" + randomId();
 						attempt = {
 							lease: l,
 							content: operationalMessage(l.binding, attemptId),
@@ -379,6 +560,34 @@ export function makeOperationalRuntime({
 								}),
 							);
 							await stopOwn(l);
+						} else if (l.mode === "bounded") {
+							await exclusive(() =>
+								fence(async () => {
+									const state = await readState();
+									const h = state?.historyMigration;
+									if (
+										(await paused()) ||
+										lease !== l ||
+										state?.phase !== PHASES.COOLDOWN ||
+										h?.bounded?.phase !== "RESERVED" ||
+										h.bounded.attemptId !== attemptId ||
+										state.cycle !== h.previous.state.cycle + 1
+									)
+										return;
+									await writeState({
+										...state,
+										historyMigration: {
+											...h,
+											bounded: {
+												...h.bounded,
+												phase: "REPLY_TERMINAL",
+												lastReplyAt: state.lastReplyAt,
+											},
+										},
+									});
+								}),
+							);
+							await stopOwn(l);
 						} else {
 							if (active === attempt) active = null;
 							await schedule(Math.max(0, result.nextEligibleAt - clock()), l);
@@ -400,7 +609,7 @@ export function makeOperationalRuntime({
 		if (
 			!booted ||
 			active ||
-			!["supervised", "recurrence"].includes(mode) ||
+			!["supervised", "recurrence", "bounded"].includes(mode) ||
 			attestation?.manualGo !== true ||
 			attestation?.accountModelVerified !== true ||
 			attestation?.originalQueueRetired !== true ||
@@ -413,27 +622,57 @@ export function makeOperationalRuntime({
 		const before = await read("GATE");
 		if (before?.stopped !== true || typeof before.epoch !== "string")
 			return false;
-		const journal = mode === "recurrence" ? await read("SUPERVISED") : null;
-		const query =
-			mode === "recurrence"
-				? supervisedQuery(journal, await readState(), config)
-				: null;
-		if (mode === "recurrence" && !query) return false;
+		const initial = await readState();
+		const h = initial?.historyMigration;
+		if (
+			agent === "platformmanager" &&
+			mode === "supervised" &&
+			(await read("SUPERVISED"))
+		)
+			return false;
+		if (h && !locallyStopped(before)) return false;
+		const proofMode = mode !== "supervised";
+		if (h ? mode === "supervised" : mode === "bounded") return false;
+		if (
+			h &&
+			(mode === "bounded"
+				? h.bounded !== null
+				: h.bounded?.phase !== "REPLY_TERMINAL")
+		)
+			return false;
+		const journal = proofMode ? await read("SUPERVISED") : null;
+		const query = proofMode ? supervisedQuery(journal, initial, config) : null;
+		if (proofMode && !query) return false;
+		let historySpec = null;
+		if (h) {
+			const nextProof = mode === "bounded" ? h.latestProof : h.bounded.gitProof;
+			historySpec = {
+				original: journal.gitProof,
+				query:
+					mode === "bounded"
+						? latestQuery(h.latestProof)
+						: nextProof
+							? pinnedQuery(nextProof)
+							: latestQuery(h.bounded),
+				expected: nextProof,
+				peersPaused: mode === "bounded" || !h.bounded.gitProof,
+			};
+		}
 		const evidence = await lock("CQOP_V1:POLICY_READ", false, () =>
-			readEvidence(config, agent, query),
+			readSendEvidence(config, query, historySpec),
 		);
-		if (!validPacket(evidence, query)) return false;
+		if (!validPacket(evidence, query, historySpec)) return false;
 		const armed = await exclusive(async () => {
 			if (
 				!same(await getConfig(), config) ||
 				!same(await read("GATE"), before) ||
 				!dom.ready(b, "", true) ||
-				!validPacket(evidence, query)
+				!validPacket(evidence, query, historySpec)
 			)
 				return false;
 			let state = await readState();
-			if (!state) return false;
-			if (mode === "recurrence") {
+			if (!state || (h && !same(initial, state))) return false;
+			if (proofMode) {
 				if (
 					!same(await read("SUPERVISED"), journal) ||
 					!same(supervisedQuery(journal, state, config), query)
@@ -444,7 +683,8 @@ export function makeOperationalRuntime({
 					return false;
 				// A fresh, independently read Git pair is mandatory. Preserve it
 				// for future rearm, which rechecks ancestry and exact commits.
-				await writeChecked("SUPERVISED", { ...journal, gitProof: proof });
+				if (!h)
+					await writeChecked("SUPERVISED", { ...journal, gitProof: proof });
 			}
 			if (state.phase === PHASES.COOLDOWN) {
 				// Preserve the original cooldown even after manual rearm.
@@ -464,6 +704,48 @@ export function makeOperationalRuntime({
 					? state.lastReplyAt + REPLY_COOLDOWN_MS
 					: 0,
 			);
+			let boundedAttemptId = null;
+			if (h) {
+				if (mode === "bounded") {
+					boundedAttemptId = "cqop-" + randomId();
+					if (!validAttempt(boundedAttemptId)) return false;
+					const baselineMain = evidence.value.heads.main;
+					historySpec = { ...historySpec, baselineMain };
+					state = {
+						...state,
+						historyMigration: {
+							...h,
+							bounded: {
+								phase: "RESERVED",
+								attemptId: boundedAttemptId,
+								baselineMain,
+								gitProof: null,
+							},
+						},
+					};
+				} else {
+					const proof = sanitizePulseProof(
+						evidence.historyPacket.value.pulseProof,
+					);
+					if (
+						!proof ||
+						proof.attemptId !== h.bounded.attemptId ||
+						proof.terminalCommit === journal.gitProof.terminalCommit ||
+						proof.terminalCommit === h.latestProof.terminalCommit
+					)
+						return false;
+					state = {
+						...state,
+						historyMigration: {
+							...h,
+							bounded: {
+								...h.bounded,
+								gitProof: h.bounded.gitProof ?? proof,
+							},
+						},
+					};
+				}
+			}
 			const ready = authorizeFirstTick(
 				state,
 				{
@@ -483,12 +765,22 @@ export function makeOperationalRuntime({
 				if (
 					!same(await read("GATE"), before) ||
 					!same(await getConfig(), config) ||
-					(mode === "recurrence" &&
-						!same(await read("SUPERVISED"), {
-							...journal,
-							gitProof: sanitizePulseProof(evidence.value.pulseProof),
+					(proofMode &&
+						!same(
+							await read("SUPERVISED"),
+							h
+								? journal
+								: {
+										...journal,
+										gitProof: sanitizePulseProof(evidence.value.pulseProof),
+									},
+						)) ||
+					(h &&
+						!same(await readState(), {
+							...ready,
+							nextEligibleAt: notBefore,
 						})) ||
-					!validPacket(evidence, query) ||
+					!validPacket(evidence, query, historySpec) ||
 					!dom.ready(b, "", true)
 				) {
 					await writeState(recoverAfterRestart(ready));
@@ -496,14 +788,31 @@ export function makeOperationalRuntime({
 				}
 				const gate = { epoch: before.epoch, stopped: false, armId: randomId() };
 				await writeChecked("GATE", gate);
-				const proofQuery =
-					mode === "recurrence"
-						? {
-								...query,
-								terminalCommit: evidence.value.pulseProof.terminalCommit,
-							}
-						: null;
-				const l = { gate, config, binding: b, mode, proofQuery };
+				const proofQuery = proofMode
+					? {
+							...query,
+							terminalCommit: evidence.value.pulseProof.terminalCommit,
+						}
+					: null;
+				if (h && mode === "recurrence") {
+					const proof = sanitizePulseProof(
+						evidence.historyPacket.value.pulseProof,
+					);
+					historySpec = {
+						...historySpec,
+						query: pinnedQuery(proof),
+						expected: proof,
+					};
+				}
+				const l = {
+					gate,
+					config,
+					binding: b,
+					mode,
+					proofQuery,
+					historySpec,
+					boundedAttemptId,
+				};
 				lease = l;
 				if (await paused()) {
 					lease = null;
@@ -691,6 +1000,7 @@ export function makeOperationalRuntime({
 					!b ||
 					!locallyStopped(gate) ||
 					state?.phase !== PHASES.REVIEW ||
+					Object.hasOwn(state, "historyMigration") ||
 					state.cycle < 2 ||
 					!opValidTime(state.lastReplyAt) ||
 					state.lastReplyAt > clock() ||
@@ -823,6 +1133,110 @@ export function makeOperationalRuntime({
 		);
 	}
 
+	async function migrateHistoricalBinding(attestation, requestedLatest) {
+		if (
+			agent !== "platformmanager" ||
+			!recoveryAttested(attestation) ||
+			attestation.oldDocumentsRetired !== true ||
+			!validatePulseQuery(requestedLatest) ||
+			!requestedLatest.terminalCommit
+		)
+			return false;
+		return (
+			(await exclusive(async () => {
+				const config = await getConfig(),
+					b = binding(config);
+				const gate = await read("GATE"),
+					envelope = await read("STATE"),
+					journal = await read("SUPERVISED");
+				const existing = envelope?.state?.historyMigration;
+				const previous = existing?.previous ?? envelope;
+				if (
+					!b ||
+					config.reviewed !== false ||
+					!locallyStopped(gate) ||
+					!previous ||
+					config.bindings.some((item) => item.path === previous.path) ||
+					!dom.ready(b, "", true) ||
+					!journal?.gitProof
+				)
+					return false;
+				const primaryQuery = pinnedQuery(journal.gitProof);
+				const secondaryQuery = latestQuery(requestedLatest);
+				const primary = await readPausedPacket(config, primaryQuery);
+				const secondary = await readPausedPacket(config, secondaryQuery);
+				const latest = sanitizePulseProof(secondary?.value?.pulseProof);
+				const record = existing ?? {
+					version: 1,
+					phase: "PREPARED",
+					targetPath: path,
+					previous,
+					journal,
+					latestProof: latest,
+					bounded: null,
+				};
+				const validEvidence = () =>
+					validPausedPacket(primary, primaryQuery) &&
+					validPausedPacket(secondary, secondaryQuery) &&
+					primary.value.peerRolesPaused === true &&
+					secondary.value.peerRolesPaused === true &&
+					same(primary.value.heads, secondary.value.heads) &&
+					sameProof(primary.value.pulseProof, journal.gitProof) &&
+					latest?.terminalCommit === requestedLatest.terminalCommit &&
+					sameProof(latest, record.latestProof);
+				if (
+					!historicalRecord(record, journal, config) ||
+					record.bounded !== null ||
+					!validEvidence()
+				)
+					return false;
+				// Clone the JSON snapshots independently: no alias can modify
+				// the preserved historical record through a later state transition.
+				const snapshot = (value) => JSON.parse(JSON.stringify(value));
+				const staged = {
+					path: previous.path,
+					state: {
+						...snapshot(previous.state),
+						historyMigration: snapshot({ ...record, phase: "PREPARED" }),
+					},
+				};
+				const committed = {
+					path,
+					state: {
+						...snapshot(previous.state),
+						historyMigration: snapshot({ ...record, phase: "COMMITTED" }),
+					},
+				};
+				if (
+					existing
+						? !same(
+								envelope,
+								existing.phase === "PREPARED" ? staged : committed,
+							)
+						: !same(envelope, previous)
+				)
+					return false;
+				return await fence(async () => {
+					const verified = async (expected) =>
+						(await sameStopped(config, gate)) &&
+						same(await read("STATE"), expected) &&
+						same(await read("SUPERVISED"), journal) &&
+						validEvidence() &&
+						dom.ready(b, "", true);
+					if (!(await verified(envelope))) return false;
+					if (existing?.phase === "COMMITTED") {
+						booted = true;
+						return true;
+					}
+					if (!existing) await writeChecked("STATE", staged);
+					if (!(await verified(staged))) return false;
+					await writeChecked("STATE", committed);
+					booted = true;
+					return true;
+				});
+			})) === true
+		);
+	}
 	async function migratePristineBinding(attestation) {
 		if (
 			!recoveryAttested(attestation) ||
@@ -893,6 +1307,16 @@ export function makeOperationalRuntime({
 		return {
 			configured: !!binding(cfg),
 			bindingMigrationRequired,
+			historicalMigration: state?.historyMigration?.phase ?? null,
+			historicalBindingVerified:
+				!bindingMigrationRequired &&
+				!!state?.historyMigration &&
+				validHistory(state, journal, cfg),
+			boundedStatus: state?.historyMigration?.bounded?.phase ?? null,
+			boundedAttemptId: state?.historyMigration?.bounded?.attemptId ?? null,
+			boundedGitProofStored: !!sanitizePulseProof(
+				state?.historyMigration?.bounded?.gitProof,
+			),
 			pendingReason:
 				typeof state?.pendingReason === "string"
 					? state.pendingReason.slice(0, 256)
@@ -916,5 +1340,6 @@ export function makeOperationalRuntime({
 		reconcileSupervisedReview,
 		reconcilePreclickReview,
 		migratePristineBinding,
+		migrateHistoricalBinding,
 	};
 }

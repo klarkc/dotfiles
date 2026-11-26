@@ -157,6 +157,14 @@ export function collectGitPolicy({
 			return deny("REMOTE_HEAD_CHANGED_DURING_READ");
 		return {
 			...evaluateGitPolicy(agent, documents),
+			peerRolesPaused:
+				Array.isArray(documents[0].permanent_agents) &&
+				AGENTS.filter((id) => id !== agent).every((id) => {
+					const matches = documents[0].permanent_agents.filter(
+						(a) => a?.id === id,
+					);
+					return matches.length === 1 && matches[0].heartbeat_active === false;
+				}),
 			agent,
 			heads: before,
 			blobs,

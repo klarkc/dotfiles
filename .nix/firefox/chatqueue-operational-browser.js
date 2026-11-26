@@ -484,7 +484,9 @@
 							" only? Confirm signed host and exact account/workspace/model, completed same-chat bootstrap, original queue retired, independent operational QA, all gates checked. " +
 							(mode === "recurrence"
 								? "The executor must independently verify OWN STARTED and terminal Git proof of the supervised tick."
-								: "Only ONE supervised send."),
+								: mode === "bounded"
+									? "Only ONE bounded send, preserving the original supervised proof; separate Git verification and GO before recurrence."
+									: "Only ONE supervised send."),
 					)
 				)
 					return;
@@ -562,6 +564,37 @@
 						: "REVIEW retained; pre-click evidence not verified. No send.",
 				);
 			});
+			if (binding.agent === "platformmanager") {
+				menu("Migrate historical PM binding (no send)", async () => {
+					await boot;
+					if (
+						!window.confirm(
+							"Migrate only the stopped PlatformManager history? Independently verify retirement of the old documents/leases, exact new account/model/bootstrap and source QA. Preserve all proofs; no send or arm.",
+						)
+					)
+						return;
+					const raw = window.prompt(
+						"Latest completed OWN invocation evidence: JSON with attemptId, baselineMain and terminalCommit. Verify exact native journal and Git evidence first.",
+					);
+					if (!raw) return;
+					let query;
+					try {
+						query = JSON.parse(raw);
+					} catch {
+						return;
+					}
+					const ok = await runtime.migrateHistoricalBinding(
+						recoveryAttestation(),
+						query,
+					);
+					window.alert(
+						ok
+							? "Historical binding migrated; still paused. Reload while paused and use separate GO."
+							: "Historical binding unchanged or pending; no send. Check evidence.",
+					);
+				});
+				menu("Arm bounded history (one tick)", () => arm("bounded"));
+			}
 			menu("Arm supervised (one tick)", () => arm("supervised"));
 			menu("Arm recurrence (requires verified supervised Git pair)", () =>
 				arm("recurrence"),

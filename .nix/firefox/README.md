@@ -780,3 +780,51 @@ This is real signed-host integration evidence with synthetic inputs,
 not actual broker ticks or a substitute for exact route/model/bootstrap
 verification and explicit manual GO. No operational install or
 automatic bridge start is performed by any build/test target.
+
+### Explicit PlatformManager history migration and bounded delivery
+
+This path is separate from pristine rollover. A stopped historical
+PlatformManager binding cannot be reset to cycle zero or receive a new
+supervised delivery that overwrites the original proof. The operator must
+independently verify the previous document, timer, token and lease are retired,
+the same authorized account/workspace/model is present, and the reviewed
+successor has a unique binding, terminal bootstrap and empty idle composer.
+The native confirmation records those prerequisites; a confirmation alone is
+not proof of retirement or authorization to resume.
+
+With configuration still unreviewed and all production roles paused, use
+**Migrate historical PM binding (no send)** and the privately verified latest
+OWN attempt, Git interval baseline and terminal commit. The historical
+supervised pair is independently read using its original pinned terminal.
+The latest pair is checked without a terminal pin first (so a newer OWN
+pulse cannot be hidden), then matched against the supplied terminal. The
+two evidence packets must agree on fresh main/runtime HEADs, paused policy
+and peer inactivity. Only STATE is written, under the existing witnessed
+ROLE/FENCE locks. Its audit preserves the complete prior envelope, original
+SUPERVISED record and both exact Git proofs. An interrupted prepared audit
+can finalize only its identical verified migration; unknown witness writes
+remain fail-closed under the existing bridge recovery policy. Neither a
+successful migration nor reload arms a delivery.
+
+After reviewed configuration and a separate PM-only GO, **Arm bounded
+history (one tick)** rechecks the two Git pairs, reserves one stable attempt
+and its fresh Git baseline before READY, respects the existing reply
+cooldown, and checks that exact baseline again at the final click. A changed
+HEAD, uncertain receipt, stopped/changed gate, stale proof or reload never
+grants another bounded attempt. This is deliberately conservative: an
+interrupted/denied reservation may require evidence-bound manual recovery,
+not a new reservation or replay. The old SUPERVISED bytes remain unchanged.
+After the one verified terminal, stop with no next timer. Ordinary recurrence
+requires a distinct independently verified Git pair for that bounded delivery,
+then separate explicit GO; the historical and new proof pins are rechecked on
+future rearm. Peer roles are required paused for migration and the initial
+bounded and recurring admissions. No peer journal is written. These rules
+do not implement automatic rollover or a new scheduler. Provider effects
+remain the agent's responsibility; Git/browser receipts do not prove them.
+
+The signed-host fixture uses only synthetic routes, prompts, Git evidence
+and shortened timing in a disposable profile. Its PM history case additionally
+compares actual GM journal digests for the original proof and all peers,
+checks one bounded delivery, and requires a distinct new Git pair before
+recurrence. Real old-document retirement, live native state and exact-source
+independent QA remain separate operational gates.
