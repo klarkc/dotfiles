@@ -22,7 +22,7 @@ pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm
 # GUI, Nix, audio, dev tools: preserve dotfiles features instead of stripping them.
 pacman -S --noconfirm --needed \
-  base-devel git git-lfs curl openssh sudo dbus \
+  base-devel git git-lfs curl openssh sudo dbus python \
   xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xsetroot xorg-xset \
   xorg-xmodmap xorg-setxkbmap xmonad xmonad-contrib dmenu ghc taffybar \
   pipewire pipewire-audio pipewire-pulse pipewire-alsa wireplumber pamixer \
@@ -165,10 +165,16 @@ systemctl enable --now xrdp xrdp-sesman
 # The original default profile retains its CUDA/vLLM feature.
 runuser -u klarkc -- bash -c 'source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh && cd /home/klarkc && nix profile add .#solo098-gce'
 loginctl enable-linger klarkc
-install -d -m 0755 -o klarkc -g klarkc "$home/.config/systemd/user/default.target.wants"
-ln -sfn ../desktop-commander-mcp-runtime.service "$home/.config/systemd/user/default.target.wants/desktop-commander-mcp-runtime.service"
-ln -sfn ../desktop-commander-mcp-tunnel.service "$home/.config/systemd/user/default.target.wants/desktop-commander-mcp-tunnel.service"
-chown -h klarkc:klarkc "$home/.config/systemd/user/default.target.wants/"*.service
+# Use the CI-admitted revision, not a mutable user-worktree script, for
+# the privileged fresh-guest installer. It refuses all existing artifacts.
+mcp_stage="$(mktemp -d)"
+trap 'rm -rf -- "$mcp_stage"' EXIT
+runuser -u klarkc -- git --no-replace-objects -C "$home" cat-file blob "$expected_repo_sha:.nix/desktop-commander-systemd.py" >"$mcp_stage/installer.py"
+/usr/bin/python3 "$mcp_stage/installer.py" install-fresh klarkc
+rm -rf -- "$mcp_stage"
+trap - EXIT
+systemctl daemon-reload
+systemctl enable --now desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service
 touch /var/lib/solo098-guest-installed
 echo 'Guest bootstrap completed. Private Cloudflare profile_override still requires one-time enrollment.'
 echo 'Sunshine, CUDA/vLLM and local-display NVIDIA startup are NOT enabled.'

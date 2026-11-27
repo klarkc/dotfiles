@@ -1,5 +1,6 @@
 import ast
 import json
+import runpy
 from pathlib import Path
 import tomllib
 import unittest
@@ -45,8 +46,9 @@ class PublicConfiguration(unittest.TestCase):
         instructions = (ROOT / "AGENTS.md").read_text()
         self.assertIn("$HOME/.profile_override", instructions)
         self.assertIn("PUBLIC", instructions)
-        service = (ROOT / ".config/systemd/user/desktop-commander-mcp-tunnel.service").read_text()
-        self.assertIn("ConditionPathExists=%h/.profile_override\n", service)
+        render = runpy.run_path(str(ROOT / ".nix/desktop-commander-systemd.py"))["render_units"]
+        service = render("example", 1234, 2345, "/home/example")["desktop-commander-mcp-tunnel.service"]
+        self.assertIn("ConditionPathExists=/home/example/.profile_override\n", service)
         zero = (ROOT / ".config/systemd/user/zeroclaw.service").read_text()
         self.assertIn("Requires=llm-environment.service zeroclaw-private-config.service\n", zero)
         self.assertIn("BindReadOnlyPaths=%t/zeroclaw-config/config.toml:%h/.zeroclaw/config.toml\n", zero)

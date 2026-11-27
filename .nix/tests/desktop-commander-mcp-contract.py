@@ -76,10 +76,12 @@ class ConfigContract(unittest.TestCase):
             validate({**self.settings, "tunnel_id": "00000000-0000-4000-8000-000000000000"})
 
     def test_systemd_and_runtime_contract(self):
-        server = (root / ".config/systemd/user/desktop-commander-mcp-runtime.service").read_text()
-        tunnel = (root / ".config/systemd/user/desktop-commander-mcp-tunnel.service").read_text()
+        render = runpy.run_path(str(root / ".nix/desktop-commander-systemd.py"))["render_units"]
+        units = render("example", 1234, 2345, "/home/example")
+        server = units["desktop-commander-mcp-runtime.service"]
+        tunnel = units["desktop-commander-mcp-tunnel.service"]
         for unit in (server, tunnel):
-            self.assertIn("%h/.nix-profile/bin/desktop-commander-mcp-runtime", unit)
+            self.assertIn("/home/example/.nix-profile/bin/desktop-commander-mcp-runtime", unit)
             self.assertIn("UMask=0077", unit)
             self.assertIn("NoNewPrivileges=yes", unit)
             self.assertIn("KillMode=control-group", unit)
@@ -87,7 +89,7 @@ class ConfigContract(unittest.TestCase):
             self.assertNotIn("npx", unit)
         self.assertIn("ProtectHome=read-only", tunnel)
         self.assertIn("PartOf=desktop-commander-mcp-runtime.service", tunnel)
-        self.assertIn("ConditionPathExists=%h/.profile_override\n", tunnel)
+        self.assertIn("ConditionPathExists=/home/example/.profile_override\n", tunnel)
         text = source.read_text()
         self.assertIn('"--host", "127.0.0.1"', text)
         self.assertIn('"--stateless"', text)
@@ -96,58 +98,6 @@ class ConfigContract(unittest.TestCase):
         self.assertNotIn('"--pass-environment"', text)
         self.assertNotIn('"desktop-commander", "remote"', text)
         self.assertEqual(controller["STATE"], ".profile_override.desktop-commander-mcp")
-
-    def test_service_only_github_ssh_compatibility(self):
-        shim = root / ".nix/desktop-commander-ssh/bin/ssh"
-        policy = shim.parent.parent / "github.conf"
-        functions = runpy.run_path(str(shim))
-        accepts = functions["github_git_args"]
-        for args in (
-            ["git@github.com", "git-receive-pack 'example/repo.git'"],
-            ["-o", "SendEnv=GIT_PROTOCOL", "git@github.com", "git-upload-pack 'example/repo.git'"],
-            ["-p", "22", "git@github.com", "git-upload-pack 'example/repo.git'"],
-        ):
-            self.assertTrue(accepts(args))
-        for args in (
-            ["git@example.com", "git-receive-pack 'example/repo.git'"],
-            ["root@github.com", "git-receive-pack 'example/repo.git'"],
-            ["-p", "443", "git@github.com", "git-upload-pack 'example/repo.git'"],
-            ["-o", "StrictHostKeyChecking=no", "git@github.com", "git-upload-pack 'example/repo.git'"],
-            ["git@github.com", "sh"],
-        ):
-            self.assertFalse(accepts(args))
-        etc = Path(self.temp.name) / "ssh-system"
-        include = etc / "ssh_config.d"
-        include.mkdir(parents=True)
-        (etc / "ssh_config").write_text("Include /etc/ssh/ssh_config.d/*.conf\n")
-        proxy = include / "20-systemd-ssh-proxy.conf"
-        proxy.write_text("\n".join(functions["PROXY_ONLY_CONFIG"]) + "\n")
-        home = Path(self.temp.name) / "home"
-        (home / ".ssh").mkdir(parents=True)
-        matches = functions["proxy_only_policy"]
-        self.assertTrue(matches(etc, home))
-        extra = include / "50-site-policy.conf"
-        extra.write_text("Host *\n    ProxyJump example.com\n")
-        self.assertFalse(matches(etc, home))
-        extra.unlink()
-        (home / ".ssh/config").symlink_to(home / "missing-config")
-        self.assertFalse(matches(etc, home))
-        (home / ".ssh/config").unlink()
-        proxy.write_text(proxy.read_text() + "Host github.com\n    ProxyJump example.com\n")
-        self.assertFalse(matches(etc, home))
-        text = policy.read_text()
-        self.assertIn("StrictHostKeyChecking yes", text)
-        self.assertIn("BatchMode yes", text)
-        self.assertIn("UpdateHostKeys no", text)
-        self.assertNotIn("StrictHostKeyChecking no", text)
-        self.assertNotIn("UserKnownHostsFile /dev/null", text)
-        server = (root / ".config/systemd/user/desktop-commander-mcp-runtime.service").read_text()
-        tunnel = (root / ".config/systemd/user/desktop-commander-mcp-tunnel.service").read_text()
-        self.assertIn("Environment=PATH=%h/.nix/desktop-commander-ssh/bin:", server)
-        self.assertNotIn("desktop-commander-ssh/bin", tunnel)
-        self.assertIn("ProtectSystem=strict", server)
-        self.assertIn("PrivateTmp=yes", server)
-        self.assertIn("NoNewPrivileges=yes", server)
 
     def test_profile_is_authoritative_and_append_does_not_overwrite(self):
         with patch.dict(os.environ, {"HOME": self.temp.name, "PRIVATE_SAMPLE": "inherited-not-authoritative"}):
@@ -247,6 +197,94 @@ class SystemServiceContract(unittest.TestCase):
         self.assertNotIn("ReadWritePaths=/home/example", tunnel)
         self.assertIn("PartOf=desktop-commander-mcp-runtime.service\n", tunnel)
         self.assertIn("ConditionPathExists=/home/example/.profile_override\n", tunnel)
+
+    def test_fresh_bootstrap_installs_only_new_reviewed_artifacts(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_name="example", pw_uid=1234, pw_gid=2345, pw_dir="/home/example")
+        install = self.module["install_fresh_artifacts"]
+        with tempfile.TemporaryDirectory() as tmp:
+            etc = Path(tmp)
+            (etc / "systemd/system").mkdir(parents=True)
+            include = etc / "ssh/ssh_config.d"
+            include.mkdir(parents=True)
+            stock = include / "20-systemd-ssh-proxy.conf"
+            stock.write_text("Host .host\n    User root\n")
+            before = stock.read_bytes(), stock.stat().st_mode
+            install(etc, account)
+            for name, content in self.render("example", 1234, 2345, "/home/example").items():
+                path = etc / "systemd/system" / name
+                self.assertEqual(path.read_text(), content)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+            policy = etc / "desktop-commander-mcp/ssh-client-policy.conf"
+            self.assertEqual(policy.read_text(), self.module["SSH_CLIENT_POLICY"])
+            self.assertEqual(policy.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(policy.parent.stat().st_mode & 0o777, 0o755)
+            anchor = include / "99-desktop-commander-mcp.conf"
+            self.assertEqual(anchor.read_bytes(), b"")
+            self.assertEqual(anchor.stat().st_mode & 0o777, 0o644)
+            self.assertEqual((stock.read_bytes(), stock.stat().st_mode), before)
+            with self.assertRaises((OSError, ValueError)):
+                install(etc, account)
+            self.assertEqual(policy.read_text(), self.module["SSH_CLIENT_POLICY"])
+
+    def test_fresh_bootstrap_rejects_conflicts_before_any_write(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_name="example", pw_uid=1234, pw_gid=2345, pw_dir="/home/example")
+        install = self.module["install_fresh_artifacts"]
+        for conflict in ("unit", "anchor", "directory", "symlink", "parent"):
+            with self.subTest(conflict=conflict), tempfile.TemporaryDirectory() as tmp:
+                etc = Path(tmp)
+                unit_dir = etc / "systemd/system"
+                unit_dir.mkdir(parents=True)
+                include = etc / "ssh/ssh_config.d"
+                include.mkdir(parents=True)
+                target = include / "99-desktop-commander-mcp.conf"
+                if conflict == "unit":
+                    target = unit_dir / "desktop-commander-mcp-tunnel.service"
+                    target.write_text("existing")
+                elif conflict == "anchor":
+                    target.write_text("existing")
+                elif conflict == "directory":
+                    (etc / "desktop-commander-mcp").mkdir()
+                elif conflict == "symlink":
+                    target.symlink_to(etc / "missing")
+                else:
+                    include.chmod(0o777)
+                before = sorted(str(p.relative_to(etc)) for p in etc.rglob("*"))
+                with self.assertRaises((OSError, ValueError)):
+                    install(etc, account)
+                self.assertEqual(sorted(str(p.relative_to(etc)) for p in etc.rglob("*")), before)
+
+    def test_fresh_bootstrap_cleans_up_partial_creation(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_name="example", pw_uid=1234, pw_gid=2345, pw_dir="/home/example")
+        install = self.module["install_fresh_artifacts"]
+        original = Path.open
+        with tempfile.TemporaryDirectory() as tmp:
+            etc = Path(tmp)
+            (etc / "systemd/system").mkdir(parents=True)
+            (etc / "ssh/ssh_config.d").mkdir(parents=True)
+            stock = etc / "ssh/ssh_config.d/20-systemd-ssh-proxy.conf"
+            stock.write_text("stock")
+            before = sorted(str(p.relative_to(etc)) for p in etc.rglob("*"))
+            def fail_late(path, *args, **kwargs):
+                if path.name == "ssh-client-policy.conf":
+                    raise OSError("synthetic write failure")
+                return original(path, *args, **kwargs)
+            with patch.object(Path, "open", fail_late), self.assertRaises(OSError):
+                install(etc, account)
+            self.assertEqual(sorted(str(p.relative_to(etc)) for p in etc.rglob("*")), before)
+            self.assertEqual(stock.read_text(), "stock")
+
+    def test_bootstrap_selects_pinned_system_units_not_legacy_user_services(self):
+        bootstrap = (root / ".nix/servidor-hj-mesmo/guest-bootstrap.sh").read_text()
+        self.assertIn('cat-file blob "$expected_repo_sha:.nix/desktop-commander-systemd.py"', bootstrap)
+        self.assertIn('install-fresh klarkc', bootstrap)
+        self.assertIn('systemctl enable --now desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service', bootstrap)
+        self.assertNotIn('default.target.wants/desktop-commander-mcp-', bootstrap)
+        self.assertFalse((root / ".nix/desktop-commander-ssh/bin/ssh").exists())
+        for name in ("runtime", "tunnel"):
+            self.assertFalse((root / f".config/systemd/user/desktop-commander-mcp-{name}.service").exists())
 
     def test_root_and_unsafe_account_substitutions_are_rejected(self):
         for args in (("root", 0, 0, "/root"), ("example", 0, 2345, "/home/example"),

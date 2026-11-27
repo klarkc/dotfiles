@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Render non-root system units and verify the native SSH namespace contract.
 
-Rendering never installs/enables units. The probe never changes SSH settings,
+Rendering never installs/enables units. The fresh bootstrap installer creates
+only previously absent system artifacts. The probe never changes SSH settings,
 accepts host keys, writes repositories, or starts/stops the MCP.
 """
 
@@ -11,6 +12,7 @@ from pathlib import Path
 import pwd
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from urllib.parse import urlsplit
@@ -96,6 +98,44 @@ RuntimeDirectory=desktop-commander-mcp-tunnel
 ExecStart={exe} tunnel
 {install}""",
     }
+
+
+def install_fresh_artifacts(etc_root, account):
+    """Fresh-guest only. No replacement of existing files or activation."""
+    units = render_units(account.pw_name, account.pw_uid, account.pw_gid, account.pw_dir)
+    etc = Path(etc_root)
+    for directory in (etc, etc / "systemd", etc / "systemd/system",
+                      etc / "ssh", etc / "ssh/ssh_config.d"):
+        info = directory.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o022):
+            raise ValueError("Expected protected installation directories")
+    policy_dir = etc / SSH_POLICY_SOURCE.parent.relative_to("/etc")
+    files = {etc / "systemd/system" / name: content for name, content in units.items()}
+    files[etc / SSH_POLICY_SOURCE.relative_to("/etc")] = SSH_CLIENT_POLICY
+    files[etc / SSH_POLICY_TARGET.relative_to("/etc")] = ""
+    if any(os.path.lexists(path) for path in (policy_dir, *files)):
+        raise ValueError("Existing MCP installation; review rather than overwrite")
+    # These parent directories have already been checked; exclusive creation
+    # also rejects concurrent files or broken symlinks. Change no existing mode.
+    old_umask = os.umask(0o022)
+    created = []
+    made_directory = False
+    try:
+        policy_dir.mkdir(mode=0o755, exist_ok=False)
+        made_directory = True
+        for path, content in files.items():
+            with path.open("x") as output:
+                created.append(path)
+                output.write(content)
+    except OSError:
+        for path in reversed(created):
+            path.unlink()
+        if made_directory:
+            policy_dir.rmdir()
+        raise
+    finally:
+        os.umask(old_umask)
 
 
 def minimal_identity_map(text, identity):
@@ -256,6 +296,8 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     render = sub.add_parser("render", help="Generate reviewed unit files in a new private directory")
     render.add_argument("directory", type=Path)
+    fresh = sub.add_parser("install-fresh", help="Root-only fresh-guest bootstrap: install absent system artifacts, no activation")
+    fresh.add_argument("account")
     probe = sub.add_parser("probe", help="Read-only native namespace and SSH test; run inside the candidate unit")
     probe.add_argument("repos", type=Path, nargs="+")
     admin = sub.add_parser("admin-probe", help="Operator-only: run the read-only probe in a temporary system unit")
@@ -274,6 +316,19 @@ def main():
         # invisible to normal XRDP/SSH sessions and the Cloudflare tunnel.
         (args.directory / "ssh-include-anchor.conf").touch(mode=0o600, exist_ok=False)
         print("Generated two system units, SSH policy and empty anchor for review; no installation or activation")
+        return 0
+    if args.action == "install-fresh":
+        if os.getuid() != 0 or os.geteuid() != 0:
+            raise ValueError("Fresh guest installation requires the privileged bootstrap")
+        account = pwd.getpwnam(args.account)
+        # Refuse an old user-manager installation rather than start two
+        # backends on the same ports. Migration on a live host is separate.
+        directory = Path(account.pw_dir) / ".config/systemd/user"
+        for name in ("desktop-commander-mcp-runtime.service", "desktop-commander-mcp-tunnel.service"):
+            if any(os.path.lexists(path) for path in (directory / name, directory / "default.target.wants" / name)):
+                raise ValueError("Legacy user units present; explicit cutover required")
+        install_fresh_artifacts(Path("/etc"), account)
+        print("Installed new system artifacts; activation belongs to the reviewed bootstrap")
         return 0
     if args.action == "admin-probe":
         account = pwd.getpwuid(os.getuid())

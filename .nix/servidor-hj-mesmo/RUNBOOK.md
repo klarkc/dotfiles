@@ -154,7 +154,7 @@ Na sessão gráfica, `.local/bin/xmonad-session` fornece `LANG=pt_BR.UTF-8` e `L
 
 Após aplicar um SHA validado e executar `make GCE=1` **como usuário normal**, abra novas sessões SSH e XRDP. No SSH, confira `locale -a`, `localectl status` e `locale`; no XMonad, verifique `setxkbmap -query` e confira `LANG`/`LANGUAGE` do processo gráfico para confirmar que a sessão não herdou o idioma do shell.
 
-O primeiro bootstrap da VM foi realizado antes do novo helper; o marcador `/var/lib/solo098-guest-installed` impede reexecutar todo o bootstrap. Aplique a configuração do usuário via `make GCE=1 SKIP_NIX_PROFILE=1` após revisar o código e reconciliar checkout e metadados; não reexecute o bootstrap inteiro nem a preparação privilegiada já concluída. A imagem Arch cloud é somente a base: o provisionamento deve concluir um desktop XMonad, não um servidor mínimo. O helper `host-packages.sh` inclui `man-db`, `man-pages`, `xterm` e outras ferramentas de desktop; `Mod+Shift+Enter` chama o launcher compartilhado `.local/bin/terminal-fallback`, que prefere Alacritty e só abre xterm automaticamente se ele estiver indisponível ou terminar com erro. Não há atalho independente para xterm. Após o novo checkout, `systemctl --user unset-environment LANG LANGUAGE` limpa variáveis importadas anteriormente para o gerenciador de usuário; reconecte à sessão gráfica para carregar o novo XMonad. No xterm, rode `glxinfo -B` e `alacritty -vv` para descobrir o problema do Alacritty antes de mudar renderização. Para o Desktop Commander via Cloudflare, o runtime e as unidades estão versionados no perfil Nix, porém o conector continua Offline; após recuperar `~/.profile_override` privadamente no Enpass, valide `desktop-commander-mcp-runtime check`, o status dos serviços e a conexão E2E sem compartilhar tokens. RDP via IAP é independente do Cloudflare.
+O primeiro bootstrap da VM foi realizado antes do novo helper; o marcador `/var/lib/solo098-guest-installed` impede reexecutar todo o bootstrap. Aplique a configuração do usuário via `make GCE=1 SKIP_NIX_PROFILE=1` após revisar o código e reconciliar checkout e metadados; não reexecute o bootstrap inteiro nem a preparação privilegiada já concluída. A imagem Arch cloud é somente a base: o provisionamento deve concluir um desktop XMonad, não um servidor mínimo. O helper `host-packages.sh` inclui `man-db`, `man-pages`, `xterm` e outras ferramentas de desktop; `Mod+Shift+Enter` chama o launcher compartilhado `.local/bin/terminal-fallback`, que prefere Alacritty e só abre xterm automaticamente se ele estiver indisponível ou terminar com erro. Não há atalho independente para xterm. Após o novo checkout, `systemctl --user unset-environment LANG LANGUAGE` limpa variáveis importadas anteriormente para o gerenciador de usuário; reconecte à sessão gráfica para carregar o novo XMonad. No xterm, rode `glxinfo -B` e `alacritty -vv` para descobrir o problema do Alacritty antes de mudar renderização. Para o Desktop Commander via Cloudflare, o runtime é fornecido pelo perfil Nix e as unidades de sistema são instaladas pelo bootstrap aprovado; após recuperar `~/.profile_override` privadamente, valide `desktop-commander-mcp-runtime check`, o status dos serviços e a conexão E2E sem compartilhar tokens. RDP via IAP é independente do Cloudflare.
 
 A geração dos locales não resolve o OpenGL do XRDP: testar Mesa/llvmpipe antes de considerar patches de aplicativos. O login Google/Drive e a recuperação de `~/.profile_override` continuam sendo feitos pelo Enpass na GUI; não armazenar segredos no repositório.
 
@@ -213,20 +213,30 @@ gcloud compute routers nats delete solo098-nat --project=argon-surf-472319-b0 --
 
 ### Diagnóstico Cloudflare / Desktop Commander autogerenciado
 
-O perfil privado `/home/klarkc/.profile_override` é requisito do serviço `desktop-commander-mcp-tunnel.service`; o bootstrap termina mesmo sem enrollment inicial. A conexão Desktop Commander `solo098` foi vista **Offline em 12/11/2026**, enquanto GCE reportava RUNNING. Uma chamada ao conector autogerenciado falhou internamente: não prova que o cloudflared não está instalado, apenas que a cadeia ponta a ponta não está ativa.
+O runtime e o túnel usam unidades systemd de sistema, ambas com a identidade
+não privilegiada da workstation. O bootstrap instala os artefatos do SHA
+admitido pelo CI; o túnel depende do perfil privado `.profile_override`, de
+modo que o bootstrap termina mesmo sem enrollment inicial. A arquitetura,
+instalação, prova de namespace SSH e recuperação estão centralizadas em
+[Desktop Commander MCP](../desktop-commander-mcp.md).
 
-Diagnóstico **somente leitura**, via SSH/IAP (não colar conteúdo do perfil privado nem tokens no chat):
+Diagnóstico **somente leitura**, via sessão autorizada (não colar conteúdo
+do perfil privado, tokens ou journals privados no chat):
 
 ```bash
-test -s /home/klarkc/.profile_override && echo 'Perfil privado presente' || echo 'Perfil privado ausente/vazio'
-ls -l /home/klarkc/.nix-profile/bin/desktop-commander-mcp-runtime
-systemctl --user status desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service --no-pager
-journalctl --user -u desktop-commander-mcp-runtime.service -u desktop-commander-mcp-tunnel.service -n 70 --no-pager
-pgrep -af '[c]loudflared|[d]esktop-commander' || true
-loginctl show-user klarkc -p Linger
+test -s "$HOME/.profile_override" && echo 'Perfil privado presente' || echo 'Perfil privado ausente/vazio'
+systemctl status desktop-commander-mcp-runtime.service desktop-commander-mcp-tunnel.service --no-pager
+journalctl -u desktop-commander-mcp-runtime.service -u desktop-commander-mcp-tunnel.service -n 70 --no-pager
+loginctl show-user "$(id -u)" -p Linger
 ```
 
-Se o serviço de usuário não estiver disponível na sessão SSH, verificar `systemctl --user` com a sessão de usuário correta; não executar como root. Provisionamento Cloudflare/OAuth exige enrollment privado e consentimento antes de criar recursos. Segredos ficam apenas em `.profile_override`, nunca em Git, Cloud metadata, logs ou conversa. Os arquivos de serviço existem no dotfiles: `.config/systemd/user/desktop-commander-mcp-runtime.service` e `.config/systemd/user/desktop-commander-mcp-tunnel.service`. Para concluir, confirmar acesso via conector real, não apenas serviço ativo.
+A unidade de sistema não significa que o Desktop Commander execute como root.
+Não iniciar unidades concorrentes de usuário, alterar SSH ou executar o
+backend como root. A validação final exige chamada autenticada do conector
+real, namespace/hardening e Git SSH nativo; o status ativo não basta.
+Provisionamento Cloudflare/OAuth exige enrollment privado e consentimento
+antes de criar recursos. Segredos ficam exclusivamente na configuração
+privada de valores, nunca em Git, metadata, logs ou conversa.
 
 ## 6. Testes de aceitação e encerramento
 
