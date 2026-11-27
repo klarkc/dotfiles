@@ -210,6 +210,91 @@ class ConfigContract(unittest.TestCase):
             controller["challenge"]("verify")
 
 
+class SystemServiceContract(unittest.TestCase):
+    def setUp(self):
+        self.module = runpy.run_path(str(root / ".nix/desktop-commander-systemd.py"))
+        self.render = self.module["render_units"]
+
+    def test_unprivileged_system_units_preserve_namespace_and_lifecycle(self):
+        units = self.render("example", 1234, 2345, "/home/example")
+        self.assertEqual(set(units), {
+            "desktop-commander-mcp-runtime.service", "desktop-commander-mcp-tunnel.service"
+        })
+        server = units["desktop-commander-mcp-runtime.service"]
+        tunnel = units["desktop-commander-mcp-tunnel.service"]
+        for unit in units.values():
+            for setting in ("User=example", "Group=2345", "PrivateUsers=yes",
+                            "CapabilityBoundingSet=", "AmbientCapabilities=",
+                            "NoNewPrivileges=yes", "PrivateTmp=yes", "ProtectSystem=strict",
+                            "UMask=0077", "RuntimeDirectoryMode=0700",
+                            "Environment=XDG_RUNTIME_DIR=/run/user/1234",
+                            "Requires=user@1234.service", "WantedBy=multi-user.target"):
+                self.assertIn(setting + "\n", unit)
+            self.assertIn("Environment=PATH=/home/example/.nix-profile/bin:/home/example/.local/bin:/usr/local/bin:/usr/bin:/bin\n", unit)
+            self.assertNotIn("desktop-commander-ssh", unit)
+            self.assertNotIn("GIT_SSH", unit)
+            self.assertNotIn("ExecStart=+", unit)
+            self.assertNotIn("ExecStartPre=", unit)
+            self.assertNotIn("EnvironmentFile=", unit)
+        self.assertIn("ReadWritePaths=/home/example /run/user/1234\n", server)
+        self.assertIn("Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1234/bus\n", server)
+        self.assertIn("ExecStart=/home/example/.nix-profile/bin/desktop-commander-mcp-runtime serve\n", server)
+        self.assertIn("ExecStart=/home/example/.nix-profile/bin/desktop-commander-mcp-runtime tunnel\n", tunnel)
+        self.assertIn("ProtectHome=read-only\n", tunnel)
+        self.assertNotIn("ReadWritePaths=/home/example", tunnel)
+        self.assertIn("PartOf=desktop-commander-mcp-runtime.service\n", tunnel)
+        self.assertIn("ConditionPathExists=/home/example/.profile_override\n", tunnel)
+
+    def test_root_and_unsafe_account_substitutions_are_rejected(self):
+        for args in (("root", 0, 0, "/root"), ("example", 0, 2345, "/home/example"),
+                     ("example", 1234, 0, "/home/example"), ("example\nUser=root", 1234, 2345, "/home/example"),
+                     ("example", 1234, 2345, "/home/other"), ("example", 1234, 2345, "/home/example%h")):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                self.render(*args)
+
+    def test_minimal_namespace_mapping_not_full_or_overflow(self):
+        valid = self.module["minimal_identity_map"]
+        self.assertTrue(valid("0 0 1\n1234 1234 1\n", 1234))
+        for mapping in ("1234 1234 1\n", "0 0 65536\n", "0 65534 1\n1234 1234 1\n",
+                        "0 0 1\n1234 1234 1\n9999 9999 1\n", "invalid"):
+            self.assertFalse(valid(mapping, 1234))
+        self.assertFalse(valid("0 0 1\n", 0))
+
+    def test_admin_probe_is_transient_and_uses_exact_candidate_security_settings(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_name="example", pw_uid=1234, pw_gid=2345, pw_dir="/home/example")
+        argv = self.module["admin_probe_command"](account, [Path("/example/repo")], Path("/example/probe.py"))
+        self.assertEqual(argv[:5], ["sudo", "systemd-run", "--wait", "--pipe", "--collect"])
+        for item in ("User=example", "Group=2345", "PrivateUsers=yes",
+                     "CapabilityBoundingSet=", "AmbientCapabilities=", "NoNewPrivileges=yes",
+                     "ProtectSystem=strict", "PrivateTmp=yes", "ReadWritePaths=/home/example /run/user/1234"):
+            self.assertIn("--property=" + item, argv)
+        self.assertIn("--setenv=XDG_RUNTIME_DIR=/run/user/1234", argv)
+        self.assertEqual(argv[-4:], ["/usr/bin/python3", "/example/probe.py", "probe", "/example/repo"])
+        self.assertFalse(any("RuntimeDirectory=" in item or "ExecStart=" in item or "GIT_SSH" in item for item in argv))
+
+    def test_git_probe_uses_unmodified_normal_transport_and_sanitizes_failures(self):
+        probe = self.module["probe_git"]
+        with patch.dict(os.environ, {}, clear=True), patch.object(self.module["subprocess"], "run") as execute:
+            execute.side_effect = [
+                __import__("subprocess").CompletedProcess([], 1, "", ""),
+                __import__("subprocess").CompletedProcess([], 0, "ssh://git@example.com/example/repo.git\n", ""),
+                __import__("subprocess").CompletedProcess([], 0, "a" * 40 + "\tHEAD\n", ""),
+            ]
+            self.assertEqual(probe(Path("/example/repo")), "PASS")
+            self.assertEqual(execute.call_args.args[0], ["git", "-C", "/example/repo", "ls-remote", "origin", "HEAD"])
+            self.assertNotIn("env", execute.call_args.kwargs)
+        with patch.dict(os.environ, {"GIT_SSH_COMMAND": "unexpected"}, clear=True):
+            self.assertEqual(probe(Path("/example/repo")), "SSH_OVERRIDE_PRESENT")
+        with patch.dict(os.environ, {}, clear=True), patch.object(self.module["subprocess"], "run") as execute:
+            execute.side_effect = [
+                __import__("subprocess").CompletedProcess([], 1, "", ""),
+                __import__("subprocess").CompletedProcess([], 0, "git@example.com:example/repo.git\n", ""),
+                __import__("subprocess").CompletedProcess([], 128, "", "Bad owner or permissions on private path"),
+            ]
+            self.assertEqual(probe(Path("/example/repo")), "SSH_OWNERSHIP_ERROR")
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     unittest.main()

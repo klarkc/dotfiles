@@ -37,27 +37,108 @@ Para processo longo, recolha o PID retornado e faça polling; após reinício do
 
 ## Git via SSH no runtime isolado
 
-Em serviços systemd de usuário com isolamento de mounts, o UID de root pode
-não estar mapeado no user namespace. O OpenSSH pode então recusar o include
-global do systemd com `Bad owner or permissions`, embora o Git funcione no
-terminal normal. Não altere ownership em /etc nem desligue o hardening.
+Em serviços systemd de usuário, `ProtectSystem=strict` e `PrivateTmp=yes`
+podem implicar um user namespace sem mapeamento do UID/GID 0. Arquivos de
+configuração SSH protegidos do root então aparecem como `nobody`, e o OpenSSH
+pode falhar com `Bad owner or permissions` antes de abrir a conexão. Isso
+não indica necessariamente permissões erradas no host. Não altere ownership
+em /etc, nem desligue o hardening.
 
-O serviço MCP tem um shim SSH próprio no início do PATH. Para comandos Git
-diretos destinados a git@github.com, e somente no caso verificado de namespace
-com root não mapeado, configuração global stock exclusivamente de transportes
-locais do systemd e ausência de configuração SSH do usuário, o shim seleciona
-uma configuração explícita de OpenSSH com BatchMode e StrictHostKeyChecking
-habilitados. Usa as chaves e known_hosts já existentes, sem aceitar chaves novas
-automaticamente. Se houver política SSH adicional ou alteração da configuração
-global, o shim mantém o OpenSSH nativo e não substitui a política. Outros hosts
-e comandos mantêm o comportamento nativo. O terminal normal e o túnel não
-recebem o PATH do shim.
+### Migração estrutural para unidades de sistema — candidato, não ativado
 
-Depois de integrar a mudança, executar daemon-reload e reiniciar os serviços
-MCP/túnel a partir da sessão autorizada; a conexão MCP em uso será interrompida.
-No conector reconectado, validar `git ls-remote origin HEAD` em checkout GitHub
-e confirmar que os demais destinos não são reescritos. Um erro de autenticação
-ou de host key deve ser tratado normalmente, nunca reduzindo a verificação.
+A solução de destino é executar os dois serviços pelo gerenciador systemd
+de sistema, **com o mesmo usuário não privilegiado**. `PrivateUsers=yes`
+configura o mapeamento mínimo de root e do usuário/grupo do serviço; não
+use mapeamento full/identity nem execute o backend como root.
+`CapabilityBoundingSet=`, `AmbientCapabilities=`, `NoNewPrivileges=yes`,
+`ProtectSystem=strict`, `PrivateTmp=yes` e runtime privado permanecem.
+Apenas o HOME e o runtime da sessão do usuário recebem exceções de escrita
+necessárias no servidor; o túnel mantém `ProtectHome=read-only`.
+O login linger e o user manager continuam responsáveis pela sessão/D-Bus.
+O serviço de sistema não usa os specifiers %h/%U do gerenciador como se
+fossem os do usuário do serviço.
+
+O gerador versionado `.nix/desktop-commander-systemd.py` produz as duas
+unidades completas para a conta local não root, com o PATH normal e sem
+wrapper. Não instala nada automaticamente, não altera a configuração SSH
+nem cria arquivos privados de configuração. O controlador, porta loopback,
+validação JWT do Cloudflare Access e arquivo privado de valores continuam
+os mesmos. O OpenSSH volta a ler a configuração nativa, inclusive a
+política de usuário/site e os known_hosts existentes. A configuração
+nativa de host keys deve ser verificada no aceite: o shim anterior exigia
+`StrictHostKeyChecking yes`; o padrão nativo pode ser `ask`, que exige
+confirmação explícita para uma chave desconhecida. Nunca aceitar chaves
+desconhecidas automaticamente, reduzir a verificação ou ignorar uma
+divergência de chave. A migração não deve assumir equivalência silenciosa
+com uma política SSH que tenha mudado.
+
+**Etapa 1 — prova privilegiada sem cutover.** Em uma sessão XRDP/SSH
+autorizada, como o usuário da workstation, execute o subcomando
+`admin-probe` para dois checkouts existentes com origin SSH (por exemplo,
+um de cada provedor). Ele usa sudo exclusivamente para criar uma unidade
+systemd transitória, com os mesmos parâmetros de identidade e hardening
+do servidor proposto. O processo do probe roda sem privilégios, sem
+instalar serviços, abrir portas, alterar gates ou escrever nos repositórios:
+
+```bash
+python3 .nix/desktop-commander-systemd.py admin-probe "$HOME" /example/checkout
+```
+
+Exigir exit 0, mapeamentos mínimos de UID/GID, configuração SSH visível
+como root, mounts protegidos, capacidades vazias, HOME/runtime acessíveis
+e PASS de `git ls-remote origin HEAD` nos dois checkouts. O probe usa Git
+normal, sem substituir variáveis de transporte; resultados de falhas não
+exibem URLs nem credenciais. Testes unitários e este probe transitório
+não equivalem ao teste do conector MCP autenticado.
+
+**Etapa 2 — preparar e revisar unidades.** Somente depois da prova acima,
+hooks, CI e revisão do SHA exato, gerar os arquivos em um diretório novo
+privado e verificar sua sintaxe:
+
+```bash
+stage="$(mktemp -d)"
+rmdir "$stage"
+python3 .nix/desktop-commander-systemd.py render "$stage"
+systemd-analyze verify "$stage/"*.service
+```
+
+Revisar o conteúdo antes de uma instalação administrativa explícita.
+Não instalar sobre unidades de sistema já existentes sem reconciliar
+a origem. O gerador não é executado como root. O operador copia os
+dois arquivos revisados para /etc/systemd/system, com owner root e modo
+0644, e recarrega o system manager. A ativação será uma etapa separada
+com sessão XRDP/SSH mantida para rollback. Evitar qualquer execução
+simultânea das instâncias de usuário e de sistema, que disputariam
+as mesmas portas.
+
+**Etapa 3 — cutover e aceite.** Parar/desabilitar as unidades antigas do
+usuário somente quando o novo par estiver preparado e validado; iniciar
+e habilitar o par de sistema. A conexão MCP atual será interrompida.
+Reconectar pelo Desktop Commander real e validar as duas operações Git
+normais no namespace do backend, a autenticação Cloudflare, ferramentas
+MCP, HOME e sessão gráfica, não apenas o status systemd ou o XRDP.
+Se houver falha, parar/desabilitar o par de sistema e reabilitar o par
+de usuário anterior. Não alterar SSH, ACLs, chaves ou hooks para
+compensar uma falha.
+
+O wrapper existente e as unidades de usuário são preservados nesta
+primeira etapa **somente como caminho operacional anterior/rollback**.
+O bootstrap existente também permanece no modo anterior até a prova
+real do novo par. Remover o wrapper e atualizar bootstrap e runbook
+somente após o aceite. O destino definitivo NixOS deve declarar as
+unidades via módulos systemd e repetir os testes, sem transportar o
+instalador específico do Arch.
+
+### Caminho de usuário anterior (rollback)
+
+O shim atual no PATH do serviço MCP trata apenas o caso estreito de
+Git para github.com, namespace sem root mapeado, include stock de
+transportes locais do systemd e ausência de configuração SSH de usuário.
+Ele usa a configuração de compatibilidade explícita com BatchMode e
+StrictHostKeyChecking habilitados. Outros destinos seguem o OpenSSH
+nativo, sem substituir política de usuário/site. Não ampliar este
+paliativo por provedor na migração estrutural; mantenha-o inalterado
+até que o par de sistema tenha sido aceito.
 
 ## Operação
 
