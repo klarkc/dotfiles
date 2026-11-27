@@ -237,6 +237,9 @@ class SystemServiceContract(unittest.TestCase):
             self.assertNotIn("ExecStartPre=", unit)
             self.assertNotIn("EnvironmentFile=", unit)
         self.assertIn("ReadWritePaths=/home/example /run/user/1234\n", server)
+        mount = "BindReadOnlyPaths=/etc/desktop-commander-mcp/ssh-client-policy.conf:/etc/ssh/ssh_config.d/99-desktop-commander-mcp.conf"
+        self.assertIn(mount + "\n", server)
+        self.assertNotIn("BindReadOnlyPaths=", tunnel)
         self.assertIn("Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1234/bus\n", server)
         self.assertIn("ExecStart=/home/example/.nix-profile/bin/desktop-commander-mcp-runtime serve\n", server)
         self.assertIn("ExecStart=/home/example/.nix-profile/bin/desktop-commander-mcp-runtime tunnel\n", tunnel)
@@ -270,15 +273,54 @@ class SystemServiceContract(unittest.TestCase):
                      "ProtectSystem=strict", "PrivateTmp=yes", "ReadWritePaths=/home/example /run/user/1234"):
             self.assertIn("--property=" + item, argv)
         self.assertIn("--setenv=XDG_RUNTIME_DIR=/run/user/1234", argv)
+        self.assertIn("--property=BindReadOnlyPaths=/etc/desktop-commander-mcp/ssh-client-policy.conf:/etc/ssh/ssh_config.d/99-desktop-commander-mcp.conf", argv)
         self.assertEqual(argv[-4:], ["/usr/bin/python3", "/example/probe.py", "probe", "/example/repo"])
         self.assertFalse(any("RuntimeDirectory=" in item or "ExecStart=" in item or "GIT_SSH" in item for item in argv))
 
+    def test_service_ssh_defaults_and_safe_endpoint_parser(self):
+        self.assertEqual(self.module["SSH_CLIENT_POLICY"].splitlines()[1:], [
+            "Host *", "    BatchMode yes", "    StrictHostKeyChecking yes",
+            "    UpdateHostKeys no", "    ForwardAgent no", "    ForwardX11 no",
+            "    ClearAllForwardings yes",
+        ])
+        parse = self.module["ssh_config_query"]
+        self.assertEqual(parse("git@example.com:example/repo.git"),
+                         ["ssh", "-G", "git@example.com"])
+        self.assertEqual(parse("ssh://git@example.com:2222/example/repo.git"),
+                         ["ssh", "-G", "-p", "2222", "git@example.com"])
+        self.assertEqual(parse("ssh://git@[2001:db8::1]:2222/example/repo.git"),
+                         ["ssh", "-G", "-p", "2222", "git@2001:db8::1"])
+        for url in ("https://example.com/repo", "ssh://git:secret@example.com/repo",
+                    "ssh://-o@example.com/repo", "ssh://git@-example.com/repo",
+                    "ssh://git@example.com:0/repo", "ssh://git@example.com:65536/repo",
+                    "ssh://git@example.com/repo?x=1", "git@example.com:",
+                    "git@-example.com:repo"):
+            with self.subTest(url=url):
+                self.assertIsNone(parse(url))
+
+    def test_effective_ssh_policy_fails_closed(self):
+        check = self.module["strict_ssh_policy"]
+        good = ("batchmode yes\nstricthostkeychecking true\nupdatehostkeys false\n"
+                "forwardagent no\nforwardx11 no\nclearallforwardings yes\n")
+        self.assertTrue(check(good))
+        for changed in (good.replace("stricthostkeychecking true", "stricthostkeychecking ask"),
+                        good.replace("batchmode yes", "batchmode no"),
+                        good.replace("updatehostkeys false", "updatehostkeys true"),
+                        good.replace("forwardagent no", "forwardagent yes"),
+                        good.replace("clearallforwardings yes", "clearallforwardings no"),
+                        good.replace("forwardx11 no\n", ""),
+                        good + "stricthostkeychecking ask\n"):
+            self.assertFalse(check(changed))
+
     def test_git_probe_uses_unmodified_normal_transport_and_sanitizes_failures(self):
         probe = self.module["probe_git"]
+        strict = ("batchmode yes\nstricthostkeychecking true\nupdatehostkeys false\n"
+                  "forwardagent no\nforwardx11 no\nclearallforwardings yes\n")
         with patch.dict(os.environ, {}, clear=True), patch.object(self.module["subprocess"], "run") as execute:
             execute.side_effect = [
                 __import__("subprocess").CompletedProcess([], 1, "", ""),
                 __import__("subprocess").CompletedProcess([], 0, "ssh://git@example.com/example/repo.git\n", ""),
+                __import__("subprocess").CompletedProcess([], 0, strict, ""),
                 __import__("subprocess").CompletedProcess([], 0, "a" * 40 + "\tHEAD\n", ""),
             ]
             self.assertEqual(probe(Path("/example/repo")), "PASS")
@@ -290,9 +332,19 @@ class SystemServiceContract(unittest.TestCase):
             execute.side_effect = [
                 __import__("subprocess").CompletedProcess([], 1, "", ""),
                 __import__("subprocess").CompletedProcess([], 0, "git@example.com:example/repo.git\n", ""),
+                __import__("subprocess").CompletedProcess([], 0, strict, ""),
                 __import__("subprocess").CompletedProcess([], 128, "", "Bad owner or permissions on private path"),
             ]
             self.assertEqual(probe(Path("/example/repo")), "SSH_OWNERSHIP_ERROR")
+        with patch.dict(os.environ, {}, clear=True), patch.object(self.module["subprocess"], "run") as execute:
+            execute.side_effect = [
+                __import__("subprocess").CompletedProcess([], 1, "", ""),
+                __import__("subprocess").CompletedProcess([], 0, "git@example.com:example/repo.git\n", ""),
+                __import__("subprocess").CompletedProcess([], 0, strict.replace("stricthostkeychecking true", "stricthostkeychecking ask"), ""),
+            ]
+            self.assertEqual(probe(Path("/example/repo")), "SSH_POLICY_UNVERIFIED")
+            self.assertEqual(execute.call_count, 3)  # no connection after weaker policy
+
 
 
 if __name__ == "__main__":

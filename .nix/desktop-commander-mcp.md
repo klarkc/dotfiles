@@ -64,32 +64,74 @@ wrapper. Não instala nada automaticamente, não altera a configuração SSH
 nem cria arquivos privados de configuração. O controlador, porta loopback,
 validação JWT do Cloudflare Access e arquivo privado de valores continuam
 os mesmos. O OpenSSH volta a ler a configuração nativa, inclusive a
-política de usuário/site e os known_hosts existentes. A configuração
-nativa de host keys deve ser verificada no aceite: o shim anterior exigia
-`StrictHostKeyChecking yes`; o padrão nativo pode ser `ask`, que exige
-confirmação explícita para uma chave desconhecida. Nunca aceitar chaves
-desconhecidas automaticamente, reduzir a verificação ou ignorar uma
-divergência de chave. A migração não deve assumir equivalência silenciosa
-com uma política SSH que tenha mudado.
+política de usuário/site e os known_hosts existentes. O padrão nativo
+pode ser `StrictHostKeyChecking ask`, `BatchMode no` e
+`UpdateHostKeys yes`, diferentes das garantias do shim anterior.
+
+Para preservar essas garantias, o gerador produz também um fragmento
+OpenSSH de defaults não interativos: verificação estrita das chaves,
+BatchMode, sem atualização automática de known_hosts e sem encaminhamentos.
+A unidade do servidor (não a do túnel) monta esse arquivo somente para
+leitura em `/etc/ssh/ssh_config.d/99-desktop-commander-mcp.conf`.
+No host existe apenas um arquivo vazio como ponto de montagem. A fonte
+root-owned fica em `/etc/desktop-commander-mcp/ssh-client-policy.conf`.
+Assim, não há mudança de opções para a sessão XRDP/SSH normal, lista de
+provedores, substituição do ssh_config global, shim no PATH ou override
+das opções Git. Os defaults vêm depois da configuração stock do systemd;
+políticas explícitas do usuário/site continuam autoritativas segundo a
+precedência normal do OpenSSH. A validação de aceite falha se as opções
+efetivas dos destinos Git testados não forem estritas. Isso não transforma
+o arquivo de defaults em uma barreira contra mudanças deliberadas da
+política SSH pelo operador.
+
+O arquivo vazio adicional é incompatível com a validação stock do shim
+antigo, que rejeita includes adicionais. Por isso, não o deixe presente
+durante o rollback. Na prova transitória, sua presença deve ser limitada
+à duração do teste e pode interromper temporariamente o Git pelo MCP
+legado, embora não interrompa seus serviços.
 
 **Etapa 1 — prova privilegiada sem cutover.** Em uma sessão XRDP/SSH
-autorizada, como o usuário da workstation, execute o subcomando
-`admin-probe` para dois checkouts existentes com origin SSH (por exemplo,
-um de cada provedor). Ele usa sudo exclusivamente para criar uma unidade
-systemd transitória, com os mesmos parâmetros de identidade e hardening
-do servidor proposto. O processo do probe roda sem privilégios, sem
-instalar serviços, abrir portas, alterar gates ou escrever nos repositórios:
+autorizada, como o usuário da workstation, gere e revise os artefatos
+em um diretório novo privado. Não sobrescreva arquivos de sistema
+preexistentes. Para o teste, instale temporariamente o fragmento e o
+ponto de montagem vazios com owner root, modo 0644; o diretório dedicado
+usa modo 0755. Não altere permissões, ownership ou conteúdo de arquivos
+SSH preexistentes.
+
+```bash
+stage="$(mktemp -d)"
+rmdir "$stage"
+python3 .nix/desktop-commander-systemd.py render "$stage"
+systemd-analyze verify "$stage/"*.service
+```
+
+Depois de revisar os artefatos, o operador cria exclusivamente o
+diretório dedicado e os dois arquivos temporários: copiar o fragmento
+gerado para o caminho fonte e criar o ponto de montagem vazio. Recusar
+qualquer caminho já existente, inclusive symlinks quebrados, antes
+da criação; usar criação exclusiva, sem sobrescrever. Registrar quais
+arquivos foram efetivamente criados. Após o teste, remover somente esses
+artefatos, mesmo se o probe falhar. Não remover arquivos alheios nem
+modificar o include original. Executar o probe como usuário da sessão:
 
 ```bash
 python3 .nix/desktop-commander-systemd.py admin-probe "$HOME" /example/checkout
 ```
 
-Exigir exit 0, mapeamentos mínimos de UID/GID, configuração SSH visível
-como root, mounts protegidos, capacidades vazias, HOME/runtime acessíveis
-e PASS de `git ls-remote origin HEAD` nos dois checkouts. O probe usa Git
-normal, sem substituir variáveis de transporte; resultados de falhas não
-exibem URLs nem credenciais. Testes unitários e este probe transitório
-não equivalem ao teste do conector MCP autenticado.
+O subcomando admin-probe usa sudo para criar uma unidade systemd
+transitória com os mesmos parâmetros de identidade e hardening do
+servidor proposto. O processo roda sem privilégios, sem instalar
+serviços, abrir portas, alterar gates ou escrever nos repositórios.
+Exigir exit 0, mapeamentos mínimos UID/GID, include original root-owned,
+fragmento exato montado read-only, mounts protegidos, capacidades
+vazias, HOME/runtime acessíveis e PASS para dois checkouts SSH.
+O probe verifica a configuração efetiva com ssh -G (sem conexão),
+recusa política mais fraca antes de qualquer conexão e executa
+`git ls-remote origin HEAD` normalmente. Não modifica variáveis de
+transporte. Falhas não exibem URLs nem credenciais. Confirmar a remoção
+dos dois arquivos temporários e a recuperação do Git pelo MCP anterior.
+Testes unitários e o probe transitório não equivalem ao teste do
+conector MCP autenticado.
 
 **Etapa 2 — preparar e revisar unidades.** Somente depois da prova acima,
 hooks, CI e revisão do SHA exato, gerar os arquivos em um diretório novo
@@ -106,10 +148,12 @@ Revisar o conteúdo antes de uma instalação administrativa explícita.
 Não instalar sobre unidades de sistema já existentes sem reconciliar
 a origem. O gerador não é executado como root. O operador copia os
 dois arquivos revisados para /etc/systemd/system, com owner root e modo
-0644, e recarrega o system manager. A ativação será uma etapa separada
-com sessão XRDP/SSH mantida para rollback. Evitar qualquer execução
-simultânea das instâncias de usuário e de sistema, que disputariam
-as mesmas portas.
+0644, e recarrega o system manager. Instala também o fragmento e ponto
+de montagem vazios exatos quando estiver pronto para iniciar o novo
+par, seguindo a mesma validação de caminhos da etapa 1. A ativação
+é separada, com sessão XRDP/SSH mantida para rollback. Evitar qualquer
+execução simultânea das instâncias de usuário e de sistema, que
+disputariam as mesmas portas.
 
 **Etapa 3 — cutover e aceite.** Parar/desabilitar as unidades antigas do
 usuário somente quando o novo par estiver preparado e validado; iniciar
@@ -117,9 +161,11 @@ e habilitar o par de sistema. A conexão MCP atual será interrompida.
 Reconectar pelo Desktop Commander real e validar as duas operações Git
 normais no namespace do backend, a autenticação Cloudflare, ferramentas
 MCP, HOME e sessão gráfica, não apenas o status systemd ou o XRDP.
-Se houver falha, parar/desabilitar o par de sistema e reabilitar o par
-de usuário anterior. Não alterar SSH, ACLs, chaves ou hooks para
-compensar uma falha.
+Se houver falha, parar/desabilitar o par de sistema, remover somente
+os dois arquivos criados para o fragmento/ponto de montagem (e o
+diretório dedicado vazio) e reabilitar o par de usuário anterior.
+Conferir que o include stock original permanece intacto. Não alterar
+SSH, ACLs, chaves ou hooks para compensar uma falha.
 
 O wrapper existente e as unidades de usuário são preservados nesta
 primeira etapa **somente como caminho operacional anterior/rollback**.

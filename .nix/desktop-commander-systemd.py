@@ -13,6 +13,23 @@ import re
 import shutil
 import subprocess
 import sys
+from urllib.parse import urlsplit
+
+
+# The native include is a service-only bind mount. The empty host anchor
+# changes no SSH option outside this unit. It must be removed before legacy
+# rollback, since the old shim deliberately rejects additional includes.
+SSH_POLICY_SOURCE = Path("/etc/desktop-commander-mcp/ssh-client-policy.conf")
+SSH_POLICY_TARGET = Path("/etc/ssh/ssh_config.d/99-desktop-commander-mcp.conf")
+SSH_CLIENT_POLICY = """# Noninteractive SSH defaults for the MCP service only.
+Host *
+    BatchMode yes
+    StrictHostKeyChecking yes
+    UpdateHostKeys no
+    ForwardAgent no
+    ForwardX11 no
+    ClearAllForwardings yes
+"""
 
 
 def render_units(user, uid, gid, home):
@@ -59,6 +76,7 @@ After=network-online.target {login}
 [Service]
 {common}Environment=DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus
 ReadWritePaths={home} {runtime}
+BindReadOnlyPaths={SSH_POLICY_SOURCE}:{SSH_POLICY_TARGET}
 RuntimeDirectory=desktop-commander-mcp
 ExecStart={exe} serve
 {install}""",
@@ -90,6 +108,53 @@ def minimal_identity_map(text, identity):
         return False
 
 
+def ssh_config_query(origin):
+    # Query the effective native configuration only. Never connect or
+    # reconstruct a Git SSH transport command from a repository URL.
+    if not isinstance(origin, str) or any(c.isspace() for c in origin):
+        return None
+    try:
+        if origin.startswith("ssh://"):
+            parsed = urlsplit(origin)
+            if parsed.password is not None or parsed.query or parsed.fragment or not parsed.path.strip("/"):
+                return None
+            user, host, port = parsed.username, parsed.hostname, parsed.port
+        else:
+            match = re.fullmatch(r"([^@:/]+)@([^:/]+|\[[0-9A-Fa-f:]+\]):(.+)", origin)
+            if not match:
+                return None
+            user, host, _ = match.groups()
+            host = host.strip("[]")
+            port = None
+        if (not user or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", user)
+                or not host or not re.fullmatch(r"[A-Za-z0-9:][A-Za-z0-9.:%_-]*", host)
+                or (port is not None and not 1 <= port <= 65535)):
+            return None
+        return ["ssh", "-G", *(["-p", str(port)] if port is not None else []), f"{user}@{host}"]
+    except ValueError:
+        return None
+
+
+def strict_ssh_policy(text):
+    expected = {
+        "batchmode": {"yes", "true"},
+        "stricthostkeychecking": {"yes", "true"},
+        "updatehostkeys": {"no", "false"},
+        "forwardagent": {"no", "false"},
+        "forwardx11": {"no", "false"},
+        "clearallforwardings": {"yes", "true"},
+    }
+    seen = set()
+    for line in text.splitlines():
+        fields = line.lower().split()
+        if fields and fields[0] in expected:
+            key = fields[0]
+            if key in seen or len(fields) != 2 or fields[1] not in expected[key]:
+                return False
+            seen.add(key)
+    return seen == expected.keys()
+
+
 def probe_git(repo):
     if any(name in os.environ for name in ("GIT_SSH_COMMAND", "GIT_SSH")):
         return "SSH_OVERRIDE_PRESENT"
@@ -102,10 +167,15 @@ def probe_git(repo):
         if git("config", "--get", "core.sshCommand").returncode != 1:
             return "SSH_OVERRIDE_OR_CONFIG_ERROR"
         origin = git("remote", "get-url", "origin")
-        if origin.returncode or not re.fullmatch(
-            r"(?:ssh://[^\s]+|[^\s@/:]+@[^\s/:]+:[^\s]+)", origin.stdout.strip()
-        ):
+        query = ssh_config_query(origin.stdout.strip()) if origin.returncode == 0 else None
+        if query is None:
             return "SSH_ORIGIN_REQUIRED"
+        policy = subprocess.run(
+            query, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=15, cwd=repo,
+        )
+        if policy.returncode or not strict_ssh_policy(policy.stdout):
+            return "SSH_POLICY_UNVERIFIED"
         result = git("ls-remote", "origin", "HEAD")
         if result.returncode:
             if "Bad owner or permissions" in result.stderr:
@@ -135,6 +205,16 @@ def verify_namespace():
     include = Path("/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf").stat()
     if include.st_uid != 0 or include.st_mode & 0o022:
         raise ValueError("SSH include is not recognized as protected and root-owned")
+    # Verify the exact reviewed policy is mounted read-only, not merely an
+    # empty anchor or an unrelated user-writable file.
+    for path in (SSH_POLICY_SOURCE, SSH_POLICY_TARGET):
+        st = path.stat()
+        if st.st_uid != 0 or st.st_mode & 0o022 or path.is_symlink():
+            raise ValueError("Expected root-owned protected SSH policy")
+    if (not SSH_POLICY_SOURCE.samefile(SSH_POLICY_TARGET)
+            or SSH_POLICY_TARGET.read_text() != SSH_CLIENT_POLICY
+            or not os.statvfs(SSH_POLICY_TARGET).f_flag & os.ST_RDONLY):
+        raise ValueError("Expected exact service-only read-only SSH policy")
     for path in ("/etc", "/usr", "/nix/store"):
         if not os.statvfs(path).f_flag & os.ST_RDONLY:
             raise ValueError("Expected read-only system mounts")
@@ -158,7 +238,7 @@ def admin_probe_command(account, repos, script):
     properties = {
         "User", "Group", "WorkingDirectory", "PrivateUsers", "CapabilityBoundingSet",
         "AmbientCapabilities", "NoNewPrivileges", "PrivateTmp", "ProtectSystem",
-        "ReadWritePaths", "UMask",
+        "ReadWritePaths", "BindReadOnlyPaths", "UMask",
     }
     command = ["sudo", "systemd-run", "--wait", "--pipe", "--collect"]
     for line in service.splitlines():
@@ -188,7 +268,12 @@ def main():
         for name, text in units.items():
             with (args.directory / name).open("x") as output:
                 output.write(text)
-        print("Generated two system units for review; no installation or activation")
+        with (args.directory / SSH_POLICY_SOURCE.name).open("x") as output:
+            output.write(SSH_CLIENT_POLICY)
+        # This empty host include is only a mount point. The policy remains
+        # invisible to normal XRDP/SSH sessions and the Cloudflare tunnel.
+        (args.directory / "ssh-include-anchor.conf").touch(mode=0o600, exist_ok=False)
+        print("Generated two system units, SSH policy and empty anchor for review; no installation or activation")
         return 0
     if args.action == "admin-probe":
         account = pwd.getpwuid(os.getuid())
@@ -196,7 +281,7 @@ def main():
         command = admin_probe_command(account, repos, Path(__file__).resolve())
         return subprocess.run(command, check=False).returncode
     verify_namespace()
-    print("PASS: minimal root+service UID/GID maps, native SSH, protected system mounts, zero capabilities and writable session paths")
+    print("PASS: minimal root+service UID/GID maps, native SSH, exact read-only client policy, protected mounts, zero capabilities and writable session paths")
     results = [probe_git(repo) for repo in args.repos]
     for index, result in enumerate(results, 1):
         print(f"SSH checkout {index}: {result}")
